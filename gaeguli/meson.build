@@ -5,10 +5,12 @@ configure_file(output: 'config.h', configuration: cdata)
 source_h = [
   'types.h',
   'edge.h',
+  'pipeline.h',
 ]
 
 source_c = [
   'edge.c',
+  'pipeline.c',
 ]
 
 install_headers(source_h, subdir: gaeguli_install_header_subdir)

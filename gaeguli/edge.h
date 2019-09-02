@@ -22,15 +22,17 @@ G_DECLARE_FINAL_TYPE            (GaeguliEdge, gaeguli_edge, GAEGULI, EDGE, GObje
 
 
 GAEGULI_API_EXPORT
-GaeguliEdge    *gaeguli_edge_new        (void);
+GaeguliEdge    *gaeguli_edge_new       (void);
 
 GAEGULI_API_EXPORT
-guint           gaeguli_start_stream    (GaeguliEdge   *self,
-                                         const gchar   *host, guint port, GaeguliSRTMode mode,
-                                         GError       **error);
+guint           gaeguli_edge_start_stream
+                                       (GaeguliEdge   *self,
+                                        const gchar   *host, guint port, GaeguliSRTMode mode,
+                                        GError       **error);
 
 GAEGULI_API_EXPORT
-GaeguliReturn   gaeguli_stop_stream     (GaeguliEdge   *self, guint stream_id);
+GaeguliReturn   gaeguli_edge_stop_stream
+                                       (GaeguliEdge   *self, guint stream_id);
 
 G_END_DECLS
 
