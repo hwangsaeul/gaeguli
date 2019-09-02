@@ -1,0 +1,19 @@
+trigger:
+- master
+
+jobs:
+- job: Ubuntu1804
+  displayName: 'Ubuntu 18.04'
+  pool: 'Ubuntu1804'
+  steps:
+  - bash: |
+      pip3 install --user meson ninja
+    displayName: 'Preparing Meson'
+
+  - bash: |
+      meson build 
+    displayName: 'Meson build'
+
+  - bash: |
+      ninja -C build 
+    displayName: 'Ninja build'
