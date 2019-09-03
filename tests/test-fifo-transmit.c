@@ -22,6 +22,26 @@ test_gaeguli_fifo_transmit_instance (void)
   g_assert_nonnull (fifo_path);
 }
 
+static void
+test_gaeguli_fifo_transmit_start (void)
+{
+  guint transmit_id = 0;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GaeguliFifoTransmit) fifo_transmit = gaeguli_fifo_transmit_new ();
+
+  g_assert_nonnull (fifo_transmit);
+
+  transmit_id = gaeguli_fifo_transmit_start (fifo_transmit,
+      "127.0.0.1", 8888, GAEGULI_SRT_MODE_CALLER, &error);
+
+  g_assert_cmpuint (transmit_id, !=, 0);
+
+  g_clear_error (&error);
+
+  g_assert_true (gaeguli_fifo_transmit_stop (fifo_transmit, transmit_id,
+          &error));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -29,6 +49,9 @@ main (int argc, char *argv[])
 
   g_test_add_func ("/gaeguli/fifo-transmit-instance",
       test_gaeguli_fifo_transmit_instance);
+
+  g_test_add_func ("/gaeguli/fifo-transmit-start",
+      test_gaeguli_fifo_transmit_start);
 
   return g_test_run ();
 }

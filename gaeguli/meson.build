@@ -40,7 +40,7 @@ libgaeguli = library(
   version: libversion,
   soversion: soversion,
   include_directories: gaeguli_incs,
-  dependencies: [ gobject_dep, gio_dep ],
+  dependencies: [ gobject_dep, gio_dep, libsrt_dep ],
   c_args: gaeguli_c_args,
   link_args: common_ldflags,
   install: true

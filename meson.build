@@ -45,6 +45,7 @@ gio_dep = [dependency('gio-2.0', version: glib_req_version,
                   fallback: ['glib', 'libgio_dep'])]
 gobject_dep = dependency('gobject-2.0', version: glib_req_version,
     fallback: ['glib', 'libgobject_dep'])
+libsrt_dep = dependency('srt', version: '>=1.3.4')
 
 gnome = import('gnome')
 python3 = import('python').find_installation()
