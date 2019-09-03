@@ -1,5 +1,6 @@
 tests = [
   'test-edge',
+  'test-fifo-transmit',
 ]
 
 foreach t: tests
