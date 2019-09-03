@@ -10,7 +10,7 @@
 #include <gaeguli/gaeguli.h>
 
 static void
-test_gaeguli_instance (void)
+test_gaeguli_edge_instance (void)
 {
   GaeguliReturn ret;
   guint stream_id;
@@ -31,7 +31,7 @@ main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
 
-  g_test_add_func ("/gaeguli/gaeguli-instance", test_gaeguli_instance);
+  g_test_add_func ("/gaeguli/edge-instance", test_gaeguli_edge_instance);
 
   return g_test_run ();
 }
