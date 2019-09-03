@@ -20,7 +20,7 @@ test_gaeguli_edge_instance (void)
   stream_id =
       gaeguli_edge_start_stream (edge, NULL, 8888, GAEGULI_SRT_MODE_LISTENER,
       &error);
-  g_assert_cmpstr (stream_id, !=, 0);
+  g_assert_cmpuint (stream_id, !=, 0);
 
   ret = gaeguli_edge_stop_stream (edge, stream_id);
   g_assert (ret == GAEGULI_RETURN_OK);
