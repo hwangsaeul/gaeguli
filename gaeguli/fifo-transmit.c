@@ -34,6 +34,7 @@ typedef struct _SRTInfo
 
   gchar *hostinfo;
   GSocketAddress *sockaddr;
+  GaeguliSRTMode mode;
 
   SRTSOCKET sock;
   gint poll_id;
@@ -41,12 +42,16 @@ typedef struct _SRTInfo
 } SRTInfo;
 
 static SRTInfo *
-srt_info_new (const gchar * hostinfo_json)
+srt_info_new (const gchar * host, guint port, GaeguliSRTMode mode,
+    const gchar * hostinfo_json)
 {
   SRTInfo *info = g_new0 (SRTInfo, 1);
+
   info->hostinfo = g_strdup (hostinfo_json);
   info->refcount = 1;
   info->sock = SRT_INVALID_SOCK;
+  info->sockaddr = g_inet_socket_address_new_from_string (host, port);
+  info->mode = mode;
 
   return info;
 }
@@ -269,7 +274,7 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
     goto out;
   }
 
-  srtinfo = srt_info_new (hostinfo);
+  srtinfo = srt_info_new (host, port, mode, hostinfo);
   if (!g_hash_table_insert (self->sockets, g_steal_pointer (&hostinfo),
           g_steal_pointer (&srtinfo))) {
     /* TODO: set errors and return zero id */
