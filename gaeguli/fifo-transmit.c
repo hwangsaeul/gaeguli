@@ -28,6 +28,9 @@
    \"mode\": %" G_GINT32_FORMAT " \
 }"
 /* *INDENT-ON* */
+
+static gint srt_init_refcount = 0;
+
 typedef struct _SRTInfo
 {
   gint refcount;
@@ -50,6 +53,7 @@ srt_info_new (const gchar * host, guint port, GaeguliSRTMode mode,
   info->hostinfo = g_strdup (hostinfo_json);
   info->refcount = 1;
   info->sock = SRT_INVALID_SOCK;
+  info->poll_id = SRT_ERROR;
   info->sockaddr = g_inet_socket_address_new_from_string (host, port);
   info->mode = mode;
 
@@ -76,6 +80,9 @@ srt_info_unref (SRTInfo * info)
   g_return_if_fail (info->refcount >= 1);
 
   if (g_atomic_int_dec_and_test (&info->refcount)) {
+    if (info->sock != SRT_INVALID_SOCK) {
+      srt_close (info->sock);
+    }
     g_free (info->hostinfo);
     g_clear_object (&info->sockaddr);
     g_free (info);
@@ -85,6 +92,23 @@ srt_info_unref (SRTInfo * info)
 /* *INDENT-OFF* */
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (SRTInfo, srt_info_unref)
 /* *INDENT-ON* */
+
+struct srt_constant_params
+{
+  const gchar *name;
+  gint param;
+  gint val;
+};
+
+static struct srt_constant_params srt_params[] = {
+  {"SRTO_SENDER", SRTO_SENDER, 1},      /* 1: sender */
+  {"SRTO_SNDSYN", SRTO_SNDSYN, 0},      /* 0: non-blocking */
+  {"SRTO_RCVSYN", SRTO_RCVSYN, 0},      /* 0: non-blocking */
+  {"SRTO_LINGER", SRTO_LINGER, 0},
+  {"SRTO_TSBPMODE", SRTO_TSBPDMODE, 1}, /* Timestamp-based Packet Delivery mode must be enabled */
+  {"SRTO_RENDEZVOUS", SRTO_RENDEZVOUS, 0},      /* 0: not for rendezvous */
+  {NULL, -1, -1},
+};
 
 #define BUFSIZE         8192
 
@@ -152,6 +176,11 @@ gaeguli_fifo_transmit_dispose (GObject * object)
 
   g_clear_object (&self->cancellable);
 
+  if (g_atomic_int_dec_and_test (&srt_init_refcount)) {
+    srt_cleanup ();
+    g_debug ("Cleaning up SRT");
+  }
+
   G_OBJECT_CLASS (gaeguli_fifo_transmit_parent_class)->dispose (object);
 }
 
@@ -166,6 +195,14 @@ gaeguli_fifo_transmit_class_init (GaeguliFifoTransmitClass * klass)
 static void
 gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
 {
+  if (g_atomic_int_get (&srt_init_refcount) == 0) {
+    if (srt_startup () != 0) {
+      g_error ("%s", srt_getlasterror_str ());
+    }
+  }
+
+  g_atomic_int_inc (&srt_init_refcount);
+
   self->cancellable = g_cancellable_new ();
   self->sockets = g_hash_table_new_full (g_str_hash, g_str_equal,
       (GDestroyNotify) g_free, (GDestroyNotify) srt_info_unref);
@@ -213,6 +250,121 @@ gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit * self)
   return self->fifo_path;
 }
 
+static gboolean
+_srt_open (SRTInfo * info)
+{
+  g_autoptr (GError) error = NULL;
+
+  gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_IN;
+  struct srt_constant_params *params = srt_params;
+
+  gpointer sa;
+  size_t sa_len;
+
+  sa_len = g_socket_address_get_native_size (info->sockaddr);
+  sa = g_alloca (sa_len);
+  if (!g_socket_address_to_native (info->sockaddr, sa, sa_len, &error)) {
+    g_warning ("%s", error->message);
+  }
+
+  info->sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
+  if (info->poll_id != SRT_ERROR) {
+    srt_epoll_release (info->poll_id);
+  }
+  info->poll_id = srt_epoll_create ();
+
+  for (; params->name != NULL; params++) {
+    if (srt_setsockopt (info->sock, 0, params->param, &params->val,
+            sizeof (gint))) {
+      g_error ("%s", srt_getlasterror_str ());
+    }
+
+  }
+
+  if (srt_epoll_add_usock (info->poll_id, info->sock, &sock_flags)) {
+    g_warning ("%s", srt_getlasterror_str ());
+    goto failed;
+  }
+
+  if (srt_epoll_add_usock (info->poll_id, info->sock, &sock_flags)) {
+    g_warning ("%s", srt_getlasterror_str ());
+    goto failed;
+  }
+
+  if (srt_connect (info->sock, sa, sa_len) == SRT_ERROR) {
+    g_debug ("%s", srt_getlasterror_str ());
+    goto failed;
+  }
+
+  g_debug ("opened srt socket successfully");
+  return TRUE;
+
+failed:
+  g_debug ("Failed to open srt socket");
+
+  if (info->poll_id != SRT_ERROR) {
+    srt_epoll_release (info->poll_id);
+  }
+
+  if (info->sock != SRT_INVALID_SOCK) {
+    srt_close (info->sock);
+  }
+
+  info->poll_id = SRT_ERROR;
+  info->sock = SRT_INVALID_SOCK;
+  return FALSE;
+}
+
+static void
+_send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
+    gconstpointer buf, gsize buf_len)
+{
+  gssize len = 0;
+  gint poll_timeout = 10;       /* FIXME: does it work? */
+
+  if (info->sock == SRT_INVALID_SOCK) {
+    _srt_open (info);
+  }
+
+  while (len < buf_len) {
+    SRTSOCKET wsock;
+    gint wsocklen = 1;
+
+    gint sent;
+    gint rest = MIN (buf_len - len, 1316);      /* FIXME: https://gitlab.freedesktop.org/gstreamer/gst-plugins-bad/merge_requests/657 */
+
+    if (srt_epoll_wait (info->poll_id, 0, 0, &wsock,
+            &wsocklen, poll_timeout, NULL, 0, NULL, 0) < 0) {
+      break;
+    }
+
+    switch (srt_getsockstate (wsock)) {
+      case SRTS_BROKEN:
+      case SRTS_NONEXIST:
+      case SRTS_CLOSED:
+        g_warning ("Invalid SRT socket. Trying to reconnect");
+        srt_close (info->sock);
+        info->sock = SRT_INVALID_SOCK;
+        return;
+      case SRTS_CONNECTED:
+        /* good to go */
+        break;
+      default:
+        /* not-ready */
+        return;
+    }
+
+    sent = srt_sendmsg2 (wsock, (char *) (buf + len), rest, 0);
+
+    if (sent < 0) {
+      g_warning ("%s", srt_getlasterror_str ());
+      return;
+    }
+
+    len += sent;
+  }
+}
+
 static void
 _send_to (GaeguliFifoTransmit * self, gconstpointer buf, gsize len)
 {
@@ -222,6 +374,8 @@ _send_to (GaeguliFifoTransmit * self, gconstpointer buf, gsize len)
   g_hash_table_iter_init (&iter, self->sockets);
 
   while (g_hash_table_iter_next (&iter, &key, &value)) {
+    /* TODO: support to be listener */
+    _send_to_listener (self, (SRTInfo *) value, buf, len);
   }
 }
 
