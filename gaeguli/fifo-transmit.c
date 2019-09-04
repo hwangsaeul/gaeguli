@@ -208,21 +208,42 @@ gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit * self)
   return self->fifo_path;
 }
 
+static void
+_send_to (GaeguliFifoTransmit * self, gconstpointer buf, gsize len)
+{
+  GHashTableIter iter;
+  gpointer key, value;
+
+  g_hash_table_iter_init (&iter, self->sockets);
+
+  while (g_hash_table_iter_next (&iter, &key, &value)) {
+  }
+}
+
 static gboolean
 _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
 {
-  g_autoptr (GError) error = NULL;
   GaeguliFifoTransmit *self = GAEGULI_FIFO_TRANSMIT (user_data);
-  gsize read_len = 0;
-  GIOStatus io_status;
 
   g_debug ("(%s):%s%s%s%s", self->fifo_path,
       (cond & G_IO_ERR) ? " ERR" : "",
       (cond & G_IO_HUP) ? " HUP" : "",
       (cond & G_IO_IN) ? " IN" : "", (cond & G_IO_PRI) ? " PRI" : "");
 
-  io_status =
-      g_io_channel_read_chars (channel, self->buf, BUFSIZE, &read_len, &error);
+  if ((cond & G_IO_IN)) {
+    g_autoptr (GError) error = NULL;
+
+    gsize read_len = 0;
+    GIOStatus io_status =
+        g_io_channel_read_chars (channel, self->buf, BUFSIZE, &read_len,
+        &error);
+
+    if (io_status != G_IO_STATUS_NORMAL && error != NULL) {
+      g_error ("%s", error->message);
+    }
+
+    _send_to (self, self->buf, read_len);
+  }
 
   return TRUE;                  /* should keep continuing */
 }
