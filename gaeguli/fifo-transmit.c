@@ -487,14 +487,7 @@ gaeguli_fifo_transmit_stop (GaeguliFifoTransmit * self,
   g_debug ("Removed SRT connection (n: %d)", g_hash_table_size (self->sockets));
 
   if (g_hash_table_size (self->sockets) == 0) {
-    g_autoptr (GError) err = NULL;
-    GIOStatus io_status = g_io_channel_shutdown (self->io_channel, TRUE, &err);
-
-    if (io_status != G_IO_STATUS_NORMAL) {
-      g_error ("Failed to close io channel (reason: %s)", err->message);
-    }
-
-    g_clear_object (&self->io_channel);
+    g_clear_pointer (&self->io_channel, g_io_channel_unref);
   }
   return ret;
 }
