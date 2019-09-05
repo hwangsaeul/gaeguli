@@ -10,6 +10,7 @@ source_h = [
 ]
 
 source_c = [
+  'types.c',
   'edge.c',
   'pipeline.c',
   'fifo-transmit.c',
