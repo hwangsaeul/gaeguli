@@ -255,7 +255,7 @@ _srt_open (SRTInfo * info)
 {
   g_autoptr (GError) error = NULL;
 
-  gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_IN;
+  gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_OUT;
   struct srt_constant_params *params = srt_params;
 
   gpointer sa;
@@ -268,9 +268,11 @@ _srt_open (SRTInfo * info)
   }
 
   info->sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
+
   if (info->poll_id != SRT_ERROR) {
     srt_epoll_release (info->poll_id);
   }
+
   info->poll_id = srt_epoll_create ();
 
   for (; params->name != NULL; params++) {
@@ -279,11 +281,6 @@ _srt_open (SRTInfo * info)
       g_error ("%s", srt_getlasterror_str ());
     }
 
-  }
-
-  if (srt_epoll_add_usock (info->poll_id, info->sock, &sock_flags)) {
-    g_warning ("%s", srt_getlasterror_str ());
-    goto failed;
   }
 
   if (srt_epoll_add_usock (info->poll_id, info->sock, &sock_flags)) {
@@ -323,6 +320,7 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
   gint poll_timeout = 10;       /* FIXME: does it work? */
 
   if (info->sock == SRT_INVALID_SOCK) {
+    g_warning ("Trying to re-connnect");
     _srt_open (info);
   }
 
@@ -333,20 +331,24 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     gint sent;
     gint rest = MIN (buf_len - len, 1316);      /* FIXME: https://gitlab.freedesktop.org/gstreamer/gst-plugins-bad/merge_requests/657 */
 
+    g_warning ("In Loop");
     if (srt_epoll_wait (info->poll_id, 0, 0, &wsock,
-            &wsocklen, poll_timeout, NULL, 0, NULL, 0) < 0) {
+            &wsocklen, -1, NULL, 0, NULL, 0) < 0) {
+      g_warning ("Break Loop");
       break;
     }
+    g_warning ("In Switch");
 
     switch (srt_getsockstate (wsock)) {
       case SRTS_BROKEN:
       case SRTS_NONEXIST:
       case SRTS_CLOSED:
-        g_warning ("Invalid SRT socket. Trying to reconnect");
+        g_warning ("Invalidate SRT socket");
         srt_close (info->sock);
         info->sock = SRT_INVALID_SOCK;
         return;
       case SRTS_CONNECTED:
+        g_debug ("good to go");
         /* good to go */
         break;
       default:
@@ -355,8 +357,9 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     }
 
     sent = srt_sendmsg2 (wsock, (char *) (buf + len), rest, 0);
+    g_debug ("sent buffer %d (size: %d/%d)", sent, len, buf_len);
 
-    if (sent < 0) {
+    if (sent <= 0) {
       g_warning ("%s", srt_getlasterror_str ());
       return;
     }
@@ -444,7 +447,7 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
 
     /* It's time to read bytes from fifo */
     self->io_channel = g_io_channel_unix_new (fd);
-    g_io_channel_set_close_on_unref (self->io_channel, TRUE);
+//    g_io_channel_set_close_on_unref (self->io_channel, TRUE);
     g_io_channel_set_encoding (self->io_channel, NULL, NULL);
     g_io_channel_set_buffered (self->io_channel, FALSE);
     g_io_channel_set_flags (self->io_channel, G_IO_FLAG_NONBLOCK, NULL);

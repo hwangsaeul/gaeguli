@@ -56,5 +56,6 @@ common_ldflags = [ ]
 
 subdir('gaeguli')
 subdir('tests')
+subdir('tools')
 
 run_command(python3, '-c', 'import shutil; shutil.copy("hooks/pre-commit.hook", ".git/hooks/pre-commit")')
