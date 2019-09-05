@@ -355,7 +355,7 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     }
 
     sent = srt_sendmsg2 (wsock, (char *) (buf + len), rest, 0);
-    g_debug ("sent buffer %d (size: %d/%d)", sent, len, buf_len);
+    g_debug ("sent buffer %d (size: %ld/%lu)", sent, len, buf_len);
 
     if (sent <= 0) {
       g_warning ("%s", srt_getlasterror_str ());
@@ -421,7 +421,7 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
 
   hostinfo = g_strdup_printf (HOSTINFO_JSON_FORMAT, host, port, mode);
   transmit_id = g_str_hash (hostinfo);
-  g_debug ("hostinfo[%d]: %s", transmit_id, hostinfo);
+  g_debug ("hostinfo[%x]: %s", transmit_id, hostinfo);
 
   if (g_hash_table_lookup (self->sockets, hostinfo) != NULL) {
     g_debug ("SRT has already started. (host: %s, port: %d, mode: %d)",
