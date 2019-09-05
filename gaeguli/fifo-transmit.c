@@ -7,6 +7,7 @@
 #include "config.h"
 
 #include "fifo-transmit.h"
+#include "gaeguli-internal.h"
 
 #include <gio/gio.h>
 #include <gio/gnetworking.h>
@@ -19,15 +20,6 @@
 #include <errno.h>
 
 #include <srt.h>
-
-/* *INDENT-OFF* */
-#define HOSTINFO_JSON_FORMAT \
-"{ \
-   \"host\": \"%s\", \
-   \"port\": %" G_GUINT32_FORMAT ", \
-   \"mode\": %" G_GINT32_FORMAT " \
-}"
-/* *INDENT-ON* */
 
 static gint srt_init_refcount = 0;
 
