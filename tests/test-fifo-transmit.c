@@ -10,6 +10,23 @@
 #include <gaeguli/gaeguli.h>
 #include <gaeguli/fifo-transmit.h>
 
+typedef struct _TestFixture
+{
+  GMainLoop *loop;
+} TestFixture;
+
+static void
+fixture_setup (TestFixture * fixture, gconstpointer unused)
+{
+  fixture->loop = g_main_loop_new (NULL, FALSE);
+}
+
+static void
+fixture_teardown (TestFixture * fixture, gconstpointer unused)
+{
+  g_main_loop_unref (fixture->loop);
+}
+
 static void
 test_gaeguli_fifo_transmit_instance (void)
 {
@@ -23,7 +40,7 @@ test_gaeguli_fifo_transmit_instance (void)
 }
 
 static void
-test_gaeguli_fifo_transmit_start (void)
+test_gaeguli_fifo_transmit_start (TestFixture * fixture, gconstpointer unused)
 {
   guint transmit_id = 0;
   g_autoptr (GError) error = NULL;
@@ -37,7 +54,6 @@ test_gaeguli_fifo_transmit_start (void)
   g_assert_cmpuint (transmit_id, !=, 0);
 
   g_clear_error (&error);
-
   g_assert_true (gaeguli_fifo_transmit_stop (fifo_transmit, transmit_id,
           &error));
 }
@@ -50,8 +66,9 @@ main (int argc, char *argv[])
   g_test_add_func ("/gaeguli/fifo-transmit-instance",
       test_gaeguli_fifo_transmit_instance);
 
-  g_test_add_func ("/gaeguli/fifo-transmit-start",
-      test_gaeguli_fifo_transmit_start);
+  g_test_add ("/gaeguli/fifo-transmit-start",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_fifo_transmit_start, fixture_teardown);
 
   return g_test_run ();
 }
