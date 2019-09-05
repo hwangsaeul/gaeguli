@@ -317,7 +317,7 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     gconstpointer buf, gsize buf_len)
 {
   gssize len = 0;
-  gint poll_timeout = 10;       /* FIXME: does it work? */
+  gint poll_timeout = 100;      /* FIXME: does it work? */
 
   if (info->sock == SRT_INVALID_SOCK) {
     g_warning ("Trying to re-connnect");
@@ -331,24 +331,22 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     gint sent;
     gint rest = MIN (buf_len - len, 1316);      /* FIXME: https://gitlab.freedesktop.org/gstreamer/gst-plugins-bad/merge_requests/657 */
 
-    g_warning ("In Loop");
     if (srt_epoll_wait (info->poll_id, 0, 0, &wsock,
-            &wsocklen, -1, NULL, 0, NULL, 0) < 0) {
-      g_warning ("Break Loop");
-      break;
+            &wsocklen, poll_timeout, NULL, 0, NULL, 0) < 0) {
+      g_debug ("Failed to do poll wait, skip data");
+      return;
     }
-    g_warning ("In Switch");
 
     switch (srt_getsockstate (wsock)) {
       case SRTS_BROKEN:
       case SRTS_NONEXIST:
       case SRTS_CLOSED:
         g_warning ("Invalidate SRT socket");
+        srt_epoll_remove_usock (info->poll_id, info->sock);
         srt_close (info->sock);
         info->sock = SRT_INVALID_SOCK;
         return;
       case SRTS_CONNECTED:
-        g_debug ("good to go");
         /* good to go */
         break;
       default:
@@ -447,7 +445,7 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
 
     /* It's time to read bytes from fifo */
     self->io_channel = g_io_channel_unix_new (fd);
-//    g_io_channel_set_close_on_unref (self->io_channel, TRUE);
+    g_io_channel_set_close_on_unref (self->io_channel, TRUE);
     g_io_channel_set_encoding (self->io_channel, NULL, NULL);
     g_io_channel_set_buffered (self->io_channel, FALSE);
     g_io_channel_set_flags (self->io_channel, G_IO_FLAG_NONBLOCK, NULL);
