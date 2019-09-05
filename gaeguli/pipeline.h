@@ -22,9 +22,9 @@ G_DECLARE_FINAL_TYPE            (GaeguliPipeline, gaeguli_pipeline, GAEGULI, PIP
 
 GaeguliPipeline        *gaeguli_pipeline_new    (const gchar *source);
 
-guint                   gaeguli_pipeline_add_target
+guint                   gaeguli_pipeline_add_fifo_target
                                                 (GaeguliPipeline       *self,
-                                                 const gchar           *host, guint port, GaeguliSRTMode mode,
+                                                 const gchar           *fifo_path,
                                                  GError               **error);
 
 GaeguliReturn           gaeguli_pipeline_remove_target

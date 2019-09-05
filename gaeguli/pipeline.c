@@ -7,6 +7,9 @@
 #include "config.h"
 
 #include "pipeline.h"
+#include "gaeguli-internal.h"
+
+#include <unistd.h>
 
 static guint next_id = 0;
 
@@ -107,8 +110,9 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
   g_atomic_int_inc (&next_id);
   self->id = next_id;
 
-  self->targets = g_hash_table_new_full (g_variant_hash, g_variant_equal,
-      (GDestroyNotify) g_variant_unref, NULL);
+  /* kv: hash(srt info), fifo-path */
+  self->targets = g_hash_table_new_full (g_str_hash, g_str_equal,
+      (GDestroyNotify) g_free, (GDestroyNotify) g_free);
 }
 
 GaeguliPipeline *
@@ -129,17 +133,21 @@ gaeguli_pipeline_new (const gchar * source)
 }
 
 guint
-gaeguli_pipeline_add_target (GaeguliPipeline * self,
-    const gchar * host, guint port, GaeguliSRTMode mode, GError ** error)
+gaeguli_pipeline_add_fifo_target (GaeguliPipeline * self,
+    const gchar * fifo_path, GError ** error)
 {
   guint target_id = 0;
-  g_autoptr (GVariant) hostinfo = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
+  g_return_val_if_fail (fifo_path != NULL, 0);
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
 
-  hostinfo = g_variant_new ("(msii)", host, port, mode);
-  target_id = g_variant_hash (hostinfo);
+
+  if (access (fifo_path, W_OK) == 0) {
+    g_error ("Can't write to fifo (%s)", fifo_path);
+  }
+
+  target_id = g_str_hash (fifo_path);
 
   return target_id;
 }
