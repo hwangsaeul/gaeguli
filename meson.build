@@ -53,7 +53,7 @@ configure_file(output : 'config.h', configuration : cdata)
 
 # Dependencies
 glib_req_version = '>= 2.44.0'
-gst_req_version = '>= 1.16.0'
+gst_req_version = '>= 1.14.0'
 
 glib_dep = dependency('glib-2.0', version: glib_req_version,
     fallback: ['glib', 'libglib_dep'])
