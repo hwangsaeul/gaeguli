@@ -27,9 +27,27 @@ cdata.set_quoted('PACKAGE_NAME', meson.project_name())
 cdata.set_quoted('PACKAGE', meson.project_name())
 cdata.set_quoted('VERSION', meson.project_version())
 
-# TODO: Check host_system
+host_system = host_machine.system()
+if host_system == 'linux'
+  cdata.set('DEFAULT_VIDEO_SOURCE', 'GAEGULI_VIDEO_SOURCE_V4L2SRC')
+  cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_1920X1024')
+  cdata.set_quoted('DEFAULT_VIDEO_SOURCE_DEVICE', '/dev/video0')
+elif ['darwin'].contains(host_system)
+  cdata.set('DEFAULT_VIDEO_SOURCE', 'GAEGULI_VIDEO_SOURCE_AVFVIDEOSRC')
+  cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_1280X720')
+  cdata.set_quoted('DEFAULT_VIDEO_SOURCE_DEVICE', '')
+  cdata.set('HAVE_OSX', 1)
+else
+  cdata.set('DEFAULT_VIDEOSRC', 'GAEGULI_VIDEO_SOURCE_UNKNOWN')
+  cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_UNKNOWN')
+  cdata.set_quoted('DEFAULT_VIDEO_SOURCE_DEVICE', '')
+endif
+
+cdata.set('DEFAULT_VIDEO_CODEC', 'GAEGULI_VIDEO_CODEC_H264')
+
 cdata.set('_GAEGULI_EXTERN', '__attribute__((visibility("default"))) extern')
 cdata.set('LIBDIR', join_paths(get_option('prefix'), get_option('libdir')))
+
 
 configure_file(output : 'config.h', configuration : cdata)
 
@@ -45,6 +63,12 @@ gio_dep = [dependency('gio-2.0', version: glib_req_version,
                   fallback: ['glib', 'libgio_dep'])]
 gobject_dep = dependency('gobject-2.0', version: glib_req_version,
     fallback: ['glib', 'libgobject_dep'])
+gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version), 
+           dependency ('gstreamer-base-1.0', version: gst_req_version),
+           dependency ('gstreamer-net-1.0', version: gst_req_version),
+           dependency ('gstreamer-mpegts-1.0', version: gst_req_version),
+           dependency ('gstreamer-codecparsers-1.0', version: gst_req_version)]
+
 libsrt_dep = dependency('srt', version: '>=1.3.4')
 
 gnome = import('gnome')

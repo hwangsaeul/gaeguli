@@ -57,7 +57,8 @@ gaeguli_edge_start_stream (GaeguliEdge * self,
   g_return_val_if_fail (GAEGULI_IS_EDGE (self), 0);
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
 
-  pipeline = gaeguli_pipeline_new (DEFAULT_SOURCE);
+#if 0
+  pipeline = gaeguli_pipeline_new ();
   g_object_get (pipeline, "id", &pipeline_id, NULL);
 
   if (!g_hash_table_insert (self->pipelines, g_strdup (DEFAULT_SOURCE),
@@ -65,6 +66,7 @@ gaeguli_edge_start_stream (GaeguliEdge * self,
     g_error ("failed to create a pipeline connected to %s", DEFAULT_SOURCE);
     pipeline_id = 0;
   }
+#endif // temporary disabled
 
   return pipeline_id;
 }

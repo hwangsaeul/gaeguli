@@ -31,6 +31,25 @@ typedef enum {
   GAEGULI_SRT_MODE_RENDEZVOUS,
 } GaeguliSRTMode;
 
+typedef enum {
+  GAEGULI_VIDEO_SOURCE_UNKNOWN = 0,
+  GAEGULI_VIDEO_SOURCE_V4L2SRC,
+  GAEGULI_VIDEO_SOURCE_AVFVIDEOSRC,
+} GaeguliVideoSource;
+
+typedef enum {
+  GAEGULI_VIDEO_CODEC_UNKNOWN = 0,
+  GAEGULI_VIDEO_CODEC_H264,
+  GAEGULI_VIDEO_CODEC_H265,
+} GaeguliVideoCodec;
+
+typedef enum {
+  GAEGULI_VIDEO_RESOLUTION_UNKNOWN = 0,
+  GAEGULI_VIDEO_RESOLUTION_1280X720,
+  GAEGULI_VIDEO_RESOLUTION_1920X1080,
+  GAEGULI_VIDEO_RESOLUTION_3840X2160,
+} GaeguliVideoResolution;
+
 #define GAEGULI_RESOURCE_ERROR          (gaeguli_resource_error_quark ())
 GQuark gaeguli_resource_error_quark     (void);
 

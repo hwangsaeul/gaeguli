@@ -7,28 +7,109 @@
 #include "config.h"
 
 #include "pipeline.h"
+
+#include "types.h"
+#include "enumtypes.h"
 #include "gaeguli-internal.h"
 
 #include <unistd.h>
 
-static guint next_id = 0;
+#include <gst/gst.h>
+
+#define GAEGULI_PIPELINE_VSRC_STR       "%s %s ! video/x-raw,width=%d,height=%d ! tee name=tee "
+
+#define GAEGULI_PIPELINE_H264ENC_STR    "\
+        queue name=enc_first ! videoconvert ! x264enc tune=zerolatency ! \
+        h264parse "
+
+// ! video/x-h264,alignment=au ! identity name=enc_last "
+
+#define GAEGULI_PIPELINE_MUXSINK_STR    "\
+        mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
+        filesink name=muxink_last location=%s buffer-mode=unbuffered"
 
 struct _GaeguliPipeline
 {
   GObject parent;
 
-  guint id;
-  gchar *source;
+  GaeguliVideoSource source;
+  gchar *device;
+
   GHashTable *targets;
+
+  GstElement *pipeline;
+  GstElement *vsrc;
 };
+
+typedef struct _LinkTarget
+{
+  gint refcount;
+
+  GaeguliPipeline *self;
+  gboolean link;
+  guint target_id;
+
+  GstElement *src;
+  GstElement *target;
+} LinkTarget;
+
+static LinkTarget *
+link_target_new (GaeguliPipeline * self, GstElement * src, guint target_id,
+    GstElement * target, gboolean link)
+{
+  LinkTarget *t = g_new0 (LinkTarget, 1);
+
+  t->refcount = 1;
+
+  t->self = g_object_ref (self);
+  t->src = g_object_ref (src);
+  t->target = g_object_ref (target);
+  t->target_id = target_id;
+  t->link = link;
+
+  return t;
+}
+
+static LinkTarget *
+link_target_ref (LinkTarget * link_target)
+{
+  g_return_val_if_fail (link_target != NULL, NULL);
+  g_return_val_if_fail (link_target->self != NULL, NULL);
+  g_return_val_if_fail (link_target->src != NULL, NULL);
+  g_return_val_if_fail (link_target->target != NULL, NULL);
+
+  g_atomic_int_inc (&link_target->refcount);
+
+  return link_target;
+}
+
+static void
+link_target_unref (LinkTarget * link_target)
+{
+  g_return_if_fail (link_target != NULL);
+  g_return_if_fail (link_target->self != NULL);
+  g_return_if_fail (link_target->src != NULL);
+  g_return_if_fail (link_target->target != NULL);
+
+  if (g_atomic_int_dec_and_test (&link_target->refcount)) {
+    g_clear_object (&link_target->self);
+    g_clear_object (&link_target->src);
+    g_clear_object (&link_target->target);
+    g_free (link_target);
+  }
+}
+
+/* *INDENT-OFF* */
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (LinkTarget, link_target_unref)
+/* *INDENT-ON* */
 
 typedef enum
 {
-  PROP_ID = 1,
-  PROP_SOURCE,
+  PROP_SOURCE = 1,
+  PROP_DEVICE,
 
   /*< private > */
-  PROP_LAST = PROP_SOURCE
+  PROP_LAST = PROP_DEVICE,
 } _GaeguliPipelineProperty;
 
 static GParamSpec *properties[PROP_LAST + 1];
@@ -43,6 +124,7 @@ gaeguli_pipeline_dispose (GObject * object)
   GaeguliPipeline *self = GAEGULI_PIPELINE (object);
 
   g_clear_pointer (&self->targets, g_hash_table_unref);
+  g_clear_pointer (&self->device, g_free);
 
   G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->dispose (object);
 }
@@ -54,11 +136,11 @@ gaeguli_pipeline_get_property (GObject * object,
   GaeguliPipeline *self = GAEGULI_PIPELINE (object);
 
   switch ((_GaeguliPipelineProperty) prop_id) {
-    case PROP_ID:
-      g_value_set_uint (value, self->id);
-      break;
     case PROP_SOURCE:
-      g_value_set_string (value, self->source);
+      g_value_set_enum (value, self->source);
+      break;
+    case PROP_DEVICE:
+      g_value_set_string (value, self->device);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -74,14 +156,17 @@ gaeguli_pipeline_set_property (GObject * object,
 
   switch ((_GaeguliPipelineProperty) prop_id) {
     case PROP_SOURCE:
-      g_assert (self->source == NULL);  /* construct only */
-      self->source = g_value_dup_string (value);
+      g_assert (self->source == GAEGULI_VIDEO_SOURCE_UNKNOWN);  /* construct only */
+      self->source = g_value_get_enum (value);
+      break;
+    case PROP_DEVICE:
+      g_assert_null (self->device);     /* construct only */
+      self->device = g_value_dup_string (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
   }
-
 }
 
 static void
@@ -93,11 +178,12 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
   object_class->set_property = gaeguli_pipeline_set_property;
   object_class->dispose = gaeguli_pipeline_dispose;
 
-  properties[PROP_ID] = g_param_spec_uint ("id", "id", "id",
-      0, G_MAXUINT, 0, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+  properties[PROP_SOURCE] = g_param_spec_enum ("source", "source", "source",
+      GAEGULI_TYPE_VIDEO_SOURCE, DEFAULT_VIDEO_SOURCE,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  properties[PROP_SOURCE] = g_param_spec_string ("source", "source", "source",
-      NULL,
+  properties[PROP_DEVICE] = g_param_spec_string ("device", "device", "device",
+      DEFAULT_VIDEO_SOURCE_DEVICE,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
@@ -107,16 +193,13 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
 static void
 gaeguli_pipeline_init (GaeguliPipeline * self)
 {
-  g_atomic_int_inc (&next_id);
-  self->id = next_id;
-
-  /* kv: hash(srt info), fifo-path */
-  self->targets = g_hash_table_new_full (g_str_hash, g_str_equal,
-      (GDestroyNotify) g_free, (GDestroyNotify) g_free);
+  /* kv: hash(fifo-path), target_pipeline */
+  self->targets = g_hash_table_new_full (NULL, NULL,
+      NULL, (GDestroyNotify) g_object_unref);
 }
 
-GaeguliPipeline *
-gaeguli_pipeline_new (const gchar * source)
+static GaeguliPipeline *
+gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device)
 {
   g_autoptr (GaeguliPipeline) pipeline = NULL;
 
@@ -127,29 +210,234 @@ gaeguli_pipeline_new (const gchar * source)
    * perphas, implement GInitable?
    */
 
-  pipeline = g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, NULL);
+  g_debug ("source: [%d / %s]", source, device);
+  pipeline =
+      g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device", device,
+      NULL);
 
   return g_steal_pointer (&pipeline);
+}
+
+GaeguliPipeline *
+gaeguli_pipeline_new (void)
+{
+  g_autoptr (GaeguliPipeline) pipeline = NULL;
+
+  pipeline =
+      gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE,
+      DEFAULT_VIDEO_SOURCE_DEVICE);
+
+  return g_steal_pointer (&pipeline);
+}
+
+static GstElement *
+_build_target_pipeline (GaeguliVideoCodec codec, const gchar * fifo_path,
+    GError ** error)
+{
+  g_autoptr (GstElement) target_pipeline = NULL;
+  g_autoptr (GstElement) enc_first = NULL;
+  g_autoptr (GstPad) enc_sinkpad = NULL;
+  GstPad *ghost_pad = NULL;
+  g_autofree gchar *pipeline_str = NULL;
+  g_autoptr (GError) internal_err = NULL;
+
+  switch (codec) {
+    case GAEGULI_VIDEO_CODEC_H264:
+      pipeline_str = g_strdup_printf (GAEGULI_PIPELINE_H264ENC_STR " ! "
+          GAEGULI_PIPELINE_MUXSINK_STR, fifo_path);
+      break;
+    default:
+      g_error ("requested unsupported codec");
+      break;
+  }
+
+  target_pipeline = gst_parse_launch (pipeline_str, &internal_err);
+  if (target_pipeline == NULL) {
+    g_error ("failed to build muxsink pipeline (%s)", internal_err->message);
+    g_propagate_error (error, internal_err);
+    goto failed;
+  }
+
+  enc_first = gst_bin_get_by_name (GST_BIN (target_pipeline), "enc_first");
+  enc_sinkpad = gst_element_get_static_pad (enc_first, "sink");
+  ghost_pad = gst_ghost_pad_new ("ghost_sink", enc_sinkpad);
+  gst_element_add_pad (target_pipeline, ghost_pad);
+
+  return g_steal_pointer (&target_pipeline);
+
+failed:
+  return NULL;
+}
+
+static gboolean
+_build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
+    GError ** error)
+{
+  g_autofree gchar *vsrc_str = NULL;
+  gint width, height;
+  g_autoptr (GError) internal_err = NULL;
+  g_autoptr (GEnumClass) enum_class =
+      g_type_class_ref (GAEGULI_TYPE_VIDEO_SOURCE);
+  GEnumValue *enum_value = g_enum_get_value (enum_class, self->source);
+
+  switch (resolution) {
+    case GAEGULI_VIDEO_RESOLUTION_1280X720:
+      width = 1280;
+      height = 720;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_1920X1080:
+      width = 1920;
+      height = 1080;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_3840X2160:
+      width = 3840;
+      height = 2160;
+      break;
+    default:
+      width = -1;
+      height = -1;
+      break;
+  }
+
+  /* FIXME: what if zero-copy */
+  vsrc_str =
+      g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, enum_value->value_nick,
+      self->device, width, height);
+
+  g_debug ("trying to create video source pipeline (%s)", vsrc_str);
+  self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
+
+  if (self->vsrc == NULL) {
+    g_error ("failed to build source pipeline (%s)", internal_err->message);
+    g_propagate_error (error, internal_err);
+    goto failed;
+  }
+
+  self->pipeline = gst_pipeline_new (NULL);
+  gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
+
+  return TRUE;
+
+failed:
+  g_clear_object (&self->vsrc);
+  g_clear_object (&self->pipeline);
+
+  return FALSE;
+}
+
+static GstPadProbeReturn
+_link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+{
+  LinkTarget *link_target = user_data;
+  g_autoptr (GstPad) sink_pad = NULL;
+
+  if (link_target->link) {
+    GstPad *tee_ghost_pad = NULL;
+
+    /* linking */
+    g_debug ("start link target [%x]", link_target->target_id);
+
+    tee_ghost_pad = gst_ghost_pad_new ("ghost_src", pad);
+    gst_element_add_pad (link_target->self->vsrc, tee_ghost_pad);
+    sink_pad = gst_element_get_static_pad (link_target->target, "ghost_sink");
+
+    if (sink_pad == NULL) {
+      g_error ("sink pad is null");
+    }
+    if (tee_ghost_pad == NULL) {
+      g_error ("ghost pad is null");
+    }
+    if (gst_pad_link (tee_ghost_pad, sink_pad) != GST_PAD_LINK_OK) {
+      g_error ("failed to link tee src to target sink");
+    }
+  } else {
+    /* unlinking */
+
+    g_debug ("start unlink target [%x]", link_target->target_id);
+  }
+
+  return GST_PAD_PROBE_REMOVE;
+}
+
+static guint
+gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
+    GaeguliVideoCodec codec,
+    GaeguliVideoResolution resolution, const gchar * fifo_path, GError ** error)
+{
+  guint target_id = 0;
+  g_autoptr (GstElement) target_pipeline = NULL;
+
+  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
+  g_return_val_if_fail (fifo_path != NULL, 0);
+  g_return_val_if_fail (error == NULL || *error == NULL, 0);
+
+  if (access (fifo_path, W_OK) != 0) {
+    g_error ("Can't write to fifo (%s)", fifo_path);
+    g_set_error (error, GAEGULI_RESOURCE_ERROR, GAEGULI_RESOURCE_ERROR_WRITE,
+        "Can't access to fifo: %s", fifo_path);
+    goto failed;
+  }
+
+  /* assume that it's first target */
+  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, resolution, error)) {
+    goto failed;
+  }
+
+  target_id = g_str_hash (fifo_path);
+  target_pipeline =
+      g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
+
+  if (target_pipeline == NULL) {
+    GstPadTemplate *templ = NULL;
+
+    g_autoptr (GstElement) tee = NULL;
+    g_autoptr (GstPad) tee_srcpad = NULL;
+
+    g_autoptr (LinkTarget) link_target = NULL;
+    g_autoptr (GError) internal_err = NULL;
+
+    g_debug ("no target pipeline mapped with [%x]", target_id);
+
+    target_pipeline = _build_target_pipeline (codec, fifo_path, &internal_err);
+
+    /* linking target pipeline with vsrc */
+    if (target_pipeline == NULL) {
+      g_propagate_error (error, internal_err);
+      goto failed;
+    }
+
+    gst_bin_add (GST_BIN (self->pipeline), target_pipeline);
+    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id),
+        g_object_ref (target_pipeline));
+
+    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
+    templ =
+        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
+        "src_%u");
+    tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
+
+    link_target =
+        link_target_new (self, self->vsrc, target_id, target_pipeline, TRUE);
+
+    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_IDLE, _link_probe_cb,
+        g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
+
+    gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+  }
+
+  return target_id;
+
+failed:
+  g_debug ("failed to add target");
+  return 0;
 }
 
 guint
 gaeguli_pipeline_add_fifo_target (GaeguliPipeline * self,
     const gchar * fifo_path, GError ** error)
 {
-  guint target_id = 0;
-
-  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
-  g_return_val_if_fail (fifo_path != NULL, 0);
-  g_return_val_if_fail (error == NULL || *error == NULL, 0);
-
-
-  if (access (fifo_path, W_OK) == 0) {
-    g_error ("Can't write to fifo (%s)", fifo_path);
-  }
-
-  target_id = g_str_hash (fifo_path);
-
-  return target_id;
+  return gaeguli_pipeline_add_fifo_target_full (self, DEFAULT_VIDEO_CODEC,
+      DEFAULT_VIDEO_RESOLUTION, fifo_path, error);
 }
 
 GaeguliReturn

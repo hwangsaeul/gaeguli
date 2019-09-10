@@ -1,5 +1,6 @@
 tools = [
-  'fifo-transmit'
+  'fifo-transmit',
+  'pipeline'
 ]
 
 tools_c_args = [

@@ -20,7 +20,7 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE            (GaeguliPipeline, gaeguli_pipeline, GAEGULI, PIPELINE, GObject)
 
 
-GaeguliPipeline        *gaeguli_pipeline_new    (const gchar *source);
+GaeguliPipeline        *gaeguli_pipeline_new    (void);
 
 guint                   gaeguli_pipeline_add_fifo_target
                                                 (GaeguliPipeline       *self,
