@@ -114,6 +114,15 @@ typedef enum
 
 static GParamSpec *properties[PROP_LAST + 1];
 
+enum
+{
+  SIG_STREAM_STARTED,
+  SIG_STREAM_STOPPED,
+  LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL] = { 0 };
+
 /* *INDENT-OFF* */
 G_DEFINE_TYPE (GaeguliPipeline, gaeguli_pipeline, G_TYPE_OBJECT)
 /* *INDENT-ON* */
@@ -185,9 +194,18 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
   properties[PROP_DEVICE] = g_param_spec_string ("device", "device", "device",
       DEFAULT_VIDEO_SOURCE_DEVICE,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
-
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
+
+  signals[SIG_STREAM_STARTED] =
+      g_signal_new ("stream-started", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
+      NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
+
+  signals[SIG_STREAM_STOPPED] =
+      g_signal_new ("stream-stopped", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
+      NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
 }
 
 static void
@@ -350,10 +368,14 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     if (gst_pad_link (tee_ghost_pad, sink_pad) != GST_PAD_LINK_OK) {
       g_error ("failed to link tee src to target sink");
     }
+    g_signal_emit (link_target->self, signals[SIG_STREAM_STARTED], 0,
+        link_target->target_id);
   } else {
     /* unlinking */
 
     g_debug ("start unlink target [%x]", link_target->target_id);
+    g_signal_emit (link_target->self, signals[SIG_STREAM_STOPPED], 0,
+        link_target->target_id);
   }
 
   return GST_PAD_PROBE_REMOVE;
