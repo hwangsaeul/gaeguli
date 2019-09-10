@@ -30,7 +30,7 @@ cdata.set_quoted('VERSION', meson.project_version())
 host_system = host_machine.system()
 if host_system == 'linux'
   cdata.set('DEFAULT_VIDEO_SOURCE', 'GAEGULI_VIDEO_SOURCE_V4L2SRC')
-  cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_1920X1024')
+  cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_1920X1080')
   cdata.set_quoted('DEFAULT_VIDEO_SOURCE_DEVICE', '/dev/video0')
 elif ['darwin'].contains(host_system)
   cdata.set('DEFAULT_VIDEO_SOURCE', 'GAEGULI_VIDEO_SOURCE_AVFVIDEOSRC')
