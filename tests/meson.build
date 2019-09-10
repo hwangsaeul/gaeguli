@@ -1,5 +1,5 @@
 tests = [
-  'test-edge',
+  'test-pipeline',
   'test-fifo-transmit',
 ]
 

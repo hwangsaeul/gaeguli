@@ -343,11 +343,26 @@ failed:
   return FALSE;
 }
 
+static gboolean
+_stop_pipeline (GaeguliPipeline * self)
+{
+  if (g_hash_table_size (self->targets) == 0) {
+    g_debug ("clear internal pipeline");
+    gst_element_set_state (self->pipeline, GST_STATE_NULL);
+    g_clear_object (&self->vsrc);
+    g_clear_object (&self->pipeline);
+
+  }
+
+  return G_SOURCE_REMOVE;
+}
+
 static GstPadProbeReturn
 _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 {
   LinkTarget *link_target = user_data;
   g_autoptr (GstPad) sink_pad = NULL;
+  g_autoptr (GaeguliPipeline) self = g_object_ref (link_target->self);
 
   if (link_target->link) {
     GstPad *tee_ghost_pad = NULL;
@@ -355,7 +370,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     /* linking */
     g_debug ("start link target [%x]", link_target->target_id);
 
-    tee_ghost_pad = gst_ghost_pad_new ("ghost_src", pad);
+    tee_ghost_pad = gst_ghost_pad_new (NULL, pad);
     gst_element_add_pad (link_target->self->vsrc, tee_ghost_pad);
     sink_pad = gst_element_get_static_pad (link_target->target, "ghost_sink");
 
@@ -373,9 +388,31 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   } else {
     /* unlinking */
 
+    g_autoptr (GstPad) ghost_sinkpad =
+        gst_element_get_static_pad (link_target->target, "ghost_sink");
+    g_autoptr (GstPad) ghost_srcpad = gst_pad_get_peer (ghost_sinkpad);
+    g_autoptr (GstPad) srcpad = gst_ghost_pad_get_target (ghost_srcpad);
+    g_autoptr (GstElement) tee =
+        gst_bin_get_by_name (GST_BIN (link_target->self->vsrc), "tee");
+
     g_debug ("start unlink target [%x]", link_target->target_id);
-    g_signal_emit (link_target->self, signals[SIG_STREAM_STOPPED], 0,
+
+    if (!gst_pad_unlink (ghost_srcpad, ghost_sinkpad)) {
+      g_error ("failed to unlink");
+    }
+
+    gst_ghost_pad_set_target (ghost_srcpad, NULL);
+    gst_element_remove_pad (link_target->self->vsrc, ghost_srcpad);
+    gst_element_release_request_pad (tee, srcpad);
+    gst_element_set_state (link_target->target, GST_STATE_NULL);
+    gst_bin_remove (link_target->self->pipeline, link_target->target);
+
+    g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0,
         link_target->target_id);
+
+    g_hash_table_remove (link_target->self->targets,
+        GINT_TO_POINTER (link_target->target_id));
+    g_idle_add (_stop_pipeline, self);
   }
 
   return GST_PAD_PROBE_REMOVE;
@@ -428,7 +465,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
       goto failed;
     }
 
-    gst_bin_add (GST_BIN (self->pipeline), target_pipeline);
+    gst_bin_add (GST_BIN (self->pipeline), g_object_ref (target_pipeline));
     g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id),
         g_object_ref (target_pipeline));
 
@@ -466,9 +503,36 @@ GaeguliReturn
 gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     GError ** error)
 {
+  GstElement *target_pipeline;
+
+  g_autoptr (GstPad) ghost_sinkpad = NULL;
+  g_autoptr (GstPad) ghost_srcpad = NULL;
+  g_autoptr (GstPad) tee_srcpad = NULL;
+
+  g_autoptr (LinkTarget) link_target = NULL;
+
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), GAEGULI_RETURN_FAIL);
   g_return_val_if_fail (target_id != 0, GAEGULI_RETURN_FAIL);
   g_return_val_if_fail (error == NULL || *error == NULL, GAEGULI_RETURN_FAIL);
 
+  target_pipeline =
+      g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
+  if (target_pipeline == NULL) {
+    g_debug ("no target pipeline mapped with [%x]", target_id);
+    goto out;
+  }
+
+  ghost_sinkpad = gst_element_get_static_pad (target_pipeline, "ghost_sink");
+  ghost_srcpad = gst_pad_get_peer (ghost_sinkpad);
+  tee_srcpad = gst_ghost_pad_get_target (GST_GHOST_PAD (ghost_srcpad));
+
+  link_target =
+      link_target_new (self, self->vsrc, target_id, target_pipeline, FALSE);
+
+  gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_IDLE, _link_probe_cb,
+      g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
+
+
+out:
   return GAEGULI_RETURN_OK;
 }
