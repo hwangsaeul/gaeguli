@@ -53,7 +53,6 @@ configure_file(output : 'config.h', configuration : cdata)
 
 # Dependencies
 glib_req_version = '>= 2.44.0'
-gst_req_version = '>= 1.14.0'
 
 glib_dep = dependency('glib-2.0', version: glib_req_version,
     fallback: ['glib', 'libglib_dep'])
@@ -63,11 +62,52 @@ gio_dep = [dependency('gio-2.0', version: glib_req_version,
                   fallback: ['glib', 'libgio_dep'])]
 gobject_dep = dependency('gobject-2.0', version: glib_req_version,
     fallback: ['glib', 'libgobject_dep'])
-gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version), 
-           dependency ('gstreamer-base-1.0', version: gst_req_version),
-           dependency ('gstreamer-net-1.0', version: gst_req_version),
-           dependency ('gstreamer-mpegts-1.0', version: gst_req_version),
-           dependency ('gstreamer-codecparsers-1.0', version: gst_req_version)]
+
+# workaround to support various gstreamer versions
+gst_dep = [ ]
+
+gst_1_16_dep = dependency ('gstreamer-1.0', version: '>= 1.16.0', required: false)
+
+if gst_1_16_dep.found()
+  gst_req_version = '>= 1.16.0'
+
+  gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version), 
+             dependency ('gstreamer-base-1.0', version: gst_req_version),
+             dependency ('gstreamer-net-1.0', version: gst_req_version),
+             dependency ('gstreamer-mpegts-1.0', version: gst_req_version),
+             dependency ('gstreamer-codecparsers-1.0', version: gst_req_version)]
+else
+
+  gst_1_14_dep = dependency ('gstreamer-1.0', version: '>= 1.14.0', required: false)
+
+  if gst_1_14_dep.found()
+
+    gst_req_version = '>= 1.14.0'
+
+    gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version), 
+               dependency ('gstreamer-base-1.0', version: gst_req_version),
+               dependency ('gstreamer-net-1.0', version: gst_req_version)]
+
+  else
+
+    gst_1_8_dep = dependency ('gstreamer-1.0', version: '>= 1.8.0', required: false)
+
+    if gst_1_8_dep.found()
+
+      gst_req_version = '>= 1.8.0'
+      gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version), 
+                 dependency ('gstreamer-base-1.0', version: gst_req_version),
+                 dependency ('gstreamer-net-1.0', version: gst_req_version),
+                 dependency ('gstreamer-net-1.0', version: gst_req_version)]
+    endif 
+    
+  endif
+
+endif
+
+if gst_dep.length() == 0
+  warning ('No proper GStreamer version found')
+endif
 
 libsrt_dep = dependency('srt', version: '>=1.3.4')
 
