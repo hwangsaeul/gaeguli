@@ -397,7 +397,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     g_autoptr (GstPad) ghost_sinkpad =
         gst_element_get_static_pad (link_target->target, "ghost_sink");
     g_autoptr (GstPad) ghost_srcpad = gst_pad_get_peer (ghost_sinkpad);
-    g_autoptr (GstPad) srcpad = gst_ghost_pad_get_target (ghost_srcpad);
+    g_autoptr (GstPad) srcpad =
+        gst_ghost_pad_get_target (GST_GHOST_PAD (ghost_srcpad));
     g_autoptr (GstElement) tee =
         gst_bin_get_by_name (GST_BIN (link_target->self->vsrc), "tee");
 
@@ -407,11 +408,11 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
       g_error ("failed to unlink");
     }
 
-    gst_ghost_pad_set_target (ghost_srcpad, NULL);
+    gst_ghost_pad_set_target (GST_GHOST_PAD (ghost_srcpad), NULL);
     gst_element_remove_pad (link_target->self->vsrc, ghost_srcpad);
     gst_element_release_request_pad (tee, srcpad);
     gst_element_set_state (link_target->target, GST_STATE_NULL);
-    gst_bin_remove (link_target->self->pipeline, link_target->target);
+    gst_bin_remove (GST_BIN (link_target->self->pipeline), link_target->target);
 
     g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0,
         link_target->target_id);
