@@ -16,6 +16,12 @@
 
 #include <gst/gst.h>
 
+/* *INDENT-OFF* */
+#if !GLIB_CHECK_VERSION(2,57,1)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEnumClass, g_type_class_unref)
+#endif
+/* *INDENT-ON* */
+
 #define GAEGULI_PIPELINE_VSRC_STR       "%s %s ! video/x-raw,width=%d,height=%d ! tee name=tee "
 
 #define GAEGULI_PIPELINE_H264ENC_STR    "\
