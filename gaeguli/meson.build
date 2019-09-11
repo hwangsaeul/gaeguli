@@ -4,14 +4,12 @@ configure_file(output: 'config.h', configuration: cdata)
 
 source_h = [
   'types.h',
-  'edge.h',
   'pipeline.h',
   'fifo-transmit.h',
 ]
 
 source_c = [
   'types.c',
-  'edge.c',
   'pipeline.c',
   'fifo-transmit.c',
 ]

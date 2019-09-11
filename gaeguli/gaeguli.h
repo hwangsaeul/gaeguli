@@ -13,6 +13,7 @@
 
 #include <gaeguli/types.h>
 #include <gaeguli/enumtypes.h>
-#include <gaeguli/edge.h>
+#include <gaeguli/fifo-transmit.h>
+#include <gaeguli/pipeline.h>
 
 #endif // __GAEGULI_H__
