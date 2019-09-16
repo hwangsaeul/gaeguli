@@ -1,4 +1,19 @@
 #!/usr/bin/make -f
 
 %:
-	dh $@ --buildsystem=meson
+	dh $@
+
+override_dh_auto_configure:
+	meson debian/build --prefix=/usr
+
+override_dh_auto_build:
+	ninja -C debian/build
+
+override_dh_auto_test:
+	ninja -C debian/build test
+
+override_dh_auto_install:
+	DESTDIR=${CURDIR}/debian/tmp ninja -C debian/build install
+
+override_dh_auto_clean:
+	rm -rf debian/build
