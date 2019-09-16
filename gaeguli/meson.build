@@ -21,11 +21,11 @@ gaeguli_c_args = [
   '-DGAEGULI_COMPILATION',
 ]
 
-gaeguli_enums = gnome.mkenums_simple(
-  'enumtypes',
-  header_prefix: '#include <gaeguli/types.h>',
+gaeguli_enums = gnome.mkenums(
+  'enumtypes.h',
+  h_template: 'enumtypes.h.template',
+  c_template: 'enumtypes.c.template',
   sources: source_h,
-  decorator: 'GAEGULI_API_EXPORT',
   install_dir: join_paths(get_option('includedir'), gaeguli_install_header_subdir),
   install_header: true,
 )
