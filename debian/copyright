@@ -1,0 +1,7 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: gaeguli
+Source: https://github.com/hwangsaeul/gaeguli
+
+Files: *
+Copyright: 2019 SK Telecom, Co., Ltd.
+License: TBD
