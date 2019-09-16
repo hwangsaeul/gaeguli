@@ -22,7 +22,7 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEnumClass, g_type_class_unref)
 #endif
 /* *INDENT-ON* */
 
-#define GAEGULI_PIPELINE_VSRC_STR       "%s %s ! video/x-raw,width=%d,height=%d ! tee name=tee "
+#define GAEGULI_PIPELINE_VSRC_STR       "%s %s%s ! video/x-raw,width=%d,height=%d ! tee name=tee "
 
 #define GAEGULI_PIPELINE_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! x264enc tune=zerolatency ! \
@@ -326,6 +326,7 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   /* FIXME: what if zero-copy */
   vsrc_str =
       g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, enum_value->value_nick,
+      self->source == GAEGULI_VIDEO_SOURCE_V4L2SRC ? "device=" : "",
       self->device, width, height);
 
   g_debug ("trying to create video source pipeline (%s)", vsrc_str);
