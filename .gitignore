@@ -56,3 +56,12 @@ dkms.conf
 
 # build
 build/
+
+# Debian packaging temporaries
+/debian/.debhelper/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/gaeguli/
+/debian/gaeguli-dev/
+/debian/tmp/
+/debian/*.substvars
