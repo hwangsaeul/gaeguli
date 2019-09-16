@@ -26,7 +26,7 @@ gaeguli_enums = gnome.mkenums_simple(
   header_prefix: '#include <gaeguli/types.h>',
   sources: source_h,
   decorator: 'GAEGULI_API_EXPORT',
-  install_dir: gaeguli_install_header_subdir,
+  install_dir: join_paths(get_option('includedir'), gaeguli_install_header_subdir),
   install_header: true,
 )
 
