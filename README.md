@@ -1,4 +1,4 @@
-[![Build Status](https://dev.azure.com/hwangsaeul/hwangsaeul/_apis/build/status/justinjoy.gaeguli?branchName=master)](https://dev.azure.com/hwangsaeul/hwangsaeul/_build/latest?definitionId=9&branchName=master)
+[![Build Status](https://dev.azure.com/hwangsaeul/hwangsaeul/_apis/build/status/hwangsaeul.gaeguli?branchName=master)](https://dev.azure.com/hwangsaeul/hwangsaeul/_build/latest?definitionId=12&branchName=master)
 
 # Gaeguli
 
