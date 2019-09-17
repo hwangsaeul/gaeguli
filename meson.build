@@ -66,16 +66,22 @@ gobject_dep = dependency('gobject-2.0', version: glib_req_version,
 # workaround to support various gstreamer versions
 gst_dep = [ ]
 
-gst_1_16_dep = dependency ('gstreamer-1.0', version: '>= 1.16.0', required: false)
+gst_1_16_dep = dependency ('gstreamer-1.0', version: '>= 1.16.0', required: false,
+  fallback : ['gstreamer', 'gst_dep'])
 
 if gst_1_16_dep.found()
   gst_req_version = '>= 1.16.0'
+  gst_fallback = ['gstreamer', 'gst_dep']
+  gst_base_fallback = ['gstreamer', 'gst_base_dep']
+  gst_net_fallback = ['gstreamer', 'gst_net_dep']
+  gst_mpegts_fallback = ['gst-plugins-bad', 'gstmpegts_dep']
+  gst_codecparsers_fallback = ['gst-plugins-bad', 'gstcodecparsers_dep']
 
-  gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version), 
-             dependency ('gstreamer-base-1.0', version: gst_req_version),
-             dependency ('gstreamer-net-1.0', version: gst_req_version),
-             dependency ('gstreamer-mpegts-1.0', version: gst_req_version),
-             dependency ('gstreamer-codecparsers-1.0', version: gst_req_version)]
+  gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version, fallback: gst_fallback), 
+             dependency ('gstreamer-base-1.0', version: gst_req_version, fallback: gst_base_fallback),
+             dependency ('gstreamer-net-1.0', version: gst_req_version, fallback: gst_net_fallback),
+             dependency ('gstreamer-mpegts-1.0', version: gst_req_version, fallback: gst_mpegts_fallback),
+             dependency ('gstreamer-codecparsers-1.0', version: gst_req_version, fallback: gst_codecparsers_fallback)]
 else
 
   gst_1_14_dep = dependency ('gstreamer-1.0', version: '>= 1.14.0', required: false)
