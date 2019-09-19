@@ -114,7 +114,7 @@ struct _GaeguliFifoTransmit
   gchar *fifo_path;
 
   GCancellable *cancellable;
-  GIOChannel *io_channel;
+  guint fifo_read_event_source_id;
 
   GHashTable *sockets;
 
@@ -161,7 +161,10 @@ gaeguli_fifo_transmit_dispose (GObject * object)
   g_cancellable_cancel (self->cancellable);
 
   g_clear_pointer (&self->sockets, g_hash_table_unref);
-  g_clear_object (&self->io_channel);
+  if (self->fifo_read_event_source_id != 0) {
+    g_source_remove (self->fifo_read_event_source_id);
+    self->fifo_read_event_source_id = 0;
+  }
 
   _delete_fifo_path (self);
 
@@ -441,20 +444,21 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
 
   g_debug ("Created SRT connection (n: %d)", g_hash_table_size (self->sockets));
 
-  if (self->io_channel == NULL) {
+  if (self->fifo_read_event_source_id == 0) {
+    g_autoptr (GIOChannel) io_channel = NULL;
     gint fd = open (self->fifo_path, O_NONBLOCK | O_RDONLY);
 
     g_debug ("opening io channel (%s)", self->fifo_path);
 
     /* It's time to read bytes from fifo */
-    self->io_channel = g_io_channel_unix_new (fd);
-    g_io_channel_set_close_on_unref (self->io_channel, TRUE);
-    g_io_channel_set_encoding (self->io_channel, NULL, NULL);
-    g_io_channel_set_buffered (self->io_channel, FALSE);
-    g_io_channel_set_flags (self->io_channel, G_IO_FLAG_NONBLOCK, NULL);
+    io_channel = g_io_channel_unix_new (fd);
+    g_io_channel_set_close_on_unref (io_channel, TRUE);
+    g_io_channel_set_encoding (io_channel, NULL, NULL);
+    g_io_channel_set_buffered (io_channel, FALSE);
+    g_io_channel_set_flags (io_channel, G_IO_FLAG_NONBLOCK, NULL);
 
-    g_io_add_watch (self->io_channel, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP,
-        _recv_stream, self);
+    self->fifo_read_event_source_id = g_io_add_watch (io_channel,
+        G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP, _recv_stream, self);
   }
 
 out:
@@ -489,8 +493,9 @@ gaeguli_fifo_transmit_stop (GaeguliFifoTransmit * self,
   }
   g_debug ("Removed SRT connection (n: %d)", g_hash_table_size (self->sockets));
 
-  if (g_hash_table_size (self->sockets) == 0) {
-    g_clear_pointer (&self->io_channel, g_io_channel_unref);
+  if (g_hash_table_size (self->sockets) == 0 && self->fifo_read_event_source_id) {
+    g_source_remove (self->fifo_read_event_source_id);
+    self->fifo_read_event_source_id = 0;
   }
   return ret;
 }
