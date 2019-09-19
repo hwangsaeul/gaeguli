@@ -29,10 +29,12 @@ are fully reconstructed so we recommend using srt plugins in GStreamer 1.16 or n
 
 ```
 gst-launch-1.0 \
-        srtsrc uri=srt://:8888?mode=listener ! decodebin ! autovideosink
+        srtsrc uri=srt://:8888?mode=listener ! queue ! decodebin ! autovideosink
 ```
 
 Now, the port, 8888, is ready to listen srt stream.
+Note that a `queue` is required right behind `srtsrc`. 
+Otherwise, You will see that the time on the receiving side gradually slows down.
 
 #### Fifo transmitter
 
