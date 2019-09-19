@@ -202,7 +202,7 @@ gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
       (GDestroyNotify) g_free, (GDestroyNotify) srt_info_unref);
 }
 
-static GaeguliFifoTransmit *
+GaeguliFifoTransmit *
 gaeguli_fifo_transmit_new_full (const gchar * tmpdir)
 {
 

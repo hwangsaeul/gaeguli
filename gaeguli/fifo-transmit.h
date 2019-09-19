@@ -22,6 +22,8 @@ G_DECLARE_FINAL_TYPE                   (GaeguliFifoTransmit, gaeguli_fifo_transm
 
 GaeguliFifoTransmit    *gaeguli_fifo_transmit_new      (void);
 
+GaeguliFifoTransmit    *gaeguli_fifo_transmit_new_full (const gchar            *tmpdir);
+
 const gchar            *gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit    *self);
 
 guint                   gaeguli_fifo_transmit_start    (GaeguliFifoTransmit    *self,
