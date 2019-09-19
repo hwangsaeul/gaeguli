@@ -9,7 +9,7 @@
 
 ### Install meson and ninja
 
-Meson 0.51 and newer is required.
+Meson 0.40 and newer is required.
 
 ### Build Gaeguli
 
