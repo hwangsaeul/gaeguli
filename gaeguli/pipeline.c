@@ -307,6 +307,10 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   GEnumValue *enum_value = g_enum_get_value (enum_class, self->source);
 
   switch (resolution) {
+    case GAEGULI_VIDEO_RESOLUTION_640x480:
+      width = 640;
+      height = 480;
+      break;
     case GAEGULI_VIDEO_RESOLUTION_1280X720:
       width = 1280;
       height = 720;
