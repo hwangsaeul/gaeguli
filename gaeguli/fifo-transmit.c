@@ -52,6 +52,7 @@ srt_info_new (const gchar * host, guint port, GaeguliSRTMode mode,
   return info;
 }
 
+#if 0
 static SRTInfo *
 srt_info_ref (SRTInfo * info)
 {
@@ -63,6 +64,7 @@ srt_info_ref (SRTInfo * info)
 
   return info;
 }
+#endif
 
 static void
 srt_info_unref (SRTInfo * info)
