@@ -115,6 +115,7 @@ struct _GaeguliFifoTransmit
 
   GCancellable *cancellable;
   guint fifo_read_event_source_id;
+  GIOStatus fifo_read_status;
 
   GHashTable *sockets;
 
@@ -203,6 +204,7 @@ gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
   self->cancellable = g_cancellable_new ();
   self->sockets = g_hash_table_new_full (g_str_hash, g_str_equal,
       (GDestroyNotify) g_free, (GDestroyNotify) srt_info_unref);
+  self->fifo_read_status = G_IO_STATUS_NORMAL;
 }
 
 GaeguliFifoTransmit *
@@ -254,6 +256,21 @@ gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit * self)
   g_return_val_if_fail (GAEGULI_IS_FIFO_TRANSMIT (self), NULL);
 
   return self->fifo_path;
+}
+
+GIOStatus
+gaeguli_fifo_transmit_get_read_status (GaeguliFifoTransmit * self)
+{
+  GIOStatus status;
+
+  g_return_val_if_fail (GAEGULI_IS_FIFO_TRANSMIT (self), G_IO_STATUS_ERROR);
+
+  status = self->fifo_read_status;
+  if (status == G_IO_STATUS_AGAIN) {
+    status = G_IO_STATUS_NORMAL;
+  }
+
+  return status;
 }
 
 static gboolean
@@ -400,11 +417,11 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
     g_autoptr (GError) error = NULL;
 
     gsize read_len = 0;
-    GIOStatus io_status =
+    self->fifo_read_status =
         g_io_channel_read_chars (channel, self->buf, BUFSIZE, &read_len,
         &error);
 
-    if (io_status != G_IO_STATUS_NORMAL && error != NULL) {
+    if (self->fifo_read_status != G_IO_STATUS_NORMAL && error != NULL) {
       g_error ("%s", error->message);
     }
 
