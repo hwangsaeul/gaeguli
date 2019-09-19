@@ -52,7 +52,7 @@ _stream_stopped_cb (GaeguliPipeline * pipeline, guint target_id,
 {
   g_debug ("got stopped signal %x", target_id);
 
-  g_timeout_add (100, _quit_loop, fixture);
+  g_timeout_add (100, (GSourceFunc) _quit_loop, fixture);
 }
 
 static void

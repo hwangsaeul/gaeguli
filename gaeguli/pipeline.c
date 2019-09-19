@@ -420,7 +420,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 
     g_hash_table_remove (link_target->self->targets,
         GINT_TO_POINTER (link_target->target_id));
-    g_idle_add (_stop_pipeline, self);
+    g_idle_add ((GSourceFunc) _stop_pipeline, self);
   }
 
   return GST_PAD_PROBE_REMOVE;
