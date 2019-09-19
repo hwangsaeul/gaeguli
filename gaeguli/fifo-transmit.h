@@ -26,6 +26,9 @@ GaeguliFifoTransmit    *gaeguli_fifo_transmit_new_full (const gchar            *
 
 const gchar            *gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit    *self);
 
+GIOStatus               gaeguli_fifo_transmit_get_read_status
+                                                       (GaeguliFifoTransmit *self);
+
 guint                   gaeguli_fifo_transmit_start    (GaeguliFifoTransmit    *self,
                                                         const gchar            *host,
                                                         guint                   port,
