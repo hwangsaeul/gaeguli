@@ -76,6 +76,7 @@ link_target_new (GaeguliPipeline * self, GstElement * src, guint target_id,
   return t;
 }
 
+#if 0
 static LinkTarget *
 link_target_ref (LinkTarget * link_target)
 {
@@ -88,6 +89,7 @@ link_target_ref (LinkTarget * link_target)
 
   return link_target;
 }
+#endif
 
 static void
 link_target_unref (LinkTarget * link_target)
