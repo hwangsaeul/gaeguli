@@ -9,6 +9,7 @@
 
 #include <gaeguli/gaeguli.h>
 #include <gaeguli/fifo-transmit.h>
+#include <glib/gstdio.h>
 
 typedef struct _TestFixture
 {
@@ -58,6 +59,24 @@ test_gaeguli_fifo_transmit_start (TestFixture * fixture, gconstpointer unused)
           &error));
 }
 
+static void
+test_gaeguli_fifo_transmit_same_fifo_path ()
+{
+  g_autoptr (GaeguliFifoTransmit) fifo_transmit_1 = NULL;
+  g_autoptr (GaeguliFifoTransmit) fifo_transmit_2 = NULL;
+  g_autofree gchar *tmpdir = NULL;
+
+  tmpdir =
+      g_build_filename (g_get_tmp_dir (), "test-gaeguli-fifo-XXXXXX", NULL);
+  g_mkdtemp (tmpdir);
+
+  fifo_transmit_1 = gaeguli_fifo_transmit_new_full (tmpdir);
+  g_assert_nonnull (fifo_transmit_1);
+
+  fifo_transmit_2 = gaeguli_fifo_transmit_new_full (tmpdir);
+  g_assert_null (fifo_transmit_2);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -69,6 +88,9 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/fifo-transmit-start",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_fifo_transmit_start, fixture_teardown);
+
+  g_test_add_func ("/gaeguli/fifo-transmit-same-fifo-path",
+      test_gaeguli_fifo_transmit_same_fifo_path);
 
   return g_test_run ();
 }
