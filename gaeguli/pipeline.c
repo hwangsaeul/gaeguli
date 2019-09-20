@@ -423,8 +423,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     gst_ghost_pad_set_target (GST_GHOST_PAD (ghost_srcpad), NULL);
     gst_element_remove_pad (link_target->self->vsrc, ghost_srcpad);
     gst_element_release_request_pad (tee, srcpad);
-    gst_element_set_state (link_target->target, GST_STATE_NULL);
     gst_bin_remove (GST_BIN (link_target->self->pipeline), link_target->target);
+    gst_element_set_state (link_target->target, GST_STATE_NULL);
 
     g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0,
         link_target->target_id);
