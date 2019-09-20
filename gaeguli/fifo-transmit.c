@@ -120,6 +120,8 @@ struct _GaeguliFifoTransmit
   GHashTable *sockets;
 
   gchar buf[BUFSIZE];
+
+  GaeguliFifoTransmitStats stats;
 };
 
 /* *INDENT-OFF* */
@@ -273,6 +275,14 @@ gaeguli_fifo_transmit_get_read_status (GaeguliFifoTransmit * self)
   return status;
 }
 
+GaeguliFifoTransmitStats *
+gaeguli_fifo_transmit_get_stats (GaeguliFifoTransmit * self)
+{
+  g_return_val_if_fail (GAEGULI_IS_FIFO_TRANSMIT (self), NULL);
+
+  return &self->stats;
+}
+
 static gboolean
 _srt_open (SRTInfo * info)
 {
@@ -424,6 +434,8 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
     if (self->fifo_read_status != G_IO_STATUS_NORMAL && error != NULL) {
       g_error ("%s", error->message);
     }
+
+    self->stats.bytes_read += read_len;
 
     _send_to (self, self->buf, read_len);
   }
