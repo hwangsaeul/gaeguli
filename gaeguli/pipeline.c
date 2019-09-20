@@ -377,6 +377,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   g_autoptr (GstPad) sink_pad = NULL;
   g_autoptr (GaeguliPipeline) self = g_object_ref (link_target->self);
 
+  gst_pad_remove_probe (pad, info->id);
+
   if (link_target->link) {
     GstPad *tee_ghost_pad = NULL;
 
@@ -493,7 +495,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     link_target =
         link_target_new (self, self->vsrc, target_id, target_pipeline, TRUE);
 
-    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_IDLE, _link_probe_cb,
+    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
         g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
 
     gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
@@ -544,7 +546,7 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
   link_target =
       link_target_new (self, self->vsrc, target_id, target_pipeline, FALSE);
 
-  gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_IDLE, _link_probe_cb,
+  gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
       g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
 
 
