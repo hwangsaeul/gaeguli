@@ -104,11 +104,29 @@ static struct srt_constant_params srt_params[] = {
   {NULL, -1, -1},
 };
 
+static GWeakRef *
+weak_ref_new (gpointer obj)
+{
+  GWeakRef *ref = g_slice_new (GWeakRef);
+
+  g_weak_ref_init (ref, obj);
+  return ref;
+}
+
+static void
+weak_ref_free (GWeakRef * ref)
+{
+  g_weak_ref_clear (ref);
+  g_slice_free (GWeakRef, ref);
+}
+
 #define BUFSIZE         8192
 
 struct _GaeguliFifoTransmit
 {
   GObject parent;
+
+  GMutex lock;
 
   gchar *fifo_dir;
   gchar *fifo_path;
@@ -162,6 +180,7 @@ gaeguli_fifo_transmit_dispose (GObject * object)
   GaeguliFifoTransmit *self = GAEGULI_FIFO_TRANSMIT (object);
 
   g_cancellable_cancel (self->cancellable);
+  g_mutex_clear (&self->lock);
 
   g_clear_pointer (&self->sockets, g_hash_table_unref);
   if (self->fifo_read_event_source_id != 0) {
@@ -202,6 +221,8 @@ gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
   }
 
   g_atomic_int_inc (&srt_init_refcount);
+
+  g_mutex_init (&self->lock);
 
   self->cancellable = g_cancellable_new ();
   self->sockets = g_hash_table_new_full (g_str_hash, g_str_equal,
@@ -416,7 +437,12 @@ _send_to (GaeguliFifoTransmit * self, gconstpointer buf, gsize len)
 static gboolean
 _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
 {
-  GaeguliFifoTransmit *self = GAEGULI_FIFO_TRANSMIT (user_data);
+  GaeguliFifoTransmit *self = g_weak_ref_get (user_data);
+  if (!self) {
+    return FALSE;
+  }
+
+  g_mutex_lock (&self->lock);
 
   g_debug ("(%s):%s%s%s%s", self->fifo_path,
       (cond & G_IO_ERR) ? " ERR" : "",
@@ -440,6 +466,10 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
     _send_to (self, self->buf, read_len);
   }
 
+  g_mutex_unlock (&self->lock);
+
+  g_object_unref (self);
+
   return TRUE;                  /* should keep continuing */
 }
 
@@ -457,6 +487,8 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
   hostinfo = g_strdup_printf (HOSTINFO_JSON_FORMAT, host, port, mode);
   transmit_id = g_str_hash (hostinfo);
   g_debug ("hostinfo[%x]: %s", transmit_id, hostinfo);
+
+  g_mutex_lock (&self->lock);
 
   if (g_hash_table_lookup (self->sockets, hostinfo) != NULL) {
     g_debug ("SRT has already started. (host: %s, port: %d, mode: %d)",
@@ -486,11 +518,14 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
     g_io_channel_set_buffered (io_channel, FALSE);
     g_io_channel_set_flags (io_channel, G_IO_FLAG_NONBLOCK, NULL);
 
-    self->fifo_read_event_source_id = g_io_add_watch (io_channel,
-        G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP, _recv_stream, self);
+    self->fifo_read_event_source_id = g_io_add_watch_full (io_channel,
+        G_PRIORITY_DEFAULT, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP,
+        _recv_stream, weak_ref_new (self), (GDestroyNotify) weak_ref_free);
   }
 
 out:
+  g_mutex_unlock (&self->lock);
+
   return transmit_id;
 }
 
@@ -514,6 +549,8 @@ gaeguli_fifo_transmit_stop (GaeguliFifoTransmit * self,
   g_return_val_if_fail (GAEGULI_IS_FIFO_TRANSMIT (self), FALSE);
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
+  g_mutex_lock (&self->lock);
+
   info =
       g_hash_table_find (self->sockets, _find_by_transmit_id,
       GUINT_TO_POINTER (transmit_id));
@@ -526,5 +563,8 @@ gaeguli_fifo_transmit_stop (GaeguliFifoTransmit * self,
     g_source_remove (self->fifo_read_event_source_id);
     self->fifo_read_event_source_id = 0;
   }
+
+  g_mutex_unlock (&self->lock);
+
   return ret;
 }
