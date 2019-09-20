@@ -22,7 +22,7 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEnumClass, g_type_class_unref)
 #endif
 /* *INDENT-ON* */
 
-#define GAEGULI_PIPELINE_VSRC_STR       "%s %s%s ! video/x-raw,width=%d,height=%d ! tee name=tee "
+#define GAEGULI_PIPELINE_VSRC_STR       "%s %s%s ! video/x-raw,width=%d,height=%d ! tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! x264enc tune=zerolatency ! \
@@ -347,6 +347,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   self->pipeline = gst_pipeline_new (NULL);
   gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
 
+  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+
   return TRUE;
 
 failed:
@@ -497,8 +499,6 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
 
     gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
         g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
-
-    gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
   }
 
   return target_id;
