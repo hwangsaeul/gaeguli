@@ -393,6 +393,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     if (tee_ghost_pad == NULL) {
       g_error ("ghost pad is null");
     }
+    gst_element_sync_state_with_parent (link_target->target);
     if (gst_pad_link (tee_ghost_pad, sink_pad) != GST_PAD_LINK_OK) {
       g_error ("failed to link tee src to target sink");
     }
