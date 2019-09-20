@@ -27,6 +27,13 @@ guint                   gaeguli_pipeline_add_fifo_target
                                                  const gchar           *fifo_path,
                                                  GError               **error);
 
+guint                   gaeguli_pipeline_add_fifo_target_full
+                                                (GaeguliPipeline       *self,
+                                                 GaeguliVideoCodec      codec,
+                                                 GaeguliVideoResolution resolution,
+                                                 const gchar           *fifo_path,
+                                                 GError               **error);
+
 GaeguliReturn           gaeguli_pipeline_remove_target
                                                 (GaeguliPipeline       *self,
                                                  guint                  target_id,

@@ -428,7 +428,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   return GST_PAD_PROBE_REMOVE;
 }
 
-static guint
+guint
 gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec,
     GaeguliVideoResolution resolution, const gchar * fifo_path, GError ** error)
