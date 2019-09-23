@@ -13,6 +13,7 @@
 #include <gio/gnetworking.h>
 #include <glib/gstdio.h>
 
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -132,6 +133,7 @@ struct _GaeguliFifoTransmit
   gchar *fifo_path;
 
   GCancellable *cancellable;
+  GIOChannel *io_channel;
   guint fifo_read_event_source_id;
   GIOStatus fifo_read_status;
 
@@ -183,6 +185,7 @@ gaeguli_fifo_transmit_dispose (GObject * object)
   g_mutex_clear (&self->lock);
 
   g_clear_pointer (&self->sockets, g_hash_table_unref);
+  g_clear_pointer (&self->io_channel, g_io_channel_unref);
   if (self->fifo_read_event_source_id != 0) {
     g_source_remove (self->fifo_read_event_source_id);
     self->fifo_read_event_source_id = 0;
@@ -299,6 +302,23 @@ gaeguli_fifo_transmit_get_read_status (GaeguliFifoTransmit * self)
   }
 
   return status;
+}
+
+gssize
+gaeguli_fifo_transmit_get_available_bytes (GaeguliFifoTransmit * self)
+{
+  gint fd;
+  int available;
+
+  g_return_val_if_fail (GAEGULI_IS_FIFO_TRANSMIT (self), -1);
+
+  fd = g_io_channel_unix_get_fd (self->io_channel);
+
+  if (ioctl (fd, FIONREAD, &available) < 0) {
+    return -1;
+  }
+
+  return available;
 }
 
 GVariantDict *
@@ -516,19 +536,18 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
   g_debug ("Created SRT connection (n: %d)", g_hash_table_size (self->sockets));
 
   if (self->fifo_read_event_source_id == 0) {
-    g_autoptr (GIOChannel) io_channel = NULL;
     gint fd = open (self->fifo_path, O_NONBLOCK | O_RDONLY);
 
     g_debug ("opening io channel (%s)", self->fifo_path);
 
     /* It's time to read bytes from fifo */
-    io_channel = g_io_channel_unix_new (fd);
-    g_io_channel_set_close_on_unref (io_channel, TRUE);
-    g_io_channel_set_encoding (io_channel, NULL, NULL);
-    g_io_channel_set_buffered (io_channel, FALSE);
-    g_io_channel_set_flags (io_channel, G_IO_FLAG_NONBLOCK, NULL);
+    self->io_channel = g_io_channel_unix_new (fd);
+    g_io_channel_set_close_on_unref (self->io_channel, TRUE);
+    g_io_channel_set_encoding (self->io_channel, NULL, NULL);
+    g_io_channel_set_buffered (self->io_channel, FALSE);
+    g_io_channel_set_flags (self->io_channel, G_IO_FLAG_NONBLOCK, NULL);
 
-    self->fifo_read_event_source_id = g_io_add_watch_full (io_channel,
+    self->fifo_read_event_source_id = g_io_add_watch_full (self->io_channel,
         G_PRIORITY_DEFAULT, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP,
         _recv_stream, weak_ref_new (self), (GDestroyNotify) weak_ref_free);
   }
