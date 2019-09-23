@@ -30,6 +30,7 @@ main (int argc, char *argv[])
 {
   gboolean help;
   const gchar *fifo = NULL;
+  int result;
 
   g_autoptr (GError) error = NULL;
   g_autoptr (GApplication) app =
@@ -64,5 +65,9 @@ main (int argc, char *argv[])
   g_signal_connect (app, "activate", G_CALLBACK (activate), pipeline);
   g_object_set_data_full (G_OBJECT (app), "fifo", g_strdup (fifo), g_free);
 
-  return g_application_run (app, argc, argv);
+  result = g_application_run (app, argc, argv);
+
+  gaeguli_pipeline_stop (pipeline);
+
+  return result;
 }
