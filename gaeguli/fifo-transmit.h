@@ -16,11 +16,6 @@
 
 G_BEGIN_DECLS
 
-typedef struct
-{
-  gsize bytes_read;
-} GaeguliFifoTransmitStats;
-
 #define GAEGULI_TYPE_FIFO_TRANSMIT     (gaeguli_fifo_transmit_get_type ())
 G_DECLARE_FINAL_TYPE                   (GaeguliFifoTransmit, gaeguli_fifo_transmit,
                                         GAEGULI, FIFO_TRANSMIT, GObject)
@@ -34,8 +29,7 @@ const gchar            *gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit    *
 GIOStatus               gaeguli_fifo_transmit_get_read_status
                                                        (GaeguliFifoTransmit *self);
 
-GaeguliFifoTransmitStats
-                       *gaeguli_fifo_transmit_get_stats
+GVariantDict           *gaeguli_fifo_transmit_get_stats
                                                        (GaeguliFifoTransmit    *self);
 
 guint                   gaeguli_fifo_transmit_start    (GaeguliFifoTransmit    *self,

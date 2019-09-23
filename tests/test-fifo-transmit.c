@@ -133,7 +133,8 @@ add_remove_fifo_cb (AddRemoveTestData * data)
   /* Check that all fifos are in NORMAL state and data are being read. */
   for (i = 0; i != G_N_ELEMENTS (data->fifos); ++i) {
     FifoTestData *fifo = &data->fifos[i];
-    GaeguliFifoTransmitStats *stats;
+    g_autoptr (GVariantDict) stats = NULL;
+    g_autoptr (GVariant) bytes_read = NULL;
     g_autoptr (GError) error = NULL;
 
     if (fifo->transmit == NULL || fifo->closing) {
@@ -145,11 +146,15 @@ add_remove_fifo_cb (AddRemoveTestData * data)
 
     stats = gaeguli_fifo_transmit_get_stats (fifo->transmit);
     g_assert_nonnull (stats);
+    bytes_read = g_variant_dict_lookup_value (stats,
+        "bytes-read", G_VARIANT_TYPE_UINT64);
+    g_assert_nonnull (bytes_read);
 
-    g_debug ("Fifo %u has read %lu B", fifo->transmit_id, stats->bytes_read);
+    g_debug ("Fifo %u has read %lu B", fifo->transmit_id,
+        g_variant_get_uint64 (bytes_read));
 
     /* Remove fifos that have read at least FIFO_READ_LIMIT_BYTES. */
-    if (stats->bytes_read >= FIFO_READ_LIMIT_BYTES) {
+    if (g_variant_get_uint64 (bytes_read) >= FIFO_READ_LIMIT_BYTES) {
       /* First stop the pipeline. */
       gaeguli_pipeline_remove_target (data->pipeline, fifo->target_id, &error);
       g_assert_no_error (error);

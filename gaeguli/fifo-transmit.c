@@ -139,7 +139,7 @@ struct _GaeguliFifoTransmit
 
   gchar buf[BUFSIZE];
 
-  GaeguliFifoTransmitStats stats;
+  GVariantDict *stats;
 };
 
 /* *INDENT-OFF* */
@@ -192,6 +192,7 @@ gaeguli_fifo_transmit_dispose (GObject * object)
 
   g_clear_pointer (&self->fifo_dir, g_free);
   g_clear_pointer (&self->fifo_path, g_free);
+  g_clear_pointer (&self->stats, g_variant_dict_unref);
 
   g_clear_object (&self->cancellable);
 
@@ -228,6 +229,10 @@ gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
   self->sockets = g_hash_table_new_full (g_str_hash, g_str_equal,
       (GDestroyNotify) g_free, (GDestroyNotify) srt_info_unref);
   self->fifo_read_status = G_IO_STATUS_NORMAL;
+
+  self->stats = g_variant_dict_new (NULL);
+  g_variant_dict_insert_value (self->stats, "bytes-read",
+      g_variant_new_uint64 (0));
 }
 
 GaeguliFifoTransmit *
@@ -296,12 +301,12 @@ gaeguli_fifo_transmit_get_read_status (GaeguliFifoTransmit * self)
   return status;
 }
 
-GaeguliFifoTransmitStats *
+GVariantDict *
 gaeguli_fifo_transmit_get_stats (GaeguliFifoTransmit * self)
 {
   g_return_val_if_fail (GAEGULI_IS_FIFO_TRANSMIT (self), NULL);
 
-  return &self->stats;
+  return g_variant_dict_ref (self->stats);
 }
 
 static gboolean
@@ -438,6 +443,7 @@ static gboolean
 _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
 {
   GaeguliFifoTransmit *self = g_weak_ref_get (user_data);
+
   if (!self) {
     return FALSE;
   }
@@ -450,6 +456,7 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
       (cond & G_IO_IN) ? " IN" : "", (cond & G_IO_PRI) ? " PRI" : "");
 
   if ((cond & G_IO_IN)) {
+    g_autoptr (GVariant) bytes_read = NULL;
     g_autoptr (GError) error = NULL;
 
     gsize read_len = 0;
@@ -461,7 +468,10 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
       g_error ("%s", error->message);
     }
 
-    self->stats.bytes_read += read_len;
+    bytes_read = g_variant_dict_lookup_value (self->stats, "bytes-read",
+        G_VARIANT_TYPE_UINT64);
+    g_variant_dict_insert_value (self->stats, "bytes-read",
+        g_variant_new_uint64 (g_variant_get_uint64 (bytes_read) + read_len));
 
     _send_to (self, self->buf, read_len);
   }
