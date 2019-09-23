@@ -379,6 +379,14 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   g_autoptr (GstPad) sink_pad = NULL;
   g_autoptr (GaeguliPipeline) self = g_object_ref (link_target->self);
 
+  /* 
+   * GST_PAD_PROBE_TYPE_IDLE can cause infinite waiting in filesink.
+   * In addition, to prevent events generated in gst_ghost_pad_new()
+   * from invoking this probe callback again, we remove the probe first.
+   *
+   * For more details, refer to
+   * https://github.com/hwangsaeul/gaeguli/pull/10#discussion_r327031325
+   */
   gst_pad_remove_probe (pad, info->id);
 
   if (link_target->link) {
