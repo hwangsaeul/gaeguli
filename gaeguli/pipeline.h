@@ -38,6 +38,9 @@ GaeguliReturn           gaeguli_pipeline_remove_target
                                                 (GaeguliPipeline       *self,
                                                  guint                  target_id,
                                                  GError               **error);
+
+void                    gaeguli_pipeline_stop   (GaeguliPipeline       *self);
+
 G_END_DECLS
 
 #endif // __GAEGULI_PIPELINE_H__

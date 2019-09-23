@@ -45,6 +45,8 @@ struct _GaeguliPipeline
 
   GstElement *pipeline;
   GstElement *vsrc;
+
+  guint stop_pipeline_event_id;
 };
 
 typedef struct _LinkTarget
@@ -139,6 +141,11 @@ static void
 gaeguli_pipeline_dispose (GObject * object)
 {
   GaeguliPipeline *self = GAEGULI_PIPELINE (object);
+
+  if (self->pipeline) {
+    g_critical ("Call gaeguli_pipeline_stop() before releasing the final "
+        "GaeguliPipeline reference!");
+  }
 
   g_clear_pointer (&self->targets, g_hash_table_unref);
   g_clear_pointer (&self->device, g_free);
@@ -383,13 +390,7 @@ failed:
 static gboolean
 _stop_pipeline (GaeguliPipeline * self)
 {
-  if (g_hash_table_size (self->targets) == 0) {
-    g_debug ("clear internal pipeline");
-    gst_element_set_state (self->pipeline, GST_STATE_NULL);
-    g_clear_object (&self->vsrc);
-    g_clear_object (&self->pipeline);
-
-  }
+  gaeguli_pipeline_stop (self);
 
   return G_SOURCE_REMOVE;
 }
@@ -461,7 +462,12 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 
     g_hash_table_remove (link_target->self->targets,
         GINT_TO_POINTER (link_target->target_id));
-    g_idle_add ((GSourceFunc) _stop_pipeline, self);
+    if (g_hash_table_size (self->targets) == 0 &&
+        self->stop_pipeline_event_id == 0) {
+      self->stop_pipeline_event_id = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
+          (GSourceFunc) _stop_pipeline,
+          gst_object_ref (self), gst_object_unref);
+    }
   }
 
   return GST_PAD_PROBE_REMOVE;
@@ -484,6 +490,12 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     g_set_error (error, GAEGULI_RESOURCE_ERROR, GAEGULI_RESOURCE_ERROR_WRITE,
         "Can't access to fifo: %s", fifo_path);
     goto failed;
+  }
+
+  /* Halt vsrc pipeline removal if planned. */
+  if (self->stop_pipeline_event_id != 0) {
+    g_source_remove (self->stop_pipeline_event_id);
+    self->stop_pipeline_event_id = 0;
   }
 
   /* assume that it's first target */
@@ -582,4 +594,24 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
 
 out:
   return GAEGULI_RETURN_OK;
+}
+
+/* Must be called from the main thread. */
+void
+gaeguli_pipeline_stop (GaeguliPipeline * self)
+{
+  g_return_if_fail (GAEGULI_IS_PIPELINE (self));
+
+  g_debug ("clear internal pipeline");
+
+  if (self->stop_pipeline_event_id) {
+    g_source_remove (self->stop_pipeline_event_id);
+    self->stop_pipeline_event_id = 0;
+  }
+
+  g_clear_pointer (&self->vsrc, gst_object_unref);
+  if (self->pipeline) {
+    gst_element_set_state (self->pipeline, GST_STATE_NULL);
+  }
+  g_clear_pointer (&self->pipeline, gst_object_unref);
 }

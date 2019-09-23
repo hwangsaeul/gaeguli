@@ -221,6 +221,7 @@ test_gaeguli_fifo_transmit_add_remove_random (TestFixture * fixture,
   g_timeout_add (20, (GSourceFunc) add_remove_fifo_cb, &data);
   g_main_loop_run (fixture->loop);
 
+  gaeguli_pipeline_stop (data.pipeline);
   g_clear_object (&data.pipeline);
   for (i = 0; i != G_N_ELEMENTS (data.fifos); ++i) {
     g_clear_object (&data.fifos[i].transmit);
