@@ -295,6 +295,18 @@ failed:
   return NULL;
 }
 
+static GstPadProbeReturn
+_drop_reconfigure_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+{
+  GstEvent *event = GST_PAD_PROBE_INFO_EVENT (info);
+
+  if (GST_EVENT_TYPE (event) == GST_EVENT_RECONFIGURE) {
+    return GST_PAD_PROBE_DROP;
+  }
+
+  return GST_PAD_PROBE_OK;
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
     GError ** error)
@@ -305,6 +317,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   g_autoptr (GEnumClass) enum_class =
       g_type_class_ref (GAEGULI_TYPE_VIDEO_SOURCE);
   GEnumValue *enum_value = g_enum_get_value (enum_class, self->source);
+  g_autoptr (GstElement) tee = NULL;
+  g_autoptr (GstPad) tee_sink = NULL;
 
   switch (resolution) {
     case GAEGULI_VIDEO_RESOLUTION_640x480:
@@ -346,6 +360,14 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
 
   self->pipeline = gst_pipeline_new (NULL);
   gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
+
+  /* Caps of the video source are determined by the caps filter in vsrc pipeline
+   * and don't need to be renegotiated when a new target pipeline links to
+   * the tee. Thus, ignore reconfigure events coming from downstream. */
+  tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
+  tee_sink = gst_element_get_static_pad (tee, "sink");
+  gst_pad_add_probe (tee_sink, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
+      _drop_reconfigure_cb, NULL, NULL);
 
   gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
 
