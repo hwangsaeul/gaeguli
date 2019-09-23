@@ -16,12 +16,12 @@ activate (GApplication * app, gpointer user_data)
 {
   g_autoptr (GError) error = NULL;
   const gchar *fifo = NULL;
-  guint target_id;
+
 
   GaeguliPipeline *pipeline = user_data;
 
   fifo = g_object_get_data (G_OBJECT (app), "fifo");
-  target_id = gaeguli_pipeline_add_fifo_target (pipeline, fifo, &error);
+  gaeguli_pipeline_add_fifo_target (pipeline, fifo, &error);
   g_application_hold (app);
 }
 
