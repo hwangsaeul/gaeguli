@@ -208,6 +208,7 @@ test_gaeguli_fifo_transmit_add_remove_random (TestFixture * fixture,
     gconstpointer unused)
 {
   AddRemoveTestData data = { 0 };
+  guint idle_source;
   gint i;
 
   g_mutex_init (&data.lock);
@@ -218,8 +219,9 @@ test_gaeguli_fifo_transmit_add_remove_random (TestFixture * fixture,
   g_signal_connect (data.pipeline, "stream-stopped",
       (GCallback) stream_stopped_cb, &data);
 
-  g_timeout_add (20, (GSourceFunc) add_remove_fifo_cb, &data);
+  idle_source = g_timeout_add (20, (GSourceFunc) add_remove_fifo_cb, &data);
   g_main_loop_run (fixture->loop);
+  g_source_remove (idle_source);
 
   gaeguli_pipeline_stop (data.pipeline);
   g_clear_object (&data.pipeline);
