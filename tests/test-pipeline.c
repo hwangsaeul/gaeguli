@@ -66,7 +66,10 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
       fixture);
   g_signal_connect (pipeline, "stream-stopped", G_CALLBACK (_stream_stopped_cb),
       fixture);
-  target_id = gaeguli_pipeline_add_fifo_target (pipeline, "/dev/null", &error);
+
+  target_id = gaeguli_pipeline_add_fifo_target_full (pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640x480,
+      "/dev/null", &error);
 
   g_assert_cmpuint (target_id, !=, 0);
   fixture->target_id = target_id;
