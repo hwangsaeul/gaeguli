@@ -38,6 +38,8 @@ struct _GaeguliPipeline
 {
   GObject parent;
 
+  GMutex lock;
+
   GaeguliVideoSource source;
   gchar *device;
 
@@ -150,6 +152,8 @@ gaeguli_pipeline_dispose (GObject * object)
   g_clear_pointer (&self->targets, g_hash_table_unref);
   g_clear_pointer (&self->device, g_free);
 
+  g_mutex_clear (&self->lock);
+
   G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->dispose (object);
 }
 
@@ -226,6 +230,8 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
 static void
 gaeguli_pipeline_init (GaeguliPipeline * self)
 {
+  g_mutex_init (&self->lock);
+
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (NULL, NULL,
       NULL, (GDestroyNotify) g_object_unref);
@@ -460,6 +466,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0,
         link_target->target_id);
 
+    g_mutex_lock (&link_target->self->lock);
+
     g_hash_table_remove (link_target->self->targets,
         GINT_TO_POINTER (link_target->target_id));
     if (g_hash_table_size (self->targets) == 0 &&
@@ -468,6 +476,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
           (GSourceFunc) _stop_pipeline,
           gst_object_ref (self), gst_object_unref);
     }
+
+    g_mutex_unlock (&link_target->self->lock);
   }
 
   return GST_PAD_PROBE_REMOVE;
@@ -484,6 +494,8 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
   g_return_val_if_fail (fifo_path != NULL, 0);
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
+
+  g_mutex_lock (&self->lock);
 
   if (access (fifo_path, W_OK) != 0) {
     g_error ("Can't write to fifo (%s)", fifo_path);
@@ -543,9 +555,13 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
         g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
   }
 
+  g_mutex_unlock (&self->lock);
+
   return target_id;
 
 failed:
+  g_mutex_unlock (&self->lock);
+
   g_debug ("failed to add target");
   return 0;
 }
@@ -574,6 +590,8 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
   g_return_val_if_fail (target_id != 0, GAEGULI_RETURN_FAIL);
   g_return_val_if_fail (error == NULL || *error == NULL, GAEGULI_RETURN_FAIL);
 
+  g_mutex_lock (&self->lock);
+
   target_pipeline =
       g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
   if (target_pipeline == NULL) {
@@ -593,6 +611,8 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
 
 
 out:
+  g_mutex_unlock (&self->lock);
+
   return GAEGULI_RETURN_OK;
 }
 
@@ -604,6 +624,8 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
 
   g_debug ("clear internal pipeline");
 
+  g_mutex_lock (&self->lock);
+
   if (self->stop_pipeline_event_id) {
     g_source_remove (self->stop_pipeline_event_id);
     self->stop_pipeline_event_id = 0;
@@ -614,4 +636,6 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
     gst_element_set_state (self->pipeline, GST_STATE_NULL);
   }
   g_clear_pointer (&self->pipeline, gst_object_unref);
+
+  g_mutex_unlock (&self->lock);
 }
