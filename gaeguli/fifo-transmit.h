@@ -29,6 +29,9 @@ const gchar            *gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit    *
 GIOStatus               gaeguli_fifo_transmit_get_read_status
                                                        (GaeguliFifoTransmit *self);
 
+gssize                  gaeguli_fifo_transmit_get_available_bytes
+                                                       (GaeguliFifoTransmit *self);
+
 GVariantDict           *gaeguli_fifo_transmit_get_stats
                                                        (GaeguliFifoTransmit    *self);
 
