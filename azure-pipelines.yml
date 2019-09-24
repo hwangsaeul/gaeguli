@@ -2,13 +2,13 @@ trigger:
 - master
 
 jobs:
-- job: Ubuntu1804
+- job: BuildTest
   displayName: 'Ubuntu 18.04'
   pool: 'Ubuntu1804'
   steps:
   - bash: |
       pip3 install --user meson ninja
-    displayName: 'Preparing Meson'
+    displayName: 'Preparing Meson and Ninja'
 
   - bash: |
       meson build 
@@ -16,4 +16,9 @@ jobs:
 
   - bash: |
       ninja -C build 
-    displayName: 'Ninja build'
+    displayName: 'Building'
+
+  - bash: |
+      ninja -C build test
+    displayName: 'Testing'
+    continueOnError: true
