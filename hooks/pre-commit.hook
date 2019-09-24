@@ -1,8 +1,16 @@
 #!/bin/sh
 #
-# Check that the code follows a consistant code style
+# THE FOLLOWING SETS FORTH ATTRIBUTION NOTICES FOR THIRD PARTY SOFTWARE
+# THAT MAY BE CONTAINED IN PORTIONS OF THIS PRODUCT
+#
+# gst-libav (http://github.com/GStreamer/gst-libav/)
+#
+# GNU Lesser General Public License v2.1 or later
 #
 
+#
+# Check that the code follows a consistant code style
+#
 # Check for existence of indent, and error out if not present.
 # On some *bsd systems the binary seems to be called gnunindent,
 # so check for that first.
