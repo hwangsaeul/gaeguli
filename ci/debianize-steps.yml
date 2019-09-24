@@ -1,0 +1,19 @@
+steps:
+- bash: |
+    DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -us -uc
+  displayName: 'Run dpkg-build'
+
+- bash: |
+    cp ../*.buildinfo $(Build.ArtifactStagingDirectory) | true
+    cp ../*.tar.* $(Build.ArtifactStagingDirectory)
+    cp ../*.changes $(Build.ArtifactStagingDirectory)
+    cp ../*.dsc $(Build.ArtifactStagingDirectory)
+    cp ../*.deb $(Build.ArtifactStagingDirectory)
+    cp ../*.ddeb $(Build.ArtifactStagingDirectory) | true
+  condition: not(canceled())
+  displayName: 'Copy artifacts'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    pathToPublish: $(Build.ArtifactStagingDirectory)
+    artifactName: DebinazePackages
