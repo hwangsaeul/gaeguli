@@ -438,6 +438,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     g_debug ("start link target [%x]", link_target->target_id);
 
     tee_ghost_pad = gst_ghost_pad_new (NULL, pad);
+    gst_pad_set_active (tee_ghost_pad, TRUE);
     gst_element_add_pad (link_target->self->vsrc, tee_ghost_pad);
     sink_pad = gst_element_get_static_pad (link_target->target, "ghost_sink");
 
