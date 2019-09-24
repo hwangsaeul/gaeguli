@@ -22,3 +22,18 @@ jobs:
       ninja -C build test
     displayName: 'Testing'
     continueOnError: true
+
+- job: BuildPackageUbuntu1604
+  dependsOn: BuildTest
+  displayName: "Packaging for Ubuntu 16.04"
+  pool: 'HwangsaeulUbuntu1604'
+  steps:
+  - template: ci/debianize-steps.yml
+
+- job: BuildPackageUbuntu1804
+  dependsOn: BuildTest
+  displayName: "Packaging for Ubuntu 18.04"
+  pool: 'HwangsaeulUbuntu1804'
+  steps:
+  - template: ci/debianize-steps.yml
+
