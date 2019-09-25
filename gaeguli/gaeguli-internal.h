@@ -26,4 +26,14 @@
    \"mode\": %" G_GINT32_FORMAT " \
 }"
 
+#define GAEGULI_PIPELINE_VSRC_STR       "%s %s%s ! video/x-raw,width=%d,height=%d ! tee name=tee allow-not-linked=1 "
+
+#define GAEGULI_PIPELINE_H264ENC_STR    "\
+        queue name=enc_first ! videoconvert ! x264enc tune=zerolatency ! \
+        h264parse "
+
+#define GAEGULI_PIPELINE_MUXSINK_STR    "\
+        mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
+        filesink name=muxink_last location=%s buffer-mode=unbuffered"
+
 #endif // __GAEGULI_INTERNAL_H__
