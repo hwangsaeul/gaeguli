@@ -8,8 +8,12 @@
 
 #include "pipeline.h"
 
+#include <glib-unix.h>
 #include <gio/gio.h>
 #include <gst/gst.h>
+
+static guint signal_watch_intr_id;
+static guint target_id;
 
 static void
 activate (GApplication * app, gpointer user_data)
@@ -17,12 +21,35 @@ activate (GApplication * app, gpointer user_data)
   g_autoptr (GError) error = NULL;
   const gchar *fifo = NULL;
 
-
   GaeguliPipeline *pipeline = user_data;
 
-  fifo = g_object_get_data (G_OBJECT (app), "fifo");
-  gaeguli_pipeline_add_fifo_target (pipeline, fifo, &error);
   g_application_hold (app);
+
+  fifo = g_object_get_data (G_OBJECT (app), "fifo");
+  target_id = gaeguli_pipeline_add_fifo_target (pipeline, fifo, &error);
+}
+
+static gboolean
+intr_handler (gpointer user_data)
+{
+  GaeguliPipeline *pipeline = user_data;
+  g_autoptr (GError) error = NULL;
+
+  gaeguli_pipeline_remove_target (pipeline, target_id, &error);
+
+  g_debug ("target removed");
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+stream_stopped_cb (GaeguliPipeline * pipeline, guint target_id,
+    gpointer user_data)
+{
+  GApplication *app = user_data;
+
+  g_debug ("stream stopped");
+  g_application_release (app);
 }
 
 int
@@ -62,12 +89,21 @@ main (int argc, char *argv[])
     return -1;
   }
 
+  signal_watch_intr_id =
+      g_unix_signal_add (SIGINT, (GSourceFunc) intr_handler, pipeline);
+
+  g_signal_connect (pipeline, "stream-stopped", G_CALLBACK (stream_stopped_cb),
+      app);
+
   g_signal_connect (app, "activate", G_CALLBACK (activate), pipeline);
   g_object_set_data_full (G_OBJECT (app), "fifo", g_strdup (fifo), g_free);
 
   result = g_application_run (app, argc, argv);
 
   gaeguli_pipeline_stop (pipeline);
+
+  if (signal_watch_intr_id > 0)
+    g_source_remove (signal_watch_intr_id);
 
   return result;
 }
