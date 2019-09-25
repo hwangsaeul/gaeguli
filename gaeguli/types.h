@@ -63,6 +63,11 @@ typedef enum {
   GAEGULI_VIDEO_RESOLUTION_3840X2160,
 } GaeguliVideoResolution;
 
+typedef enum {
+  GAEGULI_ENCODING_METHOD_GENERAL = 1,
+  GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
+} GaeguliEncodingMethod;
+
 #define GAEGULI_RESOURCE_ERROR          (gaeguli_resource_error_quark ())
 GQuark gaeguli_resource_error_quark     (void);
 
