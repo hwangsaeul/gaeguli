@@ -28,9 +28,21 @@
 
 #define GAEGULI_PIPELINE_VSRC_STR       "%s %s%s ! video/x-raw,width=%d,height=%d ! tee name=tee allow-not-linked=1 "
 
-#define GAEGULI_PIPELINE_H264ENC_STR    "\
+#define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! x264enc tune=zerolatency ! \
         h264parse "
+
+#define GAEGULI_PIPELINE_GENERAL_H265ENC_STR    "\
+        queue name=enc_first ! videoconvert ! x265enc tune=zerolatency ! \
+        h265parse "
+
+#define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
+        queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
+        omxh264enc control-rate=1 bitrate=%d "
+
+#define GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR    "\
+        queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
+        omxh265enc control-rate=1 bitrate=%d "
 
 #define GAEGULI_PIPELINE_MUXSINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \

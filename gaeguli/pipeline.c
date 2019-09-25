@@ -43,6 +43,7 @@ struct _GaeguliPipeline
 
   GaeguliVideoSource source;
   gchar *device;
+  GaeguliEncodingMethod encoding_method;
 
   GHashTable *targets;
 
@@ -120,9 +121,10 @@ typedef enum
 {
   PROP_SOURCE = 1,
   PROP_DEVICE,
+  PROP_ENCODING_METHOD,
 
   /*< private > */
-  PROP_LAST = PROP_DEVICE,
+  PROP_LAST = PROP_ENCODING_METHOD,
 } _GaeguliPipelineProperty;
 
 static GParamSpec *properties[PROP_LAST + 1];
@@ -171,6 +173,9 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_DEVICE:
       g_value_set_string (value, self->device);
       break;
+    case PROP_ENCODING_METHOD:
+      g_value_set_enum (value, self->encoding_method);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -191,6 +196,9 @@ gaeguli_pipeline_set_property (GObject * object,
     case PROP_DEVICE:
       g_assert_null (self->device);     /* construct only */
       self->device = g_value_dup_string (value);
+      break;
+    case PROP_ENCODING_METHOD:
+      self->encoding_method = g_value_get_enum (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -214,6 +222,12 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
   properties[PROP_DEVICE] = g_param_spec_string ("device", "device", "device",
       DEFAULT_VIDEO_SOURCE_DEVICE,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_ENCODING_METHOD] =
+      g_param_spec_enum ("encoding-method", "encoding method",
+      "encoding method", GAEGULI_TYPE_ENCODING_METHOD, DEFAULT_ENCODING_METHOD,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
 
@@ -239,7 +253,8 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
 }
 
 static GaeguliPipeline *
-gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device)
+gaeguli_pipeline_new_full (GaeguliVideoSource source,
+    const gchar * device, GaeguliEncodingMethod encoding_method)
 {
   g_autoptr (GaeguliPipeline) pipeline = NULL;
 
@@ -253,7 +268,7 @@ gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device)
   g_debug ("source: [%d / %s]", source, device);
   pipeline =
       g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device", device,
-      NULL);
+      "encoding-method", encoding_method, NULL);
 
   return g_steal_pointer (&pipeline);
 }
@@ -265,14 +280,47 @@ gaeguli_pipeline_new (void)
 
   pipeline =
       gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE,
-      DEFAULT_VIDEO_SOURCE_DEVICE);
+      DEFAULT_VIDEO_SOURCE_DEVICE, DEFAULT_ENCODING_METHOD);
 
   return g_steal_pointer (&pipeline);
 }
 
+struct encoding_method_params
+{
+  const gchar *pipeline_str;
+  GaeguliEncodingMethod encoding_method;
+  GaeguliVideoCodec codec;
+};
+
+static struct encoding_method_params enc_params[] = {
+  {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
+      GAEGULI_VIDEO_CODEC_H264},
+  {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
+      GAEGULI_VIDEO_CODEC_H265},
+  {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
+      GAEGULI_VIDEO_CODEC_H264},
+  {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
+      GAEGULI_VIDEO_CODEC_H265},
+  {NULL, 0, 0},
+};
+
+static const gchar *
+_lookup_enc_string (GaeguliEncodingMethod encoding_method,
+    GaeguliVideoCodec codec)
+{
+  struct encoding_method_params *params = enc_params;
+
+  for (; params->pipeline_str != NULL; params++) {
+    if (params->encoding_method == encoding_method && params->codec == codec)
+      return params->pipeline_str;
+  }
+
+  return NULL;
+}
+
 static GstElement *
-_build_target_pipeline (GaeguliVideoCodec codec, const gchar * fifo_path,
-    GError ** error)
+_build_target_pipeline (GaeguliEncodingMethod encoding_method,
+    GaeguliVideoCodec codec, const gchar * fifo_path, GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
   g_autoptr (GstElement) enc_first = NULL;
@@ -281,14 +329,23 @@ _build_target_pipeline (GaeguliVideoCodec codec, const gchar * fifo_path,
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
 
-  switch (codec) {
-    case GAEGULI_VIDEO_CODEC_H264:
-      pipeline_str = g_strdup_printf (GAEGULI_PIPELINE_H264ENC_STR " ! "
-          GAEGULI_PIPELINE_MUXSINK_STR, fifo_path);
-      break;
-    default:
-      g_error ("requested unsupported codec");
-      break;
+  const gchar *enc_pipeline_str = _lookup_enc_string (encoding_method, codec);
+  if (enc_pipeline_str == NULL) {
+    g_set_error (error, GAEGULI_RESOURCE_ERROR,
+        GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
+        "Can not determine encoding method");
+    return NULL;
+  }
+
+  g_debug ("using encoding pipeline [%s]", enc_pipeline_str);
+
+  if (encoding_method == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
+    pipeline_str = g_strdup_printf (enc_pipeline_str, 40000000);
+    pipeline_str = g_strdup_printf ("%s ! "
+        GAEGULI_PIPELINE_MUXSINK_STR, pipeline_str, fifo_path);
+  } else {
+    pipeline_str = g_strdup_printf ("%s ! "
+        GAEGULI_PIPELINE_MUXSINK_STR, enc_pipeline_str, fifo_path);
   }
 
   target_pipeline = gst_parse_launch (pipeline_str, &internal_err);
@@ -532,7 +589,9 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    target_pipeline = _build_target_pipeline (codec, fifo_path, &internal_err);
+    target_pipeline =
+        _build_target_pipeline (self->encoding_method, codec,
+        fifo_path, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target_pipeline == NULL) {
