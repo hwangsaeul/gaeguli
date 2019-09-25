@@ -28,7 +28,7 @@ activate (GApplication * app, gpointer user_data)
 int
 main (int argc, char *argv[])
 {
-  gboolean help;
+  gboolean help = FALSE;
   const gchar *fifo = NULL;
   int result;
 
