@@ -79,4 +79,12 @@ typedef enum {
   GAEGULI_RESOURCE_ERROR_RW,
 } GaeguliResourceError;
 
+#define GAEGULI_TRANSMIT_ERROR          (gaeguli_transmit_error_quark ())
+GQuark gaeguli_transmit_error_quark     (void);
+
+typedef enum {
+  GAEGULI_TRANSMIT_ERROR_FAILED,
+  GAEGULI_TRANSMIT_ERROR_ADDRINUSE
+} GaeguliTransmitError;
+
 #endif // __GAEGULI_TYPES_H__

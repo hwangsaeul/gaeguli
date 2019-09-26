@@ -24,4 +24,5 @@
 
 /* *INDENT-OFF* */
 G_DEFINE_QUARK (gaeguli-resource-error-quark, gaeguli_resource_error)
+G_DEFINE_QUARK (gaeguli-transmit-error-quark, gaeguli_transmit_error)
 /* *INDENT-ON* */
