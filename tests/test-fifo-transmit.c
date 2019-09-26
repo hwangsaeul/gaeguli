@@ -352,6 +352,168 @@ test_gaeguli_fifo_transmit_address_in_use (void)
   g_assert_cmpint (transmit_id, ==, 0);
 }
 
+typedef struct
+{
+  GMainLoop *loop;
+  GaeguliFifoTransmit *transmit;
+
+  guint watchdog_id;
+
+  GstElement *receiver1;
+  GstElement *receiver2;
+  GstElement *receiver3;
+
+  gsize receiver1_buffer_cnt;
+  gsize receiver2_buffer_cnt;
+  gsize receiver3_buffer_cnt;
+
+  gsize receiver1_buffer_cnt_last;
+
+} ClientTestData;
+
+static GstElement *
+create_receiver (GaeguliSRTMode mode, guint port, GCallback handoff_callback,
+    gpointer data)
+{
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GstElement) receiver = NULL;
+  g_autoptr (GstElement) sink = NULL;
+  g_autofree gchar *pipeline_str = NULL;
+  gchar *mode_str = mode == GAEGULI_SRT_MODE_CALLER ? "caller" : "listener";
+
+  pipeline_str = g_strdup_printf ("srtsrc uri=srt://127.0.0.1:%d?mode=%s ! "
+      "fakesink name=sink signal-handoffs=1", port, mode_str);
+
+  receiver = gst_parse_launch (pipeline_str, &error);
+  g_assert_no_error (error);
+
+  sink = gst_bin_get_by_name (GST_BIN (receiver), "sink");
+  g_signal_connect (sink, "handoff", handoff_callback, data);
+
+  gst_element_set_state (receiver, GST_STATE_PLAYING);
+
+  return g_steal_pointer (&receiver);
+}
+
+static void
+receiver3_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    ClientTestData * data)
+{
+  /* Fifo transmit should reject second client connecting in listener mode. */
+  g_assert_null (data->receiver2);
+
+  if (++data->receiver3_buffer_cnt == 100) {
+    g_debug ("Receiver 3 started receiving; exiting main loop");
+
+    g_main_loop_quit (data->loop);
+  }
+}
+
+static gboolean
+receiver2_remove_cb (ClientTestData * data)
+{
+  /* Stop receiver 2 to let receiver 3 connect. */
+  g_debug ("Stopping receiver 2");
+
+  gst_element_set_state (data->receiver2, GST_STATE_NULL);
+  g_clear_pointer (&data->receiver2, gst_object_unref);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+receiver2_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    ClientTestData * data)
+{
+  ++data->receiver2_buffer_cnt;
+
+  if (data->receiver2_buffer_cnt == 100) {
+    g_autoptr (GError) error = NULL;
+
+    g_debug ("Receiver 2 started receiving; spawning receiver 3");
+
+    data->receiver3 = create_receiver (GAEGULI_SRT_MODE_CALLER, 8889,
+        (GCallback) receiver3_buffer_cb, data);
+  } else if (data->receiver2_buffer_cnt == 300) {
+    g_idle_add ((GSourceFunc) receiver2_remove_cb, data);
+  }
+}
+
+static gboolean
+receiver_watchdog_cb (ClientTestData * data)
+{
+  g_debug ("Watchdog timeout");
+
+  /* Check that receiver 1 haven't stopped receiving. */
+  g_assert_cmpuint (data->receiver1_buffer_cnt, >,
+      data->receiver1_buffer_cnt_last);
+
+  data->receiver1_buffer_cnt_last = data->receiver1_buffer_cnt;
+
+  return G_SOURCE_CONTINUE;
+}
+
+static void
+receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    ClientTestData * data)
+{
+  ++data->receiver1_buffer_cnt;
+
+  if (data->receiver1_buffer_cnt == 1) {
+    data->watchdog_id = g_timeout_add (100, (GSourceFunc) receiver_watchdog_cb,
+        data);
+  } else if (data->receiver1_buffer_cnt == 100) {
+    guint transmit_id;
+    g_autoptr (GError) error = NULL;
+
+    g_debug ("Receiver 1 started receiving; spawning receiver 2");
+
+    transmit_id = gaeguli_fifo_transmit_start (data->transmit,
+        "127.0.0.1", 8889, GAEGULI_SRT_MODE_LISTENER, &error);
+    g_assert_no_error (error);
+    g_assert_cmpint (transmit_id, !=, 0);
+
+    data->receiver2 = create_receiver (GAEGULI_SRT_MODE_CALLER, 8889,
+        (GCallback) receiver2_buffer_cb, data);
+  }
+}
+
+static void
+test_gaeguli_fifo_transmit_listener (TestFixture * fixture,
+    gconstpointer unused)
+{
+  g_autoptr (GaeguliFifoTransmit) transmit = gaeguli_fifo_transmit_new ();
+  g_autoptr (GaeguliPipeline) pipeline = gaeguli_pipeline_new ();
+  g_autoptr (GError) error = NULL;
+  ClientTestData data = { 0 };
+  guint transmit_id;
+
+  gaeguli_pipeline_add_fifo_target_full (pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640x480,
+      gaeguli_fifo_transmit_get_fifo (transmit), &error);
+  g_assert_no_error (error);
+
+  transmit_id = gaeguli_fifo_transmit_start (transmit, "127.0.0.1", 8888,
+      GAEGULI_SRT_MODE_CALLER, &error);
+  g_assert_no_error (error);
+  g_assert_cmpint (transmit_id, !=, 0);
+
+  data.loop = fixture->loop;
+  data.transmit = transmit;
+  data.receiver1 = create_receiver (GAEGULI_SRT_MODE_LISTENER, 8888,
+      (GCallback) receiver1_buffer_cb, &data);
+
+  g_main_loop_run (fixture->loop);
+
+  g_source_remove (data.watchdog_id);
+  gst_element_set_state (data.receiver1, GST_STATE_NULL);
+  g_clear_pointer (&data.receiver1, gst_object_unref);
+  gst_element_set_state (data.receiver3, GST_STATE_NULL);
+  g_clear_pointer (&data.receiver3, gst_object_unref);
+
+  gaeguli_pipeline_stop (pipeline);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -381,6 +543,10 @@ main (int argc, char *argv[])
 
   g_test_add_func ("/gaeguli/fifo-transmit-address-in-use",
       test_gaeguli_fifo_transmit_address_in_use);
+
+  g_test_add ("/gaeguli/fifo-transmit-listener",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_fifo_transmit_listener, fixture_teardown);
 
   return g_test_run ();
 }
