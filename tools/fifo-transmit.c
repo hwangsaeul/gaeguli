@@ -34,9 +34,9 @@ activate (GApplication * app, gpointer user_data)
 int
 main (int argc, char *argv[])
 {
-  gboolean help;
+  gboolean help = FALSE;
   const gchar *host = NULL;
-  guint port;
+  guint port = 8888;
   const gchar *tmpdir = NULL;
 
   g_autoptr (GError) error = NULL;
