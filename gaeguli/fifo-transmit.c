@@ -531,6 +531,10 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
         srt_epoll_remove_usock (info->poll_id, info->sock);
         srt_close (info->sock);
         info->sock = SRT_INVALID_SOCK;
+        if (info->mode == GAEGULI_SRT_MODE_LISTENER) {
+          g_autoptr (GError) error = NULL;
+          info->listen_sock = _srt_open_listen_socket (info->sockaddr, &error);
+        }
         return;
       case SRTS_CONNECTED:
         /* good to go */
