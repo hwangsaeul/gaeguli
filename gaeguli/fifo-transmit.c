@@ -385,6 +385,25 @@ _srt_connect (SRTInfo * info)
 }
 
 static gboolean
+_srt_accept (SRTInfo * info)
+{
+  g_return_val_if_fail (info->sock == SRT_INVALID_SOCK, FALSE);
+  g_return_val_if_fail (info->listen_sock != SRT_INVALID_SOCK, FALSE);
+
+  info->sock = srt_accept (info->listen_sock, NULL, NULL);
+  if (info->sock == SRT_INVALID_SOCK) {
+    return FALSE;
+  }
+
+  srt_close (info->listen_sock);
+  info->listen_sock = SRT_INVALID_SOCK;
+
+  g_debug ("Connection to SRT socket accepted");
+
+  return TRUE;
+}
+
+static gboolean
 _srt_open (SRTInfo * info)
 {
   g_autoptr (GError) error = NULL;
@@ -393,7 +412,9 @@ _srt_open (SRTInfo * info)
   g_return_val_if_fail (info->sock == SRT_INVALID_SOCK, FALSE);
 
   if (info->listen_sock != SRT_INVALID_SOCK) {
-    // TODO listener mode
+    if (!_srt_accept (info)) {
+      return FALSE;
+    }
   } else {
     g_warning ("Trying to re-connnect");
     if (!_srt_connect (info)) {
@@ -485,8 +506,8 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
   gssize len = 0;
   gint poll_timeout = 100;      /* FIXME: does it work? */
 
-  if (info->sock == SRT_INVALID_SOCK) {
-    _srt_open (info);
+  if (info->sock == SRT_INVALID_SOCK && !_srt_open (info)) {
+    return;
   }
 
   while (len < buf_len) {
