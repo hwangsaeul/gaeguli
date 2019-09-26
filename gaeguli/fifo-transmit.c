@@ -360,12 +360,9 @@ _apply_socket_options (SRTSOCKET sock)
 }
 
 static gboolean
-_srt_open (SRTInfo * info)
+_srt_connect (SRTInfo * info)
 {
   g_autoptr (GError) error = NULL;
-
-  gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_OUT;
-
   gpointer sa;
   size_t sa_len;
 
@@ -376,26 +373,44 @@ _srt_open (SRTInfo * info)
   }
 
   info->sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
+  _apply_socket_options (info->sock);
+
+  if (srt_connect (info->sock, sa, sa_len) == SRT_ERROR) {
+    g_debug ("%s", srt_getlasterror_str ());
+    return FALSE;
+  }
+
+  g_debug ("opened srt socket successfully");
+  return TRUE;
+}
+
+static gboolean
+_srt_open (SRTInfo * info)
+{
+  g_autoptr (GError) error = NULL;
+  const gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_OUT;
+
+  g_return_val_if_fail (info->sock == SRT_INVALID_SOCK, FALSE);
+
+  if (info->listen_sock != SRT_INVALID_SOCK) {
+    // TODO listener mode
+  } else {
+    g_warning ("Trying to re-connnect");
+    if (!_srt_connect (info)) {
+      return FALSE;
+    }
+  }
 
   if (info->poll_id != SRT_ERROR) {
     srt_epoll_release (info->poll_id);
+    info->poll_id = SRT_ERROR;
   }
-
   info->poll_id = srt_epoll_create ();
-
-  _apply_socket_options (info->sock);
-
   if (srt_epoll_add_usock (info->poll_id, info->sock, &sock_flags)) {
     g_warning ("%s", srt_getlasterror_str ());
     goto failed;
   }
 
-  if (srt_connect (info->sock, sa, sa_len) == SRT_ERROR) {
-    g_debug ("%s", srt_getlasterror_str ());
-    goto failed;
-  }
-
-  g_debug ("opened srt socket successfully");
   return TRUE;
 
 failed:
@@ -471,7 +486,6 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
   gint poll_timeout = 100;      /* FIXME: does it work? */
 
   if (info->sock == SRT_INVALID_SOCK) {
-    g_warning ("Trying to re-connnect");
     _srt_open (info);
   }
 
