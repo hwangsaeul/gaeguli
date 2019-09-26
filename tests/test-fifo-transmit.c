@@ -333,6 +333,25 @@ test_gaeguli_fifo_transmit_reattach_stream (TestFixture * fixture,
   g_main_context_pop_thread_default (g_main_loop_get_context (fixture->loop));
 }
 
+static void
+test_gaeguli_fifo_transmit_address_in_use (void)
+{
+  g_autoptr (GaeguliFifoTransmit) transmit = gaeguli_fifo_transmit_new ();
+  g_autoptr (GError) error = NULL;
+  guint transmit_id;
+
+  transmit_id = gaeguli_fifo_transmit_start (transmit, "127.0.0.1", 8888,
+      GAEGULI_SRT_MODE_LISTENER, &error);
+  g_assert_no_error (error);
+  g_assert_cmpint (transmit_id, !=, 0);
+
+  transmit_id = gaeguli_fifo_transmit_start (transmit, "127.0.0.2", 8888,
+      GAEGULI_SRT_MODE_LISTENER, &error);
+  g_assert_error (error, GAEGULI_TRANSMIT_ERROR,
+      GAEGULI_TRANSMIT_ERROR_ADDRINUSE);
+  g_assert_cmpint (transmit_id, ==, 0);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -359,6 +378,9 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/fifo-transmit-reattach-stream",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_fifo_transmit_reattach_stream, fixture_teardown);
+
+  g_test_add_func ("/gaeguli/fifo-transmit-address-in-use",
+      test_gaeguli_fifo_transmit_address_in_use);
 
   return g_test_run ();
 }
