@@ -46,6 +46,7 @@ typedef struct _SRTInfo
   GaeguliSRTMode mode;
 
   SRTSOCKET sock;
+  SRTSOCKET listen_sock;
   gint poll_id;
 
 } SRTInfo;
@@ -59,6 +60,7 @@ srt_info_new (const gchar * host, guint port, GaeguliSRTMode mode,
   info->hostinfo = g_strdup (hostinfo_json);
   info->refcount = 1;
   info->sock = SRT_INVALID_SOCK;
+  info->listen_sock = SRT_INVALID_SOCK;
   info->poll_id = SRT_ERROR;
   info->sockaddr = g_inet_socket_address_new_from_string (host, port);
   info->mode = mode;
@@ -90,6 +92,9 @@ srt_info_unref (SRTInfo * info)
   if (g_atomic_int_dec_and_test (&info->refcount)) {
     if (info->sock != SRT_INVALID_SOCK) {
       srt_close (info->sock);
+    }
+    if (info->listen_sock != SRT_INVALID_SOCK) {
+      srt_close (info->listen_sock);
     }
     g_free (info->hostinfo);
     g_clear_object (&info->sockaddr);
@@ -409,6 +414,55 @@ failed:
   return FALSE;
 }
 
+static SRTSOCKET
+_srt_open_listen_socket (GSocketAddress * sockaddr, GError ** error)
+{
+  SRTSOCKET listen_sock;
+  gpointer sa;
+  size_t sa_len;
+  int srt_error;
+  g_autoptr (GError) internal_err = NULL;
+  g_autofree gchar *error_msg = NULL;
+
+  listen_sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
+  _apply_socket_options (listen_sock);
+
+  sa_len = g_socket_address_get_native_size (sockaddr);
+  sa = g_alloca (sa_len);
+  if (!g_socket_address_to_native (sockaddr, sa, sa_len, &internal_err)) {
+    g_warning ("%s", internal_err->message);
+    g_propagate_error (error, internal_err);
+    goto error;
+  }
+
+  if (srt_bind (listen_sock, sa, sa_len) == SRT_ERROR) {
+    goto srt_error;
+  }
+  if (srt_listen (listen_sock, 1) == SRT_ERROR) {
+    goto srt_error;
+  }
+
+  return listen_sock;
+
+srt_error:
+  srt_error = srt_getlasterror (NULL);
+  error_msg = g_strdup_printf ("Failed to open listen socket: %s",
+      srt_strerror (srt_error, 0));
+
+  g_warning ("%s", error_msg);
+
+  if (error) {
+    *error = g_error_new (GAEGULI_TRANSMIT_ERROR, GAEGULI_TRANSMIT_ERROR_FAILED,
+        "%s", error_msg);
+    if (srt_error == SRT_EDUPLISTEN) {
+      (*error)->code = GAEGULI_TRANSMIT_ERROR_ADDRINUSE;
+    }
+  }
+
+error:
+  return SRT_INVALID_SOCK;
+}
+
 static void
 _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     gconstpointer buf, gsize buf_len)
@@ -533,8 +587,6 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
 
   hostinfo = g_strdup_printf (HOSTINFO_JSON_FORMAT, host, port, mode);
-  transmit_id = g_str_hash (hostinfo);
-  g_debug ("hostinfo[%x]: %s", transmit_id, hostinfo);
 
   g_mutex_lock (&self->lock);
 
@@ -545,10 +597,12 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
   }
 
   srtinfo = srt_info_new (host, port, mode, hostinfo);
-  if (!g_hash_table_insert (self->sockets, g_steal_pointer (&hostinfo),
-          g_steal_pointer (&srtinfo))) {
-    /* TODO: set errors and return zero id */
-    g_error ("Failed to add new srt connection information.");
+
+  if (mode == GAEGULI_SRT_MODE_LISTENER) {
+    srtinfo->listen_sock = _srt_open_listen_socket (srtinfo->sockaddr, error);
+    if (srtinfo->listen_sock == SRT_INVALID_SOCK) {
+      goto out;
+    }
   }
 
   g_debug ("Created SRT connection (n: %d)", g_hash_table_size (self->sockets));
@@ -569,6 +623,12 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
         G_PRIORITY_DEFAULT, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP,
         _recv_stream, weak_ref_new (self), (GDestroyNotify) weak_ref_free);
   }
+
+  transmit_id = g_str_hash (hostinfo);
+  g_debug ("hostinfo[%x]: %s", transmit_id, hostinfo);
+
+  g_hash_table_insert (self->sockets, g_steal_pointer (&hostinfo),
+      g_steal_pointer (&srtinfo));
 
 out:
   g_mutex_unlock (&self->lock);
