@@ -342,13 +342,24 @@ gaeguli_fifo_transmit_get_stats (GaeguliFifoTransmit * self)
   return g_variant_dict_ref (self->stats);
 }
 
+static void
+_apply_socket_options (SRTSOCKET sock)
+{
+  struct srt_constant_params *params = srt_params;
+
+  for (; params->name != NULL; params++) {
+    if (srt_setsockopt (sock, 0, params->param, &params->val, sizeof (gint))) {
+      g_error ("%s", srt_getlasterror_str ());
+    }
+  }
+}
+
 static gboolean
 _srt_open (SRTInfo * info)
 {
   g_autoptr (GError) error = NULL;
 
   gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_OUT;
-  struct srt_constant_params *params = srt_params;
 
   gpointer sa;
   size_t sa_len;
@@ -367,13 +378,7 @@ _srt_open (SRTInfo * info)
 
   info->poll_id = srt_epoll_create ();
 
-  for (; params->name != NULL; params++) {
-    if (srt_setsockopt (info->sock, 0, params->param, &params->val,
-            sizeof (gint))) {
-      g_error ("%s", srt_getlasterror_str ());
-    }
-
-  }
+  _apply_socket_options (info->sock);
 
   if (srt_epoll_add_usock (info->poll_id, info->sock, &sock_flags)) {
     g_warning ("%s", srt_getlasterror_str ());
