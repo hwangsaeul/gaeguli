@@ -514,6 +514,73 @@ test_gaeguli_fifo_transmit_listener (TestFixture * fixture,
   gaeguli_pipeline_stop (pipeline);
 }
 
+typedef struct
+{
+  GMainLoop *loop;
+  GaeguliFifoTransmit *transmit;
+  guint listeners_to_create;
+  gint listeners[5];
+} ListenerRandomTestData;
+
+static gboolean
+listener_random_cb (ListenerRandomTestData * data)
+{
+  gint i = g_random_int_range (0, G_N_ELEMENTS (data->listeners));
+  g_autoptr (GError) error = NULL;
+
+  if (data->listeners[i] == 0) {
+    if (data->listeners_to_create == 0) {
+      return G_SOURCE_CONTINUE;
+    }
+
+    data->listeners[i] = gaeguli_fifo_transmit_start (data->transmit,
+        "127.0.0.1", 8888 + i, GAEGULI_SRT_MODE_LISTENER, &error);
+    g_assert_no_error (error);
+
+    --data->listeners_to_create;
+    g_debug ("Added a listener. %d more to go.", data->listeners_to_create);
+  } else {
+    gaeguli_fifo_transmit_stop (data->transmit, data->listeners[i], &error);
+    g_assert_no_error (error);
+    data->listeners[i] = 0;
+
+    g_debug ("Removed a listener.");
+
+    if (data->listeners_to_create == 0) {
+      for (i = 0; i != G_N_ELEMENTS (data->listeners); ++i) {
+        if (data->listeners[i] != 0) {
+          return G_SOURCE_CONTINUE;
+        }
+      }
+      /* All listeners have gone through their lifecycle; stop the test. */
+      g_main_loop_quit (data->loop);
+    }
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static void
+test_gaeguli_fifo_transmit_listener_random (TestFixture * fixture,
+    gconstpointer unused)
+{
+  g_autoptr (GaeguliFifoTransmit) transmit = gaeguli_fifo_transmit_new ();
+  g_autoptr (GaeguliPipeline) pipeline = gaeguli_pipeline_new ();
+
+  ListenerRandomTestData data = { 0 };
+  guint timeout_source;
+
+  data.loop = fixture->loop;
+  data.transmit = transmit;
+  data.listeners_to_create = 10;
+
+  timeout_source = g_timeout_add (50, (GSourceFunc) listener_random_cb, &data);
+  g_main_loop_run (fixture->loop);
+  g_source_remove (timeout_source);
+
+  gaeguli_pipeline_stop (pipeline);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -547,6 +614,10 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/fifo-transmit-listener",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_fifo_transmit_listener, fixture_teardown);
+
+  g_test_add ("/gaeguli/fifo-transmit-listener-random",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_fifo_transmit_listener_random, fixture_teardown);
 
   return g_test_run ();
 }
