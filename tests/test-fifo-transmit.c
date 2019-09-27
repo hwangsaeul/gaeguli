@@ -581,6 +581,102 @@ test_gaeguli_fifo_transmit_listener_random (TestFixture * fixture,
   gaeguli_pipeline_stop (pipeline);
 }
 
+typedef struct
+{
+  GMainLoop *loop;
+  GaeguliFifoTransmit *transmit;
+  GstElement *receiver;
+  gint transmit_id;
+  gint receiver1_buffer_cnt;
+  gint receiver2_buffer_cnt;
+} ReuseTestData;
+
+static void
+reuse_receiver2_buffer_cb (GstElement * object, GstBuffer * buffer,
+    GstPad * pad, ReuseTestData * data)
+{
+  if (++data->receiver2_buffer_cnt == 100) {
+    g_debug ("Exiting the main loop");
+    g_main_loop_quit (data->loop);
+  }
+}
+
+static gboolean
+start_receiver2_cb (ReuseTestData * data)
+{
+  g_autoptr (GError) error = NULL;
+
+  g_assert_null (data->receiver);
+
+  data->transmit_id = gaeguli_fifo_transmit_start (data->transmit, "127.0.0.1",
+      8888, GAEGULI_SRT_MODE_LISTENER, &error);
+  g_assert_no_error (error);
+
+  data->receiver = create_receiver (GAEGULI_SRT_MODE_CALLER, 8888,
+      (GCallback) reuse_receiver2_buffer_cb, data);
+
+  g_debug ("Created receiver 2");
+
+  return G_SOURCE_REMOVE;
+}
+
+static gboolean
+stop_receiver1_cb (ReuseTestData * data)
+{
+  g_autoptr (GError) error = NULL;
+
+  g_debug ("Stopping receiver 1");
+  gst_element_set_state (data->receiver, GST_STATE_NULL);
+  g_clear_pointer (&data->receiver, gst_object_unref);
+
+  gaeguli_fifo_transmit_stop (data->transmit, data->transmit_id, &error);
+  g_assert_no_error (error);
+
+  /* Wait for a while, then attach new receiver. */
+  g_timeout_add (200, (GSourceFunc) start_receiver2_cb, data);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+reuse_receiver1_buffer_cb (GstElement * object, GstBuffer * buffer,
+    GstPad * pad, ReuseTestData * data)
+{
+  if (++data->receiver1_buffer_cnt == 100) {
+    g_idle_add ((GSourceFunc) stop_receiver1_cb, data);
+  }
+}
+
+static void
+test_gaeguli_fifo_transmit_reuse (TestFixture * fixture, gconstpointer unused)
+{
+  g_autoptr (GaeguliFifoTransmit) transmit = gaeguli_fifo_transmit_new ();
+  g_autoptr (GaeguliPipeline) pipeline = gaeguli_pipeline_new ();
+  g_autoptr (GError) error = NULL;
+  ReuseTestData data = { 0 };
+
+  gaeguli_pipeline_add_fifo_target_full (pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640x480,
+      gaeguli_fifo_transmit_get_fifo (transmit), &error);
+  g_assert_no_error (error);
+
+  data.transmit_id = gaeguli_fifo_transmit_start (transmit, "127.0.0.1", 8888,
+      GAEGULI_SRT_MODE_LISTENER, &error);
+  g_assert_no_error (error);
+
+  data.loop = fixture->loop;
+  data.transmit = transmit;
+  data.receiver = create_receiver (GAEGULI_SRT_MODE_CALLER, 8888,
+      (GCallback) reuse_receiver1_buffer_cb, &data);
+
+  g_main_loop_run (fixture->loop);
+
+  gst_element_set_state (data.receiver, GST_STATE_NULL);
+  g_clear_pointer (&data.receiver, gst_object_unref);
+
+  gaeguli_pipeline_stop (pipeline);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -618,6 +714,10 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/fifo-transmit-listener-random",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_fifo_transmit_listener_random, fixture_teardown);
+
+  g_test_add ("/gaeguli/fifo-transmit-reuse",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_fifo_transmit_reuse, fixture_teardown);
 
   return g_test_run ();
 }
