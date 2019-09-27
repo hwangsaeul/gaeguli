@@ -565,7 +565,6 @@ _send_to (GaeguliFifoTransmit * self, gconstpointer buf, gsize len)
   g_hash_table_iter_init (&iter, self->sockets);
 
   while (g_hash_table_iter_next (&iter, &key, &value)) {
-    /* TODO: support to be listener */
     _send_to_listener (self, (SRTInfo *) value, buf, len);
   }
 }
