@@ -3,7 +3,8 @@ project('gaeguli', 'c',
   license: 'LGPL',
   meson_version: '>= 0.40',
   default_options: [ 'warning_level=1',
-                     'buildtype=debugoptimized' ])
+                     'buildtype=debugoptimized',
+                     'c_std=gnu89' ])
 
 project_version = meson.project_version()
 version_arr = project_version.split('.')
@@ -20,6 +21,8 @@ gaeguli_api_name = '@0@-@1@'.format(meson.project_name(), apiversion)
 prefix = get_option('prefix')
 
 cc = meson.get_compiler('c')
+
+add_project_arguments('-Wdeclaration-after-statement', language: 'c')
 
 cdata = configuration_data()
 cdata.set_quoted('PACKAGE_STRING', meson.project_name())
