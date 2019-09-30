@@ -4,16 +4,17 @@ steps:
   displayName: 'Run dpkg-build'
 
 - bash: |
-    cp ../*.buildinfo $(Build.ArtifactStagingDirectory) | true
-    cp ../*.tar.* $(Build.ArtifactStagingDirectory)
-    cp ../*.changes $(Build.ArtifactStagingDirectory)
-    cp ../*.dsc $(Build.ArtifactStagingDirectory)
-    cp ../*.deb $(Build.ArtifactStagingDirectory)
-    cp ../*.ddeb $(Build.ArtifactStagingDirectory) | true
+    mkdir -p $(Build.ArtifactStagingDirectory)/$(ubuntu_version)
+    cp ../*.buildinfo $(Build.ArtifactStagingDirectory)/$(ubuntu_version) | true
+    cp ../*.tar.* $(Build.ArtifactStagingDirectory)/$(ubuntu_version)
+    cp ../*.changes $(Build.ArtifactStagingDirectory)/$(ubuntu_version)
+    cp ../*.dsc $(Build.ArtifactStagingDirectory)/$(ubuntu_version)
+    cp ../*.deb $(Build.ArtifactStagingDirectory)/$(ubuntu_version)
+    cp ../*.ddeb $(Build.ArtifactStagingDirectory)/$(ubuntu_version) | true
   condition: not(canceled())
   displayName: 'Copy artifacts'
 
 - task: PublishBuildArtifacts@1
   inputs:
-    pathToPublish: $(Build.ArtifactStagingDirectory)
-    artifactName: DebinazePackages
+    pathToPublish: $(Build.ArtifactStagingDirectory)/$(ubuntu_version)
+    artifactName: DebinazePackages.$(ubuntu_version)

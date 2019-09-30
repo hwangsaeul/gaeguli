@@ -27,6 +27,8 @@ jobs:
   dependsOn: BuildTest
   displayName: "Packaging for Ubuntu 16.04"
   pool: 'HwangsaeulUbuntu1604'
+  variables: 
+    ubuntu_version: '1604'
   steps:
   - template: ci/debianize-steps.yml
 
@@ -34,6 +36,8 @@ jobs:
   dependsOn: BuildTest
   displayName: "Packaging for Ubuntu 18.04"
   pool: 'HwangsaeulUbuntu1804'
+  variables: 
+    ubuntu_version: '1804'
   steps:
   - template: ci/debianize-steps.yml
 
