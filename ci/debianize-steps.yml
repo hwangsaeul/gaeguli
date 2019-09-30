@@ -17,4 +17,4 @@ steps:
 - task: PublishBuildArtifacts@1
   inputs:
     pathToPublish: $(Build.ArtifactStagingDirectory)/$(ubuntu_version)
-    artifactName: DebinazePackages.$(ubuntu_version)
+    artifactName: DebianizePackages.$(ubuntu_version)
