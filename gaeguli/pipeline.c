@@ -52,6 +52,9 @@ struct _GaeguliPipeline
   GstElement *pipeline;
   GstElement *vsrc;
 
+  GstElement *overlay;
+  gboolean show_overlay;
+
   guint stop_pipeline_event_id;
 };
 
@@ -124,12 +127,13 @@ typedef enum
   PROP_SOURCE = 1,
   PROP_DEVICE,
   PROP_ENCODING_METHOD,
+  PROP_CLOCK_OVERLAY,
 
   /*< private > */
-  PROP_LAST = PROP_ENCODING_METHOD,
+  PROP_LAST
 } _GaeguliPipelineProperty;
 
-static GParamSpec *properties[PROP_LAST + 1];
+static GParamSpec *properties[PROP_LAST];
 
 enum
 {
@@ -182,6 +186,9 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_ENCODING_METHOD:
       g_value_set_enum (value, self->encoding_method);
       break;
+    case PROP_CLOCK_OVERLAY:
+      g_value_set_boolean (value, self->show_overlay);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -205,6 +212,12 @@ gaeguli_pipeline_set_property (GObject * object,
       break;
     case PROP_ENCODING_METHOD:
       self->encoding_method = g_value_get_enum (value);
+      break;
+    case PROP_CLOCK_OVERLAY:
+      self->show_overlay = g_value_get_boolean (value);
+      if (self->overlay) {
+        g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
+      }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -233,6 +246,11 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       g_param_spec_enum ("encoding-method", "encoding method",
       "encoding method", GAEGULI_TYPE_ENCODING_METHOD, DEFAULT_ENCODING_METHOD,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_CLOCK_OVERLAY] =
+      g_param_spec_boolean ("clock-overlay", "clock overlay",
+      "Overlay the current time on the video stream", FALSE,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
@@ -471,6 +489,9 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
 
   self->pipeline = gst_pipeline_new (NULL);
   gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
+
+  self->overlay = gst_bin_get_by_name (GST_BIN (self->pipeline), "overlay");
+  g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
 
   /* Caps of the video source are determined by the caps filter in vsrc pipeline
    * and don't need to be renegotiated when a new target pipeline links to
@@ -736,6 +757,7 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
   if (self->pipeline) {
     gst_element_set_state (self->pipeline, GST_STATE_NULL);
   }
+  g_clear_pointer (&self->overlay, gst_object_unref);
   g_clear_pointer (&self->pipeline, gst_object_unref);
 
   g_mutex_unlock (&self->lock);
