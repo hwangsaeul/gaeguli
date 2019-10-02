@@ -15,6 +15,7 @@ typedef struct
   gboolean help;
   const gchar *host;
   guint port;
+  GaeguliSRTMode mode;
   const gchar *tmpdir;
 } FifoTransmitOptions;
 
@@ -30,12 +31,31 @@ activate (GApplication * app, gpointer user_data)
 
   transmit_id =
       gaeguli_fifo_transmit_start (fifo_transmit, options->host, options->port,
-      GAEGULI_SRT_MODE_LISTENER, &error);
+      options->mode, &error);
 
   g_object_set_data (G_OBJECT (app), "transmit-id",
       GINT_TO_POINTER (transmit_id));
 
   g_application_hold (app);
+}
+
+static gboolean
+mode_arg_cb (const gchar * option_name, const gchar * value, gpointer data,
+    GError ** error)
+{
+  FifoTransmitOptions *options = (FifoTransmitOptions *) data;
+
+  if (g_str_equal (value, "caller")) {
+    options->mode = GAEGULI_SRT_MODE_CALLER;
+  } else if (g_str_equal (value, "listener")) {
+    options->mode = GAEGULI_SRT_MODE_LISTENER;
+  } else {
+    *error = g_error_new (GAEGULI_RESOURCE_ERROR,
+        GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Unknown SRT mode '%s'", value);
+    return FALSE;
+  }
+
+  return TRUE;
 }
 
 int
@@ -51,6 +71,7 @@ main (int argc, char *argv[])
   GOptionEntry entries[] = {
     {"host", 'h', 0, G_OPTION_ARG_STRING, &options.host, NULL, NULL},
     {"port", 'p', 0, G_OPTION_ARG_INT, &options.port, NULL, NULL},
+    {"mode", 'm', 0, G_OPTION_ARG_CALLBACK, mode_arg_cb, NULL, NULL},
     {"tmpdir", 't', 0, G_OPTION_ARG_FILENAME, &options.tmpdir, NULL, NULL},
     {"help", '?', 0, G_OPTION_ARG_NONE, &options.help, NULL, NULL},
     {NULL}
@@ -61,6 +82,7 @@ main (int argc, char *argv[])
   options.help = FALSE;
   options.host = NULL;
   options.port = 8888;
+  options.mode = GAEGULI_SRT_MODE_LISTENER;
   options.tmpdir = NULL;
 
   group = g_option_group_new ("FIFO transmit options",
