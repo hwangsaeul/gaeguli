@@ -9,24 +9,32 @@ Build-Depends: debhelper (>= 10~),
 # Dependencies to run the automated tests
   gstreamer1.0-plugins-good
 Standards-Version: 4.2.1
-Section: video
+Section: libs
 Homepage: https://github.com/hwangsaeul/gaeguli
 Vcs-Browser: https://github.com/hwangsaeul/gaeguli
 Vcs-Git: https://github.com/hwangsaeul/gaeguli.git
 
-Package: gaeguli
+Package: libgaeguli1
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Ultra-low latency SRT streamer
  Gæguli is an SRT streamer designed for edge devices that require
  strong security and ultra-low latency.
 
-Package: gaeguli-dev
-Section: devel
+Package: libgaeguli-dev
+Section: libdevel
 Architecture: any
-Depends: gaeguli (= ${binary:Version}), ${misc:Depends}
+Depends: libgaeguli1 (= ${binary:Version}), ${misc:Depends}
 Description: Ultra-low latency SRT streamer
  Gæguli is an SRT streamer designed for edge devices that require
  strong security and ultra-low latency.
  .
  This package contains development files for gaeguli.
+
+Package: gaeguli-tools
+Architecture: any
+Section: utils
+Depends: libgaeguli1 (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Description: Ultra-low latency SRT streamer
+ Gæguli is an SRT streamer designed for edge devices that require
+ strong security and ultra-low latency.
