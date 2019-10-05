@@ -107,7 +107,6 @@ else
       gst_req_version = '>= 1.8.0'
       gst_dep = [dependency ('gstreamer-1.0', version: gst_req_version), 
                  dependency ('gstreamer-base-1.0', version: gst_req_version),
-                 dependency ('gstreamer-net-1.0', version: gst_req_version),
                  dependency ('gstreamer-net-1.0', version: gst_req_version)]
     endif 
     
