@@ -1,3 +1,5 @@
+pkg = import('pkgconfig')
+
 gaeguli_install_header_subdir = join_paths(gaeguli_api_name, 'gaeguli')
 
 configure_file(output: 'config.h', configuration: cdata)
@@ -44,6 +46,44 @@ libgaeguli = library(
   link_args: common_ldflags,
   install: true
 )
+
+if meson.version().version_compare('>= 0.48.2')
+
+  pkg.generate(libgaeguli,
+    libraries : [ gst_dep, libsrt_dep ],
+    name : meson.project_name(),
+    description : 'A SRT Streaming library',
+    filebase : gaeguli_api_name,
+    subdirs: gaeguli_api_name,
+    variables: 'exec_prefix=${prefix}'
+  )
+
+else
+
+  pkg.generate(
+    libraries : libgaeguli,
+    version : meson.project_version(),
+    name : meson.project_name(),
+    description : 'A SRT Streaming library',
+    filebase : gaeguli_api_name,
+    requires : [
+      'gstreamer-1.0',
+      'gstreamer-base-1.0',
+      'gstreamer-net-1.0',
+      'srt'
+    ],
+    requires_private : [
+      'glib-2.0 ' + glib_req_version,
+      'gobject-2.0 ' + glib_req_version,
+      'gio-2.0 ' + glib_req_version,
+      'gio-unix-2.0 ' + glib_req_version,
+    ],
+    subdirs: gaeguli_api_name,
+    variables: 'exec_prefix=${prefix}'
+  )
+
+endif
+
 
 libgaeguli_dep = declare_dependency(link_with: libgaeguli,
   include_directories: [ gaeguli_incs ],
