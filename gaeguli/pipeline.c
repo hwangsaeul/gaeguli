@@ -252,7 +252,7 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
       NULL, (GDestroyNotify) g_object_unref);
 }
 
-static GaeguliPipeline *
+GaeguliPipeline *
 gaeguli_pipeline_new_full (GaeguliVideoSource source,
     const gchar * device, GaeguliEncodingMethod encoding_method)
 {

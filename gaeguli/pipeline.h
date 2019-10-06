@@ -35,6 +35,11 @@ G_DECLARE_FINAL_TYPE            (GaeguliPipeline, gaeguli_pipeline, GAEGULI, PIP
 
 GaeguliPipeline        *gaeguli_pipeline_new    (void);
 
+GaeguliPipeline        *gaeguli_pipeline_new_full
+                                                (GaeguliVideoSource     source,
+                                                 const gchar           *device,
+                                                 GaeguliEncodingMethod  encoding_method);
+
 guint                   gaeguli_pipeline_add_fifo_target
                                                 (GaeguliPipeline       *self,
                                                  const gchar           *fifo_path,
