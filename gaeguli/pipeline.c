@@ -35,6 +35,8 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEnumClass, g_type_class_unref)
 #endif
 /* *INDENT-ON* */
 
+static guint gaeguli_init_refcnt = 0;
+
 struct _GaeguliPipeline
 {
   GObject parent;
@@ -157,6 +159,10 @@ gaeguli_pipeline_dispose (GObject * object)
 
   g_mutex_clear (&self->lock);
 
+  if (g_atomic_int_dec_and_test (&gaeguli_init_refcnt)) {
+    g_debug ("Cleaning up GStreamer");
+  }
+
   G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->dispose (object);
 }
 
@@ -242,9 +248,22 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
 }
 
+
+static void
+gaeguli_init_once (void)
+{
+  gst_init (NULL, NULL);
+}
+
 static void
 gaeguli_pipeline_init (GaeguliPipeline * self)
 {
+  if (g_atomic_int_get (&gaeguli_init_refcnt) == 0) {
+    gaeguli_init_once ();
+  }
+
+  g_atomic_int_inc (&gaeguli_init_refcnt);
+
   g_mutex_init (&self->lock);
 
   /* kv: hash(fifo-path), target_pipeline */
