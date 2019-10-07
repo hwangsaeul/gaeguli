@@ -340,7 +340,8 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   g_debug ("using encoding pipeline [%s]", enc_pipeline_str);
 
   if (encoding_method == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
-    pipeline_str = g_strdup_printf (enc_pipeline_str, 40000000);
+    /* FIXME: need to add bandwidth parameter */
+    pipeline_str = g_strdup_printf (enc_pipeline_str, 20000000);
     pipeline_str = g_strdup_printf ("%s ! "
         GAEGULI_PIPELINE_MUXSINK_STR, pipeline_str, fifo_path);
   } else {
