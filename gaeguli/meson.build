@@ -5,6 +5,7 @@ gaeguli_install_header_subdir = join_paths(gaeguli_api_name, 'gaeguli')
 configure_file(output: 'config.h', configuration: cdata)
 
 source_h = [
+  'gaeguli.h',
   'types.h',
   'pipeline.h',
   'fifo-transmit.h',
