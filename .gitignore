@@ -61,7 +61,7 @@ build/
 /debian/.debhelper/
 /debian/debhelper-build-stamp
 /debian/files
-/debian/gaeguli/
-/debian/gaeguli-dev/
+/debian/gaeguli-tools/
+/debian/libgaeguli*/
 /debian/tmp/
 /debian/*.substvars
