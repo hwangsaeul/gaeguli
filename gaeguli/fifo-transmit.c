@@ -152,7 +152,7 @@ struct _GaeguliFifoTransmit
 
   GCancellable *cancellable;
   GIOChannel *io_channel;
-  guint fifo_read_event_source_id;
+  GSource *fifo_read_source;
   GIOStatus fifo_read_status;
 
   GHashTable *sockets;
@@ -204,9 +204,9 @@ gaeguli_fifo_transmit_dispose (GObject * object)
 
   g_clear_pointer (&self->sockets, g_hash_table_unref);
   g_clear_pointer (&self->io_channel, g_io_channel_unref);
-  if (self->fifo_read_event_source_id != 0) {
-    g_source_remove (self->fifo_read_event_source_id);
-    self->fifo_read_event_source_id = 0;
+  if (self->fifo_read_source) {
+    g_source_destroy (self->fifo_read_source);
+    g_clear_pointer (&self->fifo_read_source, g_source_unref);
   }
 
   _delete_fifo_path (self);
@@ -645,7 +645,7 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
 
   g_debug ("Created SRT connection (n: %d)", g_hash_table_size (self->sockets));
 
-  if (self->fifo_read_event_source_id == 0) {
+  if (!self->fifo_read_source) {
     gint fd = open (self->fifo_path, O_NONBLOCK | O_RDONLY);
 
     g_debug ("opening io channel (%s)", self->fifo_path);
@@ -657,9 +657,13 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
     g_io_channel_set_buffered (self->io_channel, FALSE);
     g_io_channel_set_flags (self->io_channel, G_IO_FLAG_NONBLOCK, NULL);
 
-    self->fifo_read_event_source_id = g_io_add_watch_full (self->io_channel,
-        G_PRIORITY_DEFAULT, G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP,
-        _recv_stream, weak_ref_new (self), (GDestroyNotify) weak_ref_free);
+    self->fifo_read_source = g_io_create_watch (self->io_channel,
+        G_IO_IN | G_IO_PRI | G_IO_ERR | G_IO_HUP);
+
+    g_source_set_callback (self->fifo_read_source, (GSourceFunc) _recv_stream,
+        weak_ref_new (self), (GDestroyNotify) weak_ref_free);
+    g_source_attach (self->fifo_read_source,
+        g_main_context_get_thread_default ());
   }
 
   transmit_id = g_str_hash (hostinfo);
@@ -704,9 +708,9 @@ gaeguli_fifo_transmit_stop (GaeguliFifoTransmit * self,
   }
   g_debug ("Removed SRT connection (n: %d)", g_hash_table_size (self->sockets));
 
-  if (g_hash_table_size (self->sockets) == 0 && self->fifo_read_event_source_id) {
-    g_source_remove (self->fifo_read_event_source_id);
-    self->fifo_read_event_source_id = 0;
+  if (g_hash_table_size (self->sockets) == 0 && self->fifo_read_source) {
+    g_source_destroy (self->fifo_read_source);
+    g_clear_pointer (&self->fifo_read_source, g_source_unref);
   }
 
   g_mutex_unlock (&self->lock);
