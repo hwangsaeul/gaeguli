@@ -1,5 +1,10 @@
 steps:
 - bash: |
+    apt-get update
+    apt-get install -y libsrt-dev
+  displayName: 'Update ppa'
+
+- bash: |
     DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -us -uc
   displayName: 'Run dpkg-build'
 
