@@ -438,7 +438,7 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   vsrc_str =
       g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, enum_value->value_nick,
       self->source == GAEGULI_VIDEO_SOURCE_V4L2SRC ? "device=" : "",
-      self->device, width, height);
+      self->device != NULL ? self->device : "", width, height);
 
   g_debug ("trying to create video source pipeline (%s)", vsrc_str);
   self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
