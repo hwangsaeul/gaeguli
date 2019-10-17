@@ -71,7 +71,9 @@ static void
 test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
 {
   guint target_id = 0;
-  g_autoptr (GaeguliPipeline) pipeline = gaeguli_pipeline_new ();
+  g_autoptr (GaeguliPipeline) pipeline =
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      GAEGULI_ENCODING_METHOD_GENERAL);
   g_autoptr (GError) error = NULL;
 
   g_signal_connect (pipeline, "stream-started", G_CALLBACK (_stream_started_cb),
