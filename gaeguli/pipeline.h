@@ -35,6 +35,10 @@ G_DECLARE_FINAL_TYPE            (GaeguliPipeline, gaeguli_pipeline, GAEGULI, PIP
 
 GaeguliPipeline        *gaeguli_pipeline_new    (void);
 
+GaeguliPipeline        *gaeguli_pipeline_new_with_manual_pipeline
+                                                (const gchar           *src_pipeline,
+                                                 const gchar           *enc_pipeline);
+
 GaeguliPipeline        *gaeguli_pipeline_new_full
                                                 (GaeguliVideoSource     source,
                                                  const gchar           *device,

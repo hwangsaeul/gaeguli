@@ -48,6 +48,7 @@ typedef enum {
   GAEGULI_VIDEO_SOURCE_V4L2SRC,
   GAEGULI_VIDEO_SOURCE_AVFVIDEOSRC,
   GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC,
+  GAEGULI_VIDEO_SOURCE_MANUAL = G_MAXINT,
 } GaeguliVideoSource;
 
 typedef enum {
@@ -67,6 +68,7 @@ typedef enum {
 typedef enum {
   GAEGULI_ENCODING_METHOD_GENERAL = 1,
   GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
+  GAEGULI_ENCODING_METHOD_MANUAL = G_MAXINT,
 } GaeguliEncodingMethod;
 
 #define GAEGULI_RESOURCE_ERROR          (gaeguli_resource_error_quark ())

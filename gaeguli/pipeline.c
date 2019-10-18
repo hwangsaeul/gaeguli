@@ -46,6 +46,8 @@ struct _GaeguliPipeline
   GaeguliVideoSource source;
   gchar *device;
   GaeguliEncodingMethod encoding_method;
+  gchar *source_pipeline;
+  gchar *encoding_pipeline;
 
   GHashTable *targets;
 
@@ -124,9 +126,11 @@ typedef enum
   PROP_SOURCE = 1,
   PROP_DEVICE,
   PROP_ENCODING_METHOD,
+  PROP_SOURCE_PIPELINE,
+  PROP_ENCODING_PIPELINE,
 
   /*< private > */
-  PROP_LAST = PROP_ENCODING_METHOD,
+  PROP_LAST = PROP_ENCODING_PIPELINE,
 } _GaeguliPipelineProperty;
 
 static GParamSpec *properties[PROP_LAST + 1];
@@ -163,6 +167,9 @@ gaeguli_pipeline_dispose (GObject * object)
     g_debug ("Cleaning up GStreamer");
   }
 
+  g_clear_pointer (&self->source_pipeline, g_free);
+  g_clear_pointer (&self->encoding_pipeline, g_free);
+
   G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->dispose (object);
 }
 
@@ -181,6 +188,12 @@ gaeguli_pipeline_get_property (GObject * object,
       break;
     case PROP_ENCODING_METHOD:
       g_value_set_enum (value, self->encoding_method);
+      break;
+    case PROP_SOURCE_PIPELINE:
+      g_value_set_string (value, self->source_pipeline);
+      break;
+    case PROP_ENCODING_PIPELINE:
+      g_value_set_string (value, self->encoding_pipeline);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -205,6 +218,14 @@ gaeguli_pipeline_set_property (GObject * object,
       break;
     case PROP_ENCODING_METHOD:
       self->encoding_method = g_value_get_enum (value);
+      break;
+    case PROP_SOURCE_PIPELINE:
+      g_free (self->source_pipeline);
+      self->source_pipeline = g_value_dup_string (value);
+      break;
+    case PROP_ENCODING_PIPELINE:
+      g_free (self->encoding_pipeline);
+      self->encoding_pipeline = g_value_dup_string (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -233,6 +254,16 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       g_param_spec_enum ("encoding-method", "encoding method",
       "encoding method", GAEGULI_TYPE_ENCODING_METHOD, DEFAULT_ENCODING_METHOD,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_SOURCE_PIPELINE] =
+      g_param_spec_string ("source-pipeline", "source pipeline",
+      "manual source pipeline", NULL,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_ENCODING_PIPELINE] =
+      g_param_spec_string ("encoding-pipeline", "encoding pipeline",
+      "manual encoding pipeline", NULL,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
@@ -269,6 +300,20 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (NULL, NULL,
       NULL, (GDestroyNotify) g_object_unref);
+}
+
+GaeguliPipeline *gaeguli_pipeline_new_with_manual_pipeline
+    (const gchar * src_pipeline, const gchar * enc_pipeline)
+{
+  g_autoptr (GaeguliPipeline) pipeline = NULL;
+
+  pipeline =
+      g_object_new (GAEGULI_TYPE_PIPELINE, "source",
+      GAEGULI_VIDEO_SOURCE_MANUAL, "encoding-method",
+      GAEGULI_ENCODING_METHOD_MANUAL, "source-pipeline", src_pipeline,
+      "encoding-pipeline", enc_pipeline, NULL);
+
+  return g_steal_pointer (&pipeline);
 }
 
 GaeguliPipeline *
@@ -338,8 +383,9 @@ _lookup_enc_string (GaeguliEncodingMethod encoding_method,
 }
 
 static GstElement *
-_build_target_pipeline (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, const gchar * fifo_path, GError ** error)
+_build_target_pipeline (GaeguliPipeline * self,
+    GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
+    const gchar * fifo_path, GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
   g_autoptr (GstElement) enc_first = NULL;
@@ -348,24 +394,29 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
 
-  const gchar *enc_pipeline_str = _lookup_enc_string (encoding_method, codec);
-  if (enc_pipeline_str == NULL) {
-    g_set_error (error, GAEGULI_RESOURCE_ERROR,
-        GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
-        "Can not determine encoding method");
-    return NULL;
-  }
-
-  g_debug ("using encoding pipeline [%s]", enc_pipeline_str);
-
-  if (encoding_method == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
-    /* FIXME: need to add bandwidth parameter */
-    pipeline_str = g_strdup_printf (enc_pipeline_str, 20000000);
-    pipeline_str = g_strdup_printf ("%s ! "
-        GAEGULI_PIPELINE_MUXSINK_STR, pipeline_str, fifo_path);
+  if (encoding_method == GAEGULI_ENCODING_METHOD_MANUAL) {
+    pipeline_str = g_strdup_printf (self->encoding_pipeline, fifo_path);
   } else {
-    pipeline_str = g_strdup_printf ("%s ! "
-        GAEGULI_PIPELINE_MUXSINK_STR, enc_pipeline_str, fifo_path);
+
+    const gchar *enc_pipeline_str = _lookup_enc_string (encoding_method, codec);
+    if (enc_pipeline_str == NULL) {
+      g_set_error (error, GAEGULI_RESOURCE_ERROR,
+          GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
+          "Can not determine encoding method");
+      return NULL;
+    }
+
+    g_debug ("using encoding pipeline [%s]", enc_pipeline_str);
+
+    if (encoding_method == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
+      /* FIXME: need to add bandwidth parameter */
+      pipeline_str = g_strdup_printf (enc_pipeline_str, 20000000);
+      pipeline_str = g_strdup_printf ("%s ! "
+          GAEGULI_PIPELINE_MUXSINK_STR, pipeline_str, fifo_path);
+    } else {
+      pipeline_str = g_strdup_printf ("%s ! "
+          GAEGULI_PIPELINE_MUXSINK_STR, enc_pipeline_str, fifo_path);
+    }
   }
 
   target_pipeline = gst_parse_launch (pipeline_str, &internal_err);
@@ -402,7 +453,6 @@ static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
     GError ** error)
 {
-  g_autofree gchar *vsrc_str = NULL;
   gint width, height;
   g_autoptr (GError) internal_err = NULL;
   g_autoptr (GEnumClass) enum_class =
@@ -434,14 +484,18 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
       break;
   }
 
-  /* FIXME: what if zero-copy */
-  vsrc_str =
-      g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, enum_value->value_nick,
-      self->source == GAEGULI_VIDEO_SOURCE_V4L2SRC ? "device=" : "",
-      self->device != NULL ? self->device : "", width, height);
+  if (self->source == GAEGULI_VIDEO_SOURCE_MANUAL) {
+    self->vsrc = gst_parse_launch (self->source_pipeline, &internal_err);
+  } else {
+    /* FIXME: what if zero-copy */
+    g_autofree gchar *vsrc_str =
+        g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, enum_value->value_nick,
+        self->source == GAEGULI_VIDEO_SOURCE_V4L2SRC ? "device=" : "",
+        self->device != NULL ? self->device : "", width, height);
 
-  g_debug ("trying to create video source pipeline (%s)", vsrc_str);
-  self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
+    g_debug ("trying to create video source pipeline (%s)", vsrc_str);
+    self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
+  }
 
   if (self->vsrc == NULL) {
     g_error ("failed to build source pipeline (%s)", internal_err->message);
@@ -610,7 +664,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
     target_pipeline =
-        _build_target_pipeline (self->encoding_method, codec,
+        _build_target_pipeline (self, self->encoding_method, codec,
         fifo_path, &internal_err);
 
     /* linking target pipeline with vsrc */
