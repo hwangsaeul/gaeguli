@@ -398,16 +398,33 @@ _drop_reconfigure_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   return GST_PAD_PROBE_OK;
 }
 
+static gchar *
+_get_source_description (GaeguliPipeline * self)
+{
+  g_autoptr (GEnumClass) enum_class =
+      g_type_class_ref (GAEGULI_TYPE_VIDEO_SOURCE);
+  GEnumValue *enum_value = g_enum_get_value (enum_class, self->source);
+  GString *result = g_string_new (enum_value->value_nick);
+
+  switch (self->source) {
+    case GAEGULI_VIDEO_SOURCE_V4L2SRC:
+      g_string_append_printf (result, " device=%s", self->device);
+      break;
+    default:
+      break;
+  }
+
+  return g_string_free (result, FALSE);
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
     GError ** error)
 {
+  g_autofree gchar *src_description = NULL;
   g_autofree gchar *vsrc_str = NULL;
   gint width, height;
   g_autoptr (GError) internal_err = NULL;
-  g_autoptr (GEnumClass) enum_class =
-      g_type_class_ref (GAEGULI_TYPE_VIDEO_SOURCE);
-  GEnumValue *enum_value = g_enum_get_value (enum_class, self->source);
   g_autoptr (GstElement) tee = NULL;
   g_autoptr (GstPad) tee_sink = NULL;
 
@@ -434,11 +451,11 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
       break;
   }
 
+  src_description = _get_source_description (self);
+
   /* FIXME: what if zero-copy */
-  vsrc_str =
-      g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, enum_value->value_nick,
-      self->source == GAEGULI_VIDEO_SOURCE_V4L2SRC ? "device=" : "",
-      self->device != NULL ? self->device : "", width, height);
+  vsrc_str = g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, src_description,
+      width, height);
 
   g_debug ("trying to create video source pipeline (%s)", vsrc_str);
   self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
