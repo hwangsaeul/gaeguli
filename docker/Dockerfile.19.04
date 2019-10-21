@@ -7,7 +7,8 @@ RUN apt-get update && \
   add-apt-repository ppa:hwangsaeul/ppa && \
   apt-get update && \
   apt-get install --assume-yes debhelper meson libgstreamer1.0-dev libgstreamer-plugins-bad1.0-dev \
-    libsrt-dev gstreamer1.0-plugins-good git
+    libsrt-dev gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly git
 
 COPY build-gaeguli.sh /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/build-gaeguli.sh"]

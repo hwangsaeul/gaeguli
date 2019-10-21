@@ -707,8 +707,6 @@ main (int argc, char *argv[])
   g_test_add_func ("/gaeguli/fifo-transmit-same-fifo-path",
       test_gaeguli_fifo_transmit_same_fifo_path);
 
-#if 0
-  /* FIXME: temprarily disabled to pass unit test under ninja */
   g_test_add ("/gaeguli/fifo-transmit-add-remove-random",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_fifo_transmit_add_remove_random, fixture_teardown);
@@ -731,7 +729,6 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/fifo-transmit-reuse",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_fifo_transmit_reuse, fixture_teardown);
-#endif
 
   return g_test_run ();
 }
