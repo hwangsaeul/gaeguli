@@ -4,12 +4,8 @@ trigger:
 jobs:
 - job: BuildTest
   displayName: 'Ubuntu 18.04'
-  pool: 'Ubuntu1804'
+  pool: 'HwangsaeulUbuntu1804'
   steps:
-  - bash: |
-      pip3 install --user meson ninja
-    displayName: 'Preparing Meson and Ninja'
-
   - bash: |
       meson build 
     displayName: 'Meson build'
