@@ -19,7 +19,7 @@ jobs:
     displayName: 'Building'
 
   - bash: |
-      ninja -C build test
+      meson test -C build -v --setup debug
     displayName: 'Testing'
     continueOnError: true
 

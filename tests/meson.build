@@ -26,3 +26,7 @@ foreach t: tests
     is_parallel: false
   )
 endforeach
+
+debugenv = environment()
+debugenv.set('GST_DEBUG', '3')
+add_test_setup('debug', env: debugenv)
