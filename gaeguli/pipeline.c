@@ -410,6 +410,9 @@ _get_source_description (GaeguliPipeline * self)
     case GAEGULI_VIDEO_SOURCE_V4L2SRC:
       g_string_append_printf (result, " device=%s", self->device);
       break;
+    case GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC:
+      g_string_append (result, " is-live=1");
+      break;
     default:
       break;
   }
