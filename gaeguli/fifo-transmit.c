@@ -200,7 +200,6 @@ gaeguli_fifo_transmit_dispose (GObject * object)
   GaeguliFifoTransmit *self = GAEGULI_FIFO_TRANSMIT (object);
 
   g_cancellable_cancel (self->cancellable);
-  g_mutex_clear (&self->lock);
 
   g_clear_pointer (&self->sockets, g_hash_table_unref);
   g_clear_pointer (&self->io_channel, g_io_channel_unref);
@@ -217,12 +216,22 @@ gaeguli_fifo_transmit_dispose (GObject * object)
 
   g_clear_object (&self->cancellable);
 
+  G_OBJECT_CLASS (gaeguli_fifo_transmit_parent_class)->dispose (object);
+}
+
+static void
+gaeguli_fifo_transmit_finalize (GObject * object)
+{
+  GaeguliFifoTransmit *self = GAEGULI_FIFO_TRANSMIT (object);
+
+  g_mutex_clear (&self->lock);
+
   if (g_atomic_int_dec_and_test (&srt_init_refcount)) {
     srt_cleanup ();
     g_debug ("Cleaning up SRT");
   }
 
-  G_OBJECT_CLASS (gaeguli_fifo_transmit_parent_class)->dispose (object);
+  G_OBJECT_CLASS (gaeguli_fifo_transmit_parent_class)->finalize (object);
 }
 
 static void
@@ -231,6 +240,7 @@ gaeguli_fifo_transmit_class_init (GaeguliFifoTransmitClass * klass)
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
   object_class->dispose = gaeguli_fifo_transmit_dispose;
+  object_class->finalize = gaeguli_fifo_transmit_finalize;
 }
 
 static void
