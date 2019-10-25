@@ -554,7 +554,8 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
         return;
     }
 
-    sent = srt_sendmsg2 (wsock, (char *) (buf + len), rest, 0);
+    /* FIXME: How much ttl is optimal value? */
+    sent = srt_sendmsg (wsock, (char *) (buf + len), rest, 125, 0);
     g_debug ("sent buffer %d (size: %ld/%lu)", sent, len, buf_len);
 
     if (sent <= 0) {
