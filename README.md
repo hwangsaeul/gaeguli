@@ -58,3 +58,13 @@ pipeline-1.0 -f /var/folders/48/29v1_3bs77l8m6pyxd13c7gh0000gn/T/gaeguli-fifo-5V
 ```
 
 Then, in srt listener, you can play video captured from camera.
+
+## PPA nightly builds
+
+Experimental versions of Gaeguli are daily generated in [launchpad](https://launchpad.net/~hwangsaeul/+archive/ubuntu/nightly).
+
+```console
+$ sudo add-apt-repository ppa:hwangsaeul/nightly
+$ sudo apt-get update
+$ sudo apt-get install libgaeguli1 libgaeguli-dev gaeguli-tools
+```
