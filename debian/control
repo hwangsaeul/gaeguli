@@ -18,7 +18,9 @@ Vcs-Git: https://github.com/hwangsaeul/gaeguli.git
 
 Package: libgaeguli1
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends:
+ gstreamer1.0-plugins-bad,
+ ${shlibs:Depends}, ${misc:Depends}
 Description: Ultra-low latency SRT streamer
  Gæguli is an SRT streamer designed for edge devices that require
  strong security and ultra-low latency.
