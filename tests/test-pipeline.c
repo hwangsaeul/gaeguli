@@ -82,7 +82,7 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
       fixture);
 
   target_id = gaeguli_pipeline_add_fifo_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640x480,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480,
       "/dev/null", &error);
 
   g_assert_cmpuint (target_id, !=, 0);

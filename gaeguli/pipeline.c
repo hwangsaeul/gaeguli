@@ -450,7 +450,7 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   g_autoptr (GstPad) tee_sink = NULL;
 
   switch (resolution) {
-    case GAEGULI_VIDEO_RESOLUTION_640x480:
+    case GAEGULI_VIDEO_RESOLUTION_640X480:
       width = 640;
       height = 480;
       break;

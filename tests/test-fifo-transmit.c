@@ -131,7 +131,7 @@ add_remove_fifo_cb (AddRemoveTestData * data)
       g_assert_no_error (error);
 
       fifo->target_id = gaeguli_pipeline_add_fifo_target_full (data->pipeline,
-          GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640x480,
+          GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480,
           gaeguli_fifo_transmit_get_fifo (fifo->transmit), &error);
       g_assert_no_error (error);
 
@@ -281,7 +281,7 @@ read_from_pipeline (GaeguliFifoTransmit * transmit, gsize bytes_read_limit)
       GAEGULI_ENCODING_METHOD_GENERAL);
   target_id =
       gaeguli_pipeline_add_fifo_target_full (pipeline, GAEGULI_VIDEO_CODEC_H264,
-      GAEGULI_VIDEO_RESOLUTION_640x480,
+      GAEGULI_VIDEO_RESOLUTION_640X480,
       gaeguli_fifo_transmit_get_fifo (transmit), &error);
   g_assert_no_error (error);
 
@@ -496,7 +496,7 @@ test_gaeguli_fifo_transmit_listener (TestFixture * fixture,
   guint transmit_id;
 
   gaeguli_pipeline_add_fifo_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640x480,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480,
       gaeguli_fifo_transmit_get_fifo (transmit), &error);
   g_assert_no_error (error);
 
@@ -667,7 +667,7 @@ test_gaeguli_fifo_transmit_reuse (TestFixture * fixture, gconstpointer unused)
   ReuseTestData data = { 0 };
 
   gaeguli_pipeline_add_fifo_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640x480,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480,
       gaeguli_fifo_transmit_get_fifo (transmit), &error);
   g_assert_no_error (error);
 
