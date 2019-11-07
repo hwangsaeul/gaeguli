@@ -28,18 +28,29 @@ typedef struct _TestFixture
 {
   GMainLoop *loop;
   guint target_id;
+
+  GThread *thread;
+  GMutex lock;
+  GCond cond;
+
+  GaeguliPipeline *pipeline;
+
 } TestFixture;
 
 static void
 fixture_setup (TestFixture * fixture, gconstpointer unused)
 {
   fixture->loop = g_main_loop_new (NULL, FALSE);
+  g_mutex_init (&fixture->lock);
+  g_cond_init (&fixture->cond);
 }
 
 static void
 fixture_teardown (TestFixture * fixture, gconstpointer unused)
 {
   g_main_loop_unref (fixture->loop);
+  g_mutex_clear (&fixture->lock);
+  g_cond_clear (&fixture->cond);
 }
 
 static void
@@ -89,6 +100,92 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
   fixture->target_id = target_id;
 
   g_main_loop_run (fixture->loop);
+
+  gaeguli_pipeline_stop (pipeline);
+}
+
+static void
+_add_remove_stream_started_cb (GaeguliPipeline * pipeline, guint target_id,
+    TestFixture * fixture)
+{
+  g_mutex_lock (&fixture->lock);
+  g_cond_signal (&fixture->cond);
+  g_mutex_unlock (&fixture->lock);
+}
+
+static void
+_add_remove_stream_stopped_cb (GaeguliPipeline * pipeline, guint target_id,
+    TestFixture * fixture)
+{
+  g_mutex_lock (&fixture->lock);
+  g_cond_signal (&fixture->cond);
+  g_mutex_unlock (&fixture->lock);
+}
+
+static gpointer
+_running_add_remove_test (gpointer data)
+{
+  g_autoptr (GError) error = NULL;
+  TestFixture *fixture = data;
+
+  g_debug ("running add/remove test");
+  g_mutex_lock (&fixture->lock);
+  g_cond_wait (&fixture->cond, &fixture->lock);
+  g_mutex_unlock (&fixture->lock);
+
+  g_debug ("remove (%x) target", fixture->target_id);
+  gaeguli_pipeline_remove_target (fixture->pipeline, fixture->target_id,
+      &error);
+
+  g_mutex_lock (&fixture->lock);
+  g_cond_wait (&fixture->cond, &fixture->lock);
+  g_mutex_unlock (&fixture->lock);
+
+  fixture->target_id = gaeguli_pipeline_add_fifo_target_full (fixture->pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_1280X720,
+      "/dev/null", &error);
+
+  g_debug ("created new target (%x)", fixture->target_id);
+
+  g_mutex_lock (&fixture->lock);
+  g_cond_wait (&fixture->cond, &fixture->lock);
+  g_mutex_unlock (&fixture->lock);
+
+  g_debug ("remove (%x) target agin", fixture->target_id);
+  gaeguli_pipeline_remove_target (fixture->pipeline, fixture->target_id,
+      &error);
+
+  g_timeout_add (100, (GSourceFunc) _quit_loop, fixture);
+
+  return NULL;
+}
+
+static void
+test_gaeguli_pipeline_add_remove (TestFixture * fixture, gconstpointer unused)
+{
+  guint target_id = 0;
+  g_autoptr (GaeguliPipeline) pipeline =
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      GAEGULI_ENCODING_METHOD_GENERAL);
+  g_autoptr (GError) error = NULL;
+
+  fixture->pipeline = g_object_ref (pipeline);
+
+  g_signal_connect (pipeline, "stream-started",
+      G_CALLBACK (_add_remove_stream_started_cb), fixture);
+  g_signal_connect (pipeline, "stream-stopped",
+      G_CALLBACK (_add_remove_stream_stopped_cb), fixture);
+
+  fixture->target_id = gaeguli_pipeline_add_fifo_target_full (pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480,
+      "/dev/null", &error);
+
+  fixture->thread =
+      g_thread_new ("AddRemoveTest", _running_add_remove_test, fixture);
+
+  g_main_loop_run (fixture->loop);
+  g_object_unref (fixture->pipeline);
+  gaeguli_pipeline_stop (pipeline);
 }
 
 int
@@ -99,6 +196,9 @@ main (int argc, char *argv[])
   g_test_init (&argc, &argv, NULL);
   g_test_add ("/gaeguli/pipeline-instance", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_instance, fixture_teardown);
+
+  g_test_add ("/gaeguli/pipeline-add-remove", TestFixture, NULL, fixture_setup,
+      test_gaeguli_pipeline_add_remove, fixture_teardown);
 
   return g_test_run ();
 }
