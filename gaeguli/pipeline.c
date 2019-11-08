@@ -285,7 +285,7 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
   g_mutex_init (&self->lock);
 
   /* kv: hash(fifo-path), target_pipeline */
-  self->targets = g_hash_table_new_full (NULL, NULL,
+  self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
       NULL, (GDestroyNotify) g_object_unref);
 }
 
