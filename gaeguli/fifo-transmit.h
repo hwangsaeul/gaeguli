@@ -54,6 +54,14 @@ guint                   gaeguli_fifo_transmit_start    (GaeguliFifoTransmit    *
                                                         GaeguliSRTMode          mode,
                                                         GError                **error);
 
+guint                   gaeguli_fifo_transmit_start_full
+                                                       (GaeguliFifoTransmit    *self,
+                                                        const gchar            *host,
+                                                        guint                   port,
+                                                        GaeguliSRTMode          mode,
+                                                        const gchar            *username,
+                                                        GError                **error);
+
 gboolean                gaeguli_fifo_transmit_stop     (GaeguliFifoTransmit    *self,
                                                         guint                   transmit_id,
                                                         GError                **error); 

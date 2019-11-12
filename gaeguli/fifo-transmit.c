@@ -44,6 +44,7 @@ typedef struct _SRTInfo
   gchar *hostinfo;
   GSocketAddress *sockaddr;
   GaeguliSRTMode mode;
+  gchar *stream_id;
 
   SRTSOCKET sock;
   SRTSOCKET listen_sock;
@@ -98,6 +99,7 @@ srt_info_unref (SRTInfo * info)
     }
     g_free (info->hostinfo);
     g_clear_object (&info->sockaddr);
+    g_free (info->stream_id);
     g_free (info);
   }
 }
@@ -372,6 +374,7 @@ _apply_socket_options (SRTSOCKET sock)
 static gboolean
 _srt_connect (SRTInfo * info)
 {
+  const gsize STREAMID_MAX_LEN = 512;
   g_autoptr (GError) error = NULL;
   gpointer sa;
   size_t sa_len;
@@ -384,6 +387,12 @@ _srt_connect (SRTInfo * info)
 
   info->sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
   _apply_socket_options (info->sock);
+
+  if (info->stream_id &&
+      srt_setsockopt (info->sock, 0, SRTO_STREAMID, info->stream_id,
+          strnlen (info->stream_id, STREAMID_MAX_LEN))) {
+    g_error ("%s", srt_getlasterror_str ());
+  }
 
   if (srt_connect (info->sock, sa, sa_len) == SRT_ERROR) {
     g_debug ("%s", srt_getlasterror_str ());
@@ -625,8 +634,9 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
 }
 
 guint
-gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
-    const gchar * host, guint port, GaeguliSRTMode mode, GError ** error)
+gaeguli_fifo_transmit_start_full (GaeguliFifoTransmit * self,
+    const gchar * host, guint port, GaeguliSRTMode mode,
+    const gchar * username, GError ** error)
 {
   guint transmit_id = 0;
   g_autoptr (SRTInfo) srtinfo = NULL;
@@ -646,6 +656,9 @@ gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
   }
 
   srtinfo = srt_info_new (host, port, mode, hostinfo);
+  if (username) {
+    srtinfo->stream_id = g_strdup_printf ("#!::u=%s", username);
+  }
 
   if (mode == GAEGULI_SRT_MODE_LISTENER) {
     srtinfo->listen_sock = _srt_open_listen_socket (srtinfo->sockaddr, error);
@@ -687,6 +700,13 @@ out:
   g_mutex_unlock (&self->lock);
 
   return transmit_id;
+}
+
+guint
+gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
+    const gchar * host, guint port, GaeguliSRTMode mode, GError ** error)
+{
+  return gaeguli_fifo_transmit_start_full (self, host, port, mode, NULL, error);
 }
 
 static gboolean
