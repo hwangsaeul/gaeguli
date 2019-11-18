@@ -286,7 +286,7 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
 
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
-      NULL, (GDestroyNotify) g_object_unref);
+      NULL, (GDestroyNotify) gst_object_unref);
 }
 
 GaeguliPipeline *
@@ -609,7 +609,6 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     GaeguliVideoResolution resolution, const gchar * fifo_path, GError ** error)
 {
   guint target_id = 0;
-  g_autoptr (GstElement) target_pipeline = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
   g_return_val_if_fail (fifo_path != NULL, 0);
@@ -636,10 +635,9 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
   }
 
   target_id = g_str_hash (fifo_path);
-  target_pipeline =
-      g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
 
-  if (target_pipeline == NULL) {
+  if (!g_hash_table_contains (self->targets, GINT_TO_POINTER (target_id))) {
+    GstElement *target_pipeline;
     GstPadTemplate *templ = NULL;
 
     g_autoptr (GstElement) tee = NULL;
@@ -660,9 +658,9 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
       goto failed;
     }
 
-    gst_bin_add (GST_BIN (self->pipeline), g_object_ref (target_pipeline));
+    gst_bin_add (GST_BIN (self->pipeline), target_pipeline);
     g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id),
-        g_object_ref (target_pipeline));
+        gst_object_ref (target_pipeline));
 
     tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
     templ =
