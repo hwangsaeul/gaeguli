@@ -740,6 +740,8 @@ out:
 void
 gaeguli_pipeline_stop (GaeguliPipeline * self)
 {
+  g_autoptr (GstElement) pipeline = NULL;
+
   g_return_if_fail (GAEGULI_IS_PIPELINE (self));
 
   g_debug ("clear internal pipeline");
@@ -752,11 +754,12 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
   }
 
   g_clear_pointer (&self->vsrc, gst_object_unref);
-  if (self->pipeline) {
-    gst_element_set_state (self->pipeline, GST_STATE_NULL);
-  }
   g_clear_pointer (&self->overlay, gst_object_unref);
-  g_clear_pointer (&self->pipeline, gst_object_unref);
+  pipeline = g_steal_pointer (&self->pipeline);
 
   g_mutex_unlock (&self->lock);
+
+  if (pipeline) {
+    gst_element_set_state (pipeline, GST_STATE_NULL);
+  }
 }
