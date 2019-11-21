@@ -439,44 +439,18 @@ _get_source_description (GaeguliPipeline * self)
 }
 
 static gboolean
-_build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
-    GError ** error)
+_build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
   g_autofree gchar *src_description = NULL;
   g_autofree gchar *vsrc_str = NULL;
-  gint width, height;
   g_autoptr (GError) internal_err = NULL;
   g_autoptr (GstElement) tee = NULL;
   g_autoptr (GstPad) tee_sink = NULL;
 
-  switch (resolution) {
-    case GAEGULI_VIDEO_RESOLUTION_640X480:
-      width = 640;
-      height = 480;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_1280X720:
-      width = 1280;
-      height = 720;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_1920X1080:
-      width = 1920;
-      height = 1080;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_3840X2160:
-      width = 3840;
-      height = 2160;
-      break;
-    default:
-      width = -1;
-      height = -1;
-      break;
-  }
-
   src_description = _get_source_description (self);
 
   /* FIXME: what if zero-copy */
-  vsrc_str = g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, src_description,
-      width, height);
+  vsrc_str = g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, src_description);
 
   g_debug ("trying to create video source pipeline (%s)", vsrc_str);
   self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
@@ -510,6 +484,43 @@ failed:
   g_clear_object (&self->pipeline);
 
   return FALSE;
+}
+
+static void
+_set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution)
+{
+  gint width, height;
+  g_autoptr (GstElement) capsfilter = NULL;
+  g_autoptr (GstCaps) caps = NULL;
+
+  switch (resolution) {
+    case GAEGULI_VIDEO_RESOLUTION_640X480:
+      width = 640;
+      height = 480;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_1280X720:
+      width = 1280;
+      height = 720;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_1920X1080:
+      width = 1920;
+      height = 1080;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_3840X2160:
+      width = 3840;
+      height = 2160;
+      break;
+    default:
+      width = -1;
+      height = -1;
+      break;
+  }
+
+  caps = gst_caps_new_simple ("video/x-raw", "width", G_TYPE_INT, width,
+      "height", G_TYPE_INT, height, NULL);
+  capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
+
+  g_object_set (capsfilter, "caps", caps, NULL);
 }
 
 static gboolean
@@ -628,8 +639,13 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
   }
 
   /* assume that it's first target */
-  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, resolution, error)) {
+  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, error)) {
     goto failed;
+  }
+
+  if (g_hash_table_size (self->targets) == 0) {
+    /* First target to connect sets the video parameters. */
+    _set_stream_caps (self, resolution);
   }
 
   target_id = g_str_hash (fifo_path);
