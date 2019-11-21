@@ -588,8 +588,6 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 
     g_mutex_lock (&link_target->self->lock);
 
-    g_hash_table_remove (link_target->self->targets,
-        GINT_TO_POINTER (link_target->target_id));
     if (g_hash_table_size (self->targets) == 0 &&
         self->stop_pipeline_event_id == 0) {
       self->stop_pipeline_event_id = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
@@ -718,6 +716,8 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     g_debug ("no target pipeline mapped with [%x]", target_id);
     goto out;
   }
+
+  g_hash_table_remove (self->targets, GINT_TO_POINTER (target_id));
 
   ghost_sinkpad = gst_element_get_static_pad (target_pipeline, "ghost_sink");
   ghost_srcpad = gst_pad_get_peer (ghost_sinkpad);
