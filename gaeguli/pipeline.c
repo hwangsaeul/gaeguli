@@ -487,7 +487,8 @@ failed:
 }
 
 static void
-_set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution)
+_set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
+    guint framerate)
 {
   gint width, height;
   g_autoptr (GstElement) capsfilter = NULL;
@@ -517,7 +518,8 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution)
   }
 
   caps = gst_caps_new_simple ("video/x-raw", "width", G_TYPE_INT, width,
-      "height", G_TYPE_INT, height, NULL);
+      "height", G_TYPE_INT, height,
+      "framerate", GST_TYPE_FRACTION, framerate, 1, NULL);
   capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
 
   g_object_set (capsfilter, "caps", caps, NULL);
@@ -614,8 +616,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 
 guint
 gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
-    GaeguliVideoCodec codec,
-    GaeguliVideoResolution resolution, const gchar * fifo_path, GError ** error)
+    GaeguliVideoCodec codec, GaeguliVideoResolution resolution,
+    guint framerate, const gchar * fifo_path, GError ** error)
 {
   guint target_id = 0;
 
@@ -645,7 +647,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
 
   if (g_hash_table_size (self->targets) == 0) {
     /* First target to connect sets the video parameters. */
-    _set_stream_caps (self, resolution);
+    _set_stream_caps (self, resolution, framerate);
   }
 
   target_id = g_str_hash (fifo_path);
@@ -705,7 +707,7 @@ gaeguli_pipeline_add_fifo_target (GaeguliPipeline * self,
     const gchar * fifo_path, GError ** error)
 {
   return gaeguli_pipeline_add_fifo_target_full (self, DEFAULT_VIDEO_CODEC,
-      DEFAULT_VIDEO_RESOLUTION, fifo_path, error);
+      DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, fifo_path, error);
 }
 
 GaeguliReturn
