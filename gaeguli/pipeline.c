@@ -322,34 +322,50 @@ gaeguli_pipeline_new (void)
   return g_steal_pointer (&pipeline);
 }
 
+typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
+    guint bitrate);
+
 struct encoding_method_params
 {
   const gchar *pipeline_str;
   GaeguliEncodingMethod encoding_method;
   GaeguliVideoCodec codec;
+  PipelineFormatFunc format_func;
 };
+
+static gchar *
+_format_general_pipeline (const gchar * pipeline_str, guint bitrate)
+{
+  return g_strdup (pipeline_str);
+}
+
+static gchar *
+_format_tx1_pipeline (const gchar * pipeline_str, guint bitrate)
+{
+  return g_strdup_printf (pipeline_str, bitrate);
+}
 
 static struct encoding_method_params enc_params[] = {
   {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
-      GAEGULI_VIDEO_CODEC_H264},
+      GAEGULI_VIDEO_CODEC_H264, _format_general_pipeline},
   {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
-      GAEGULI_VIDEO_CODEC_H265},
+      GAEGULI_VIDEO_CODEC_H265, _format_general_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
-      GAEGULI_VIDEO_CODEC_H264},
+      GAEGULI_VIDEO_CODEC_H264, _format_tx1_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
-      GAEGULI_VIDEO_CODEC_H265},
+      GAEGULI_VIDEO_CODEC_H265, _format_tx1_pipeline},
   {NULL, 0, 0},
 };
 
-static const gchar *
-_lookup_enc_string (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec)
+static gchar *
+_get_enc_string (GaeguliEncodingMethod encoding_method,
+    GaeguliVideoCodec codec, guint bitrate)
 {
   struct encoding_method_params *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
     if (params->encoding_method == encoding_method && params->codec == codec)
-      return params->pipeline_str;
+      return params->format_func (params->pipeline_str, bitrate);
   }
 
   return NULL;
@@ -366,25 +382,18 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
 
-  const gchar *enc_pipeline_str = _lookup_enc_string (encoding_method, codec);
-  if (enc_pipeline_str == NULL) {
+  pipeline_str = _get_enc_string (encoding_method, codec, 20000000);
+  if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
         "Can not determine encoding method");
     return NULL;
   }
 
-  g_debug ("using encoding pipeline [%s]", enc_pipeline_str);
+  g_debug ("using encoding pipeline [%s]", pipeline_str);
 
-  if (encoding_method == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
-    /* FIXME: need to add bandwidth parameter */
-    pipeline_str = g_strdup_printf (enc_pipeline_str, 20000000);
-    pipeline_str = g_strdup_printf ("%s ! "
-        GAEGULI_PIPELINE_MUXSINK_STR, pipeline_str, fifo_path);
-  } else {
-    pipeline_str = g_strdup_printf ("%s ! "
-        GAEGULI_PIPELINE_MUXSINK_STR, enc_pipeline_str, fifo_path);
-  }
+  pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
+      pipeline_str, fifo_path);
 
   target_pipeline = gst_parse_launch (pipeline_str, &internal_err);
   if (target_pipeline == NULL) {
