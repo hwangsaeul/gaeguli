@@ -336,7 +336,8 @@ struct encoding_method_params
 static gchar *
 _format_general_pipeline (const gchar * pipeline_str, guint bitrate)
 {
-  return g_strdup (pipeline_str);
+  /* x*64enc takes bitrate in kbps. */
+  return g_strdup_printf (pipeline_str, bitrate / 1000);
 }
 
 static gchar *
@@ -373,7 +374,8 @@ _get_enc_string (GaeguliEncodingMethod encoding_method,
 
 static GstElement *
 _build_target_pipeline (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, const gchar * fifo_path, GError ** error)
+    GaeguliVideoCodec codec, guint bitrate, const gchar * fifo_path,
+    GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
   g_autoptr (GstElement) enc_first = NULL;
@@ -382,7 +384,7 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
 
-  pipeline_str = _get_enc_string (encoding_method, codec, 20000000);
+  pipeline_str = _get_enc_string (encoding_method, codec, bitrate);
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
@@ -626,7 +628,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 guint
 gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, GaeguliVideoResolution resolution,
-    guint framerate, const gchar * fifo_path, GError ** error)
+    guint framerate, guint bitrate, const gchar * fifo_path, GError ** error)
 {
   guint target_id = 0;
 
@@ -674,7 +676,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
     target_pipeline =
-        _build_target_pipeline (self->encoding_method, codec,
+        _build_target_pipeline (self->encoding_method, codec, bitrate,
         fifo_path, &internal_err);
 
     /* linking target pipeline with vsrc */
@@ -716,7 +718,8 @@ gaeguli_pipeline_add_fifo_target (GaeguliPipeline * self,
     const gchar * fifo_path, GError ** error)
 {
   return gaeguli_pipeline_add_fifo_target_full (self, DEFAULT_VIDEO_CODEC,
-      DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, fifo_path, error);
+      DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, DEFAULT_VIDEO_BITRATE,
+      fifo_path, error);
 }
 
 GaeguliReturn
