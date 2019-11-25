@@ -83,7 +83,7 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
       fixture);
 
   target_id = gaeguli_pipeline_add_fifo_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
       "/dev/null", &error);
 
   g_assert_cmpuint (target_id, !=, 0);
@@ -118,7 +118,7 @@ do_pipeline_cycle (TestFixture * fixture, GaeguliEncodingMethod encoding_method)
   g_autoptr (GError) error = NULL;
 
   gaeguli_pipeline_add_fifo_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
       "/dev/null", &error);
 
   fixture->pipeline = pipeline;

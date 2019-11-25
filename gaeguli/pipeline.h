@@ -50,6 +50,7 @@ guint                   gaeguli_pipeline_add_fifo_target_full
                                                  GaeguliVideoCodec      codec,
                                                  GaeguliVideoResolution resolution,
                                                  guint                  framerate,
+                                                 guint                  bitrate,
                                                  const gchar           *fifo_path,
                                                  GError               **error);
 

@@ -29,11 +29,11 @@
 #define GAEGULI_PIPELINE_VSRC_STR       "%s ! capsfilter name=caps ! clockoverlay name=overlay ! tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
-        queue name=enc_first ! videoconvert ! x264enc tune=zerolatency ! \
+        queue name=enc_first ! videoconvert ! x264enc tune=zerolatency bitrate=%d ! \
         h264parse "
 
 #define GAEGULI_PIPELINE_GENERAL_H265ENC_STR    "\
-        queue name=enc_first ! videoconvert ! x265enc tune=zerolatency ! \
+        queue name=enc_first ! videoconvert ! x265enc tune=zerolatency bitrate=%d ! \
         h265parse "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
