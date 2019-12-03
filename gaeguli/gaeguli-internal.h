@@ -26,7 +26,7 @@
    \"mode\": %" G_GINT32_FORMAT " \
 }"
 
-#define GAEGULI_PIPELINE_VSRC_STR       "%s ! capsfilter name=caps ! clockoverlay name=overlay ! tee name=tee allow-not-linked=1 "
+#define GAEGULI_PIPELINE_VSRC_STR       "%s ! capsfilter name=caps ! decodebin ! clockoverlay name=overlay ! tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! x264enc tune=zerolatency bitrate=%d ! \
