@@ -70,6 +70,12 @@ typedef struct _LinkTarget
   GstElement *target;
 } LinkTarget;
 
+static const gchar *const supported_formats[] = {
+  "video/x-raw",
+  "image/jpeg",
+  NULL
+};
+
 static LinkTarget *
 link_target_new (GaeguliPipeline * self, GstElement * src, guint target_id,
     GstElement * target, gboolean link)
@@ -501,7 +507,7 @@ static void
 _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
     guint framerate)
 {
-  gint width, height;
+  gint width, height, i;
   g_autoptr (GstElement) capsfilter = NULL;
   g_autoptr (GstCaps) caps = NULL;
 
@@ -528,11 +534,17 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
       break;
   }
 
-  caps = gst_caps_new_simple ("video/x-raw", "width", G_TYPE_INT, width,
-      "height", G_TYPE_INT, height,
-      "framerate", GST_TYPE_FRACTION, framerate, 1, NULL);
-  capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
+  caps = gst_caps_new_empty ();
 
+  for (i = 0; supported_formats[i] != NULL; i++) {
+    gst_caps_append (caps,
+        gst_caps_new_simple (supported_formats[i],
+            "width", G_TYPE_INT, width,
+            "height", G_TYPE_INT, height,
+            "framerate", GST_TYPE_FRACTION, framerate, 1, NULL));
+  }
+
+  capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
   g_object_set (capsfilter, "caps", caps, NULL);
 }
 
