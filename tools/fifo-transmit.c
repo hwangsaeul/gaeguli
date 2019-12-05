@@ -17,6 +17,7 @@ typedef struct
   guint port;
   GaeguliSRTMode mode;
   const gchar *tmpdir;
+  const gchar *username;
 } FifoTransmitOptions;
 
 static void
@@ -30,8 +31,8 @@ activate (GApplication * app, gpointer user_data)
   options = g_object_get_data (G_OBJECT (app), "options");
 
   transmit_id =
-      gaeguli_fifo_transmit_start (fifo_transmit, options->host, options->port,
-      options->mode, &error);
+      gaeguli_fifo_transmit_start_full (fifo_transmit, options->host,
+      options->port, options->mode, options->username, &error);
 
   g_object_set_data (G_OBJECT (app), "transmit-id",
       GINT_TO_POINTER (transmit_id));
@@ -73,6 +74,7 @@ main (int argc, char *argv[])
     {"port", 'p', 0, G_OPTION_ARG_INT, &options.port, NULL, NULL},
     {"mode", 'm', 0, G_OPTION_ARG_CALLBACK, mode_arg_cb, NULL, NULL},
     {"tmpdir", 't', 0, G_OPTION_ARG_FILENAME, &options.tmpdir, NULL, NULL},
+    {"username", 'u', 0, G_OPTION_ARG_STRING, &options.username, NULL, NULL},
     {"help", '?', 0, G_OPTION_ARG_NONE, &options.help, NULL, NULL},
     {NULL}
   };
