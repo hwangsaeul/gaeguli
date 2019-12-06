@@ -141,7 +141,7 @@ weak_ref_free (GWeakRef * ref)
   g_slice_free (GWeakRef, ref);
 }
 
-#define BUFSIZE         8192
+#define BUFSIZE 1316            /* SRT_LIVE_DEF_PLSIZE */
 
 struct _GaeguliFifoTransmit
 {
@@ -160,6 +160,7 @@ struct _GaeguliFifoTransmit
   GHashTable *sockets;
 
   gchar buf[BUFSIZE];
+  gsize buf_len;
 
   GVariantDict *stats;
 };
@@ -611,8 +612,10 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
 
     gsize read_len = 0;
     self->fifo_read_status =
-        g_io_channel_read_chars (channel, self->buf, BUFSIZE, &read_len,
-        &error);
+        g_io_channel_read_chars (channel, self->buf + self->buf_len,
+        BUFSIZE - self->buf_len, &read_len, &error);
+
+    self->buf_len += read_len;
 
     if (self->fifo_read_status != G_IO_STATUS_NORMAL && error != NULL) {
       g_error ("%s", error->message);
@@ -623,7 +626,10 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
     g_variant_dict_insert_value (self->stats, "bytes-read",
         g_variant_new_uint64 (g_variant_get_uint64 (bytes_read) + read_len));
 
-    _send_to (self, self->buf, read_len);
+    if (self->buf_len == BUFSIZE) {
+      _send_to (self, self->buf, BUFSIZE);
+      self->buf_len = 0;
+    }
   }
 
   g_mutex_unlock (&self->lock);
