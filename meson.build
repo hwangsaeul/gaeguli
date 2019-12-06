@@ -37,7 +37,7 @@ if host_system == 'linux'
   cdata.set_quoted('DEFAULT_VIDEO_SOURCE_DEVICE', '/dev/video0')
 elif ['darwin'].contains(host_system)
   cdata.set('DEFAULT_VIDEO_SOURCE', 'GAEGULI_VIDEO_SOURCE_AVFVIDEOSRC')
-  cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_1280X720')
+  cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_640X480')
   cdata.set_quoted('DEFAULT_VIDEO_SOURCE_DEVICE', '')
   cdata.set('HAVE_OSX', 1)
 else
