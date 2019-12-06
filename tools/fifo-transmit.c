@@ -86,6 +86,7 @@ main (int argc, char *argv[])
   options.port = 8888;
   options.mode = GAEGULI_SRT_MODE_LISTENER;
   options.tmpdir = NULL;
+  options.username = NULL;
 
   group = g_option_group_new ("FIFO transmit options",
       "Options understood by Gaeguli FIFO transmit", NULL, &options, NULL);
