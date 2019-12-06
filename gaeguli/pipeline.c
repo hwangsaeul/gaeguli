@@ -336,7 +336,7 @@ struct encoding_method_params
 static gchar *
 _format_general_pipeline (const gchar * pipeline_str, guint bitrate)
 {
-  /* x*64enc takes bitrate in kbps. */
+  /* x26[4,5]enc take bitrate in kbps. */
   return g_strdup_printf (pipeline_str, bitrate / 1000);
 }
 
