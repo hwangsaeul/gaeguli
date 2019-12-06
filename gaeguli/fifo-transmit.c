@@ -425,7 +425,6 @@ _srt_accept (SRTInfo * info)
 static gboolean
 _srt_open (SRTInfo * info)
 {
-  g_autoptr (GError) error = NULL;
   const gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_OUT;
 
   g_return_val_if_fail (info->sock == SRT_INVALID_SOCK, FALSE);
