@@ -606,28 +606,38 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
       (cond & G_IO_IN) ? " IN" : "", (cond & G_IO_PRI) ? " PRI" : "");
 
   if ((cond & G_IO_IN)) {
-    g_autoptr (GVariant) bytes_read = NULL;
     g_autoptr (GError) error = NULL;
 
-    gsize read_len = 0;
-    self->fifo_read_status =
-        g_io_channel_read_chars (channel, self->buf + self->buf_len,
-        BUFSIZE - self->buf_len, &read_len, &error);
+    /* Send only a limited number of packets at once so as not to block the main
+     * loop indefinitely. */
+    guint max_packets = 100;
 
-    self->buf_len += read_len;
+    while (max_packets--) {
+      g_autoptr (GVariant) bytes_read = NULL;
+      gsize read_len = 0;
 
-    if (self->fifo_read_status != G_IO_STATUS_NORMAL && error != NULL) {
-      g_error ("%s", error->message);
-    }
+      self->fifo_read_status =
+          g_io_channel_read_chars (channel, self->buf + self->buf_len,
+          BUFSIZE - self->buf_len, &read_len, &error);
 
-    bytes_read = g_variant_dict_lookup_value (self->stats, "bytes-read",
-        G_VARIANT_TYPE_UINT64);
-    g_variant_dict_insert_value (self->stats, "bytes-read",
-        g_variant_new_uint64 (g_variant_get_uint64 (bytes_read) + read_len));
+      self->buf_len += read_len;
 
-    if (self->buf_len == BUFSIZE) {
-      _send_to (self, self->buf, BUFSIZE);
-      self->buf_len = 0;
+      if (self->fifo_read_status != G_IO_STATUS_NORMAL && error != NULL) {
+        g_error ("%s", error->message);
+        break;
+      }
+
+      bytes_read = g_variant_dict_lookup_value (self->stats, "bytes-read",
+          G_VARIANT_TYPE_UINT64);
+      g_variant_dict_insert_value (self->stats, "bytes-read",
+          g_variant_new_uint64 (g_variant_get_uint64 (bytes_read) + read_len));
+
+      if (self->buf_len == BUFSIZE) {
+        _send_to (self, self->buf, BUFSIZE);
+        self->buf_len = 0;
+      } else {
+        break;
+      }
     }
   }
 
