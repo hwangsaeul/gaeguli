@@ -613,6 +613,13 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
      * loop indefinitely. */
     guint max_packets = 100;
 
+    if (DEFAULT_ENCODING_METHOD == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
+      /* When using nvidia tx1 with v4l2src, it sends byte blocks a bit slow.
+       * Accumulated latency while reading 100 blocks causes worse problem in
+       * receiver side. */
+      max_packets = 1;
+    }
+
     while (max_packets--) {
       gsize read_len = 0;
 
