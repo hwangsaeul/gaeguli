@@ -149,7 +149,7 @@ G_DEFINE_TYPE (GaeguliPipeline, gaeguli_pipeline, G_TYPE_OBJECT)
 /* *INDENT-ON* */
 
 static void
-gaeguli_pipeline_dispose (GObject * object)
+gaeguli_pipeline_finalize (GObject * object)
 {
   GaeguliPipeline *self = GAEGULI_PIPELINE (object);
 
@@ -167,7 +167,7 @@ gaeguli_pipeline_dispose (GObject * object)
     g_debug ("Cleaning up GStreamer");
   }
 
-  G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->dispose (object);
+  G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->finalize (object);
 }
 
 static void
@@ -232,7 +232,7 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
 
   object_class->get_property = gaeguli_pipeline_get_property;
   object_class->set_property = gaeguli_pipeline_set_property;
-  object_class->dispose = gaeguli_pipeline_dispose;
+  object_class->finalize = gaeguli_pipeline_finalize;
 
   properties[PROP_SOURCE] = g_param_spec_enum ("source", "source", "source",
       GAEGULI_TYPE_VIDEO_SOURCE, DEFAULT_VIDEO_SOURCE,
