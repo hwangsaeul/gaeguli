@@ -42,6 +42,10 @@ struct _GaeguliPipeline
   GObject parent;
 
   GMutex lock;
+  GCond cond;
+  GMainLoop *loop;
+  GMainContext *context;
+  GThread *thread;
 
   GaeguliVideoSource source;
   gchar *device;
@@ -158,10 +162,28 @@ gaeguli_pipeline_finalize (GObject * object)
         "GaeguliPipeline reference!");
   }
 
+  if (self->loop) {
+    g_main_loop_quit (self->loop);
+  }
+
+  if (self->thread) {
+
+    if (self->thread != g_thread_self ())
+      g_thread_join (self->thread);
+    else
+      g_thread_unref (self->thread);
+
+    self->thread = NULL;
+  }
+
+  g_clear_pointer (&self->loop, g_main_loop_unref);
+  g_clear_pointer (&self->context, g_main_context_unref);
+
   g_clear_pointer (&self->targets, g_hash_table_unref);
   g_clear_pointer (&self->device, g_free);
 
   g_mutex_clear (&self->lock);
+  g_cond_clear (&self->cond);
 
   if (g_atomic_int_dec_and_test (&gaeguli_init_refcnt)) {
     g_debug ("Cleaning up GStreamer");
@@ -225,6 +247,53 @@ gaeguli_pipeline_set_property (GObject * object,
   }
 }
 
+static gboolean
+_main_loop_running_func (gpointer data)
+{
+  GaeguliPipeline *self = GAEGULI_PIPELINE (data);
+
+  g_mutex_lock (&self->lock);
+  g_cond_signal (&self->cond);
+  g_mutex_unlock (&self->lock);
+
+  return G_SOURCE_REMOVE;
+}
+
+static gpointer
+_pipeline_main (gpointer data)
+{
+  GaeguliPipeline *self = GAEGULI_PIPELINE (data);
+  GSource *source = NULL;
+
+  g_main_context_push_thread_default (self->context);
+
+  source = g_idle_source_new ();
+  g_source_set_callback (source, (GSourceFunc) _main_loop_running_func, self,
+      NULL);
+  g_source_attach (source, self->context);
+  g_source_unref (source);
+
+  g_main_loop_run (self->loop);
+
+  g_main_context_pop_thread_default (self->context);
+
+  return NULL;
+}
+
+static void
+gaeguli_pipeline_constructed (GObject * object)
+{
+  GaeguliPipeline *self = GAEGULI_PIPELINE (object);
+
+  g_mutex_lock (&self->lock);
+  self->thread = g_thread_new ("GaeguliPipelineMain", _pipeline_main, self);
+  while (!self->loop || !g_main_loop_is_running (self->loop))
+    g_cond_wait (&self->cond, &self->lock);
+  g_mutex_unlock (&self->lock);
+
+  G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->constructed (object);
+}
+
 static void
 gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
 {
@@ -233,6 +302,7 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
   object_class->get_property = gaeguli_pipeline_get_property;
   object_class->set_property = gaeguli_pipeline_set_property;
   object_class->finalize = gaeguli_pipeline_finalize;
+  object_class->constructed = gaeguli_pipeline_constructed;
 
   properties[PROP_SOURCE] = g_param_spec_enum ("source", "source", "source",
       GAEGULI_TYPE_VIDEO_SOURCE, DEFAULT_VIDEO_SOURCE,
@@ -283,6 +353,10 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
   g_atomic_int_inc (&gaeguli_init_refcnt);
 
   g_mutex_init (&self->lock);
+  g_cond_init (&self->cond);
+
+  self->context = g_main_context_new ();
+  self->loop = g_main_loop_new (self->context, FALSE);
 
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
@@ -449,54 +523,6 @@ _get_source_description (GaeguliPipeline * self)
   return g_string_free (result, FALSE);
 }
 
-static gboolean
-_build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
-{
-  g_autofree gchar *src_description = NULL;
-  g_autofree gchar *vsrc_str = NULL;
-  g_autoptr (GError) internal_err = NULL;
-  g_autoptr (GstElement) tee = NULL;
-  g_autoptr (GstPad) tee_sink = NULL;
-
-  src_description = _get_source_description (self);
-
-  /* FIXME: what if zero-copy */
-  vsrc_str = g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, src_description);
-
-  g_debug ("trying to create video source pipeline (%s)", vsrc_str);
-  self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
-
-  if (self->vsrc == NULL) {
-    g_error ("failed to build source pipeline (%s)", internal_err->message);
-    g_propagate_error (error, internal_err);
-    goto failed;
-  }
-
-  self->pipeline = gst_pipeline_new (NULL);
-  gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
-
-  self->overlay = gst_bin_get_by_name (GST_BIN (self->pipeline), "overlay");
-  g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
-
-  /* Caps of the video source are determined by the caps filter in vsrc pipeline
-   * and don't need to be renegotiated when a new target pipeline links to
-   * the tee. Thus, ignore reconfigure events coming from downstream. */
-  tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
-  tee_sink = gst_element_get_static_pad (tee, "sink");
-  gst_pad_add_probe (tee_sink, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
-      _drop_reconfigure_cb, NULL, NULL);
-
-  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
-
-  return TRUE;
-
-failed:
-  g_clear_object (&self->vsrc);
-  g_clear_object (&self->pipeline);
-
-  return FALSE;
-}
-
 static void
 _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
     guint framerate)
@@ -534,6 +560,54 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
 
   g_object_set (capsfilter, "caps", caps, NULL);
+}
+
+static gboolean
+_build_vsrc_pipeline (GaeguliPipeline * self, GaeguliVideoResolution resolution,
+    guint framerate)
+{
+  g_autofree gchar *src_description = NULL;
+  g_autofree gchar *vsrc_str = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GstElement) tee = NULL;
+  g_autoptr (GstPad) tee_sink = NULL;
+
+  src_description = _get_source_description (self);
+
+  /* FIXME: what if zero-copy */
+  vsrc_str = g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, src_description);
+
+  g_debug ("trying to create video source pipeline (%s)", vsrc_str);
+  self->vsrc = gst_parse_launch (vsrc_str, &error);
+
+  if (self->vsrc == NULL) {
+    g_error ("failed to build source pipeline (%s)", error->message);
+    goto failed;
+  }
+
+  self->pipeline = gst_pipeline_new (NULL);
+  gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
+
+  self->overlay = gst_bin_get_by_name (GST_BIN (self->pipeline), "overlay");
+  g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
+
+  /* Caps of the video source are determined by the caps filter in vsrc pipeline
+   * and don't need to be renegotiated when a new target pipeline links to
+   * the tee. Thus, ignore reconfigure events coming from downstream. */
+  tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
+  tee_sink = gst_element_get_static_pad (tee, "sink");
+  gst_pad_add_probe (tee_sink, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
+      _drop_reconfigure_cb, NULL, NULL);
+
+  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+
+  return TRUE;
+
+failed:
+  g_clear_object (&self->vsrc);
+  g_clear_object (&self->pipeline);
+
+  return FALSE;
 }
 
 static gboolean
@@ -614,15 +688,85 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 
     if (g_hash_table_size (self->targets) == 0 &&
         self->stop_pipeline_event_id == 0) {
-      self->stop_pipeline_event_id = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
-          (GSourceFunc) _stop_pipeline,
+      GSource *source = g_idle_source_new ();
+
+      g_source_set_callback (source, (GSourceFunc) _stop_pipeline,
           gst_object_ref (self), gst_object_unref);
+      g_source_attach (source, self->context);
+      self->stop_pipeline_event_id = g_source_get_id (source);
     }
 
     g_mutex_unlock (&link_target->self->lock);
   }
 
   return GST_PAD_PROBE_REMOVE;
+}
+
+static gboolean
+_add_fifo_target_internal (gpointer data)
+{
+  GaeguliPipeline *self = data;
+  g_autoptr (GError) error = NULL;
+  GaeguliVideoResolution resolution =
+      GPOINTER_TO_INT (g_object_get_data (G_OBJECT (self), "resolution"));
+  GaeguliVideoCodec codec =
+      GPOINTER_TO_INT (g_object_get_data (G_OBJECT (self), "codec"));
+  guint framerate =
+      GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self), "framerate"));
+  const gchar *fifo_path = g_object_get_data (G_OBJECT (self), "fifo-path");
+  guint target_id = g_str_hash (fifo_path);
+  guint bitrate =
+      GPOINTER_TO_UINT (g_object_get_data (G_OBJECT (self), "bitrate"));
+
+  /* assume that it's first target */
+  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, resolution, framerate)) {
+    goto out;
+  }
+
+  if (g_hash_table_size (self->targets) == 0) {
+    /* First target to connect sets the video parameters. */
+    _set_stream_caps (self, resolution, framerate);
+  }
+
+  if (!g_hash_table_contains (self->targets, GINT_TO_POINTER (target_id))) {
+    GstElement *target_pipeline;
+    GstPadTemplate *templ = NULL;
+
+    g_autoptr (GstElement) tee = NULL;
+    g_autoptr (GstPad) tee_srcpad = NULL;
+
+    g_autoptr (LinkTarget) link_target = NULL;
+
+    g_debug ("no target pipeline mapped with [%x]", target_id);
+
+    target_pipeline =
+        _build_target_pipeline (self->encoding_method, codec, bitrate,
+        fifo_path, &error);
+
+    /* linking target pipeline with vsrc */
+    if (target_pipeline == NULL) {
+      goto out;
+    }
+
+    gst_bin_add (GST_BIN (self->pipeline), target_pipeline);
+    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id),
+        gst_object_ref (target_pipeline));
+
+    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
+    templ =
+        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
+        "src_%u");
+    tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
+
+    link_target =
+        link_target_new (self, self->vsrc, target_id, target_pipeline, TRUE);
+
+    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
+        g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
+  }
+
+out:
+  return G_SOURCE_REMOVE;
 }
 
 guint
@@ -645,62 +789,29 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     goto failed;
   }
 
+  g_object_set_data (G_OBJECT (self), "codec", GINT_TO_POINTER (codec));
+  g_object_set_data (G_OBJECT (self), "resolution",
+      GINT_TO_POINTER (resolution));
+  g_object_set_data (G_OBJECT (self), "framerate",
+      GUINT_TO_POINTER (framerate));
+  g_object_set_data (G_OBJECT (self), "bitrate", GUINT_TO_POINTER (bitrate));
+  g_object_set_data_full (G_OBJECT (self), "fifo-path",
+      g_strdup (fifo_path), g_free);
+
   /* Halt vsrc pipeline removal if planned. */
   if (self->stop_pipeline_event_id != 0) {
+    GSource *source = g_main_context_find_source_by_id (self->context,
+        self->stop_pipeline_event_id);
     g_source_remove (self->stop_pipeline_event_id);
     self->stop_pipeline_event_id = 0;
-  }
-
-  /* assume that it's first target */
-  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, error)) {
-    goto failed;
-  }
-
-  if (g_hash_table_size (self->targets) == 0) {
-    /* First target to connect sets the video parameters. */
-    _set_stream_caps (self, resolution, framerate);
+    g_source_unref (source);
   }
 
   target_id = g_str_hash (fifo_path);
 
-  if (!g_hash_table_contains (self->targets, GINT_TO_POINTER (target_id))) {
-    GstElement *target_pipeline;
-    GstPadTemplate *templ = NULL;
+  g_main_context_invoke_full (self->context, G_PRIORITY_DEFAULT,
+      _add_fifo_target_internal, self, NULL);
 
-    g_autoptr (GstElement) tee = NULL;
-    g_autoptr (GstPad) tee_srcpad = NULL;
-
-    g_autoptr (LinkTarget) link_target = NULL;
-    g_autoptr (GError) internal_err = NULL;
-
-    g_debug ("no target pipeline mapped with [%x]", target_id);
-
-    target_pipeline =
-        _build_target_pipeline (self->encoding_method, codec, bitrate,
-        fifo_path, &internal_err);
-
-    /* linking target pipeline with vsrc */
-    if (target_pipeline == NULL) {
-      g_propagate_error (error, internal_err);
-      goto failed;
-    }
-
-    gst_bin_add (GST_BIN (self->pipeline), target_pipeline);
-    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id),
-        gst_object_ref (target_pipeline));
-
-    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
-    templ =
-        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
-        "src_%u");
-    tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
-
-    link_target =
-        link_target_new (self, self->vsrc, target_id, target_pipeline, TRUE);
-
-    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
-        g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
-  }
 
   g_mutex_unlock (&self->lock);
 
