@@ -565,7 +565,6 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
 
     /* FIXME: How much ttl is optimal value? */
     sent = srt_sendmsg (wsock, (char *) (buf + len), rest, 125, 0);
-    g_debug ("sent buffer %d (size: %ld/%lu)", sent, len, buf_len);
 
     if (sent <= 0) {
       g_warning ("%s", srt_getlasterror_str ());
@@ -600,10 +599,10 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
 
   g_mutex_lock (&self->lock);
 
-  g_debug ("(%s):%s%s%s%s", self->fifo_path,
-      (cond & G_IO_ERR) ? " ERR" : "",
-      (cond & G_IO_HUP) ? " HUP" : "",
-      (cond & G_IO_IN) ? " IN" : "", (cond & G_IO_PRI) ? " PRI" : "");
+  if (cond & (G_IO_ERR | G_IO_HUP | G_IO_PRI)) {
+    g_debug ("(%s):%s%s%s", self->fifo_path, (cond & G_IO_ERR) ? " ERR" : "",
+        (cond & G_IO_HUP) ? " HUP" : "", (cond & G_IO_PRI) ? " PRI" : "");
+  }
 
   if ((cond & G_IO_IN)) {
     g_autoptr (GError) error = NULL;
@@ -638,11 +637,21 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
     }
 
     if (bytes_read > 0) {
-      g_autoptr (GVariant) variant =
-          g_variant_dict_lookup_value (self->stats, "bytes-read",
+      g_autoptr (GVariant) variant;
+      guint64 bytes_read_sum;
+      guint64 bytes_read_sum_new;
+
+      variant = g_variant_dict_lookup_value (self->stats, "bytes-read",
           G_VARIANT_TYPE_UINT64);
+      bytes_read_sum = g_variant_get_uint64 (variant);
+      bytes_read_sum_new = bytes_read_sum + bytes_read;
+
       g_variant_dict_insert_value (self->stats, "bytes-read",
-          g_variant_new_uint64 (g_variant_get_uint64 (variant) + bytes_read));
+          g_variant_new_uint64 (bytes_read_sum_new));
+
+      if ((bytes_read_sum_new / 100000) > (bytes_read_sum / 100000)) {
+        g_debug ("Read %lu B from FIFO", bytes_read_sum);
+      }
     }
   }
 
