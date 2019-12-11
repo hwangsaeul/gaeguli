@@ -30,19 +30,19 @@
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! x264enc tune=zerolatency bitrate=%d ! \
-        h264parse "
+        h264parse ! queue "
 
 #define GAEGULI_PIPELINE_GENERAL_H265ENC_STR    "\
         queue name=enc_first ! videoconvert ! x265enc tune=zerolatency bitrate=%d ! \
-        h265parse "
+        h265parse ! queue "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
-        omxh264enc control-rate=1 bitrate=%d "
+        omxh264enc control-rate=1 bitrate=%d ! queue "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
-        omxh265enc control-rate=1 bitrate=%d "
+        omxh265enc control-rate=1 bitrate=%d ! queue "
 
 #define GAEGULI_PIPELINE_MUXSINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
