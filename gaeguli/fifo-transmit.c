@@ -48,8 +48,6 @@ typedef struct _SRTInfo
 
   SRTSOCKET sock;
   SRTSOCKET listen_sock;
-  gint poll_id;
-
 } SRTInfo;
 
 static SRTInfo *
@@ -62,7 +60,6 @@ srt_info_new (const gchar * host, guint port, GaeguliSRTMode mode,
   info->refcount = 1;
   info->sock = SRT_INVALID_SOCK;
   info->listen_sock = SRT_INVALID_SOCK;
-  info->poll_id = SRT_ERROR;
   info->sockaddr = g_inet_socket_address_new_from_string (host, port);
   info->mode = mode;
 
@@ -426,8 +423,6 @@ _srt_accept (SRTInfo * info)
 static gboolean
 _srt_open (SRTInfo * info)
 {
-  const gint sock_flags = SRT_EPOLL_ERR | SRT_EPOLL_OUT;
-
   g_return_val_if_fail (info->sock == SRT_INVALID_SOCK, FALSE);
 
   if (info->listen_sock != SRT_INVALID_SOCK) {
@@ -441,32 +436,7 @@ _srt_open (SRTInfo * info)
     }
   }
 
-  if (info->poll_id != SRT_ERROR) {
-    srt_epoll_release (info->poll_id);
-    info->poll_id = SRT_ERROR;
-  }
-  info->poll_id = srt_epoll_create ();
-  if (srt_epoll_add_usock (info->poll_id, info->sock, &sock_flags)) {
-    g_warning ("%s", srt_getlasterror_str ());
-    goto failed;
-  }
-
   return TRUE;
-
-failed:
-  g_debug ("Failed to open srt socket");
-
-  if (info->poll_id != SRT_ERROR) {
-    srt_epoll_release (info->poll_id);
-  }
-
-  if (info->sock != SRT_INVALID_SOCK) {
-    srt_close (info->sock);
-  }
-
-  info->poll_id = SRT_ERROR;
-  info->sock = SRT_INVALID_SOCK;
-  return FALSE;
 }
 
 static SRTSOCKET
@@ -523,31 +493,20 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     gconstpointer buf, gsize buf_len)
 {
   gssize len = 0;
-  gint poll_timeout = 100;      /* FIXME: does it work? */
 
   if (info->sock == SRT_INVALID_SOCK && !_srt_open (info)) {
     return;
   }
 
   while (len < buf_len) {
-    SRTSOCKET wsock;
-    gint wsocklen = 1;
-
     gint sent;
     gint rest = MIN (buf_len - len, 1316);      /* FIXME: https://gitlab.freedesktop.org/gstreamer/gst-plugins-bad/merge_requests/657 */
 
-    if (srt_epoll_wait (info->poll_id, 0, 0, &wsock,
-            &wsocklen, poll_timeout, NULL, 0, NULL, 0) < 0) {
-      g_debug ("Failed to do poll wait, skip data");
-      return;
-    }
-
-    switch (srt_getsockstate (wsock)) {
+    switch (srt_getsockstate (info->sock)) {
       case SRTS_BROKEN:
       case SRTS_NONEXIST:
       case SRTS_CLOSED:
         g_warning ("Invalidate SRT socket");
-        srt_epoll_remove_usock (info->poll_id, info->sock);
         srt_close (info->sock);
         info->sock = SRT_INVALID_SOCK;
         if (info->mode == GAEGULI_SRT_MODE_LISTENER) {
@@ -564,7 +523,7 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     }
 
     /* FIXME: How much ttl is optimal value? */
-    sent = srt_sendmsg (wsock, (char *) (buf + len), rest, 125, 0);
+    sent = srt_sendmsg (info->sock, (char *) (buf + len), rest, 125, 0);
 
     if (sent <= 0) {
       g_warning ("%s", srt_getlasterror_str ());
