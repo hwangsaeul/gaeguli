@@ -61,6 +61,9 @@ GaeguliReturn           gaeguli_pipeline_remove_target
 
 void                    gaeguli_pipeline_stop   (GaeguliPipeline       *self);
 
+void                    gaeguli_pipeline_dump_to_dot_file
+                                                (GaeguliPipeline       *self);
+
 G_END_DECLS
 
 #endif // __GAEGULI_PIPELINE_H__
