@@ -793,3 +793,10 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
     gst_element_set_state (pipeline, GST_STATE_NULL);
   }
 }
+
+void
+gaeguli_pipeline_dump_to_dot_file (GaeguliPipeline * self)
+{
+  GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS (GST_BIN (self->pipeline),
+      GST_DEBUG_GRAPH_SHOW_ALL, g_get_prgname ());
+}
