@@ -449,6 +449,31 @@ _get_source_description (GaeguliPipeline * self)
   return g_string_free (result, FALSE);
 }
 
+struct source_video_params
+{
+  const gchar *pipeline_str;
+  GaeguliEncodingMethod encoding_method;
+};
+
+static struct source_video_params vsrc_params[] = {
+  {GAEGULI_PIPELINE_GENERAL_VSRC_STR, GAEGULI_ENCODING_METHOD_GENERAL},
+  {GAEGULI_PIPELINE_NVIDIA_TX1_VSRC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1},
+  {NULL, 0},
+};
+
+static const gchar *
+_get_vsrc_pipeline_string (GaeguliEncodingMethod encoding_method)
+{
+  struct source_video_params *params = vsrc_params;
+
+  for (; params->pipeline_str != NULL; params++) {
+    if (params->encoding_method == encoding_method)
+      return params->pipeline_str;
+  }
+
+  return NULL;
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
@@ -461,7 +486,9 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   src_description = _get_source_description (self);
 
   /* FIXME: what if zero-copy */
-  vsrc_str = g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, src_description);
+  vsrc_str =
+      g_strdup_printf (_get_vsrc_pipeline_string (self->encoding_method),
+      src_description);
 
   g_debug ("trying to create video source pipeline (%s)", vsrc_str);
   self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
