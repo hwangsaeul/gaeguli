@@ -27,7 +27,7 @@
 }"
 
 #define GAEGULI_PIPELINE_GENERAL_VSRC_STR       "\
-        %s ! capsfilter name=caps ! decodebin ! clockoverlay name=overlay ! \
+        %s ! capsfilter name=caps ! decodebin name=decodebin ! clockoverlay name=overlay ! \
         tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_VSRC_STR    "\
