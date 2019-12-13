@@ -480,12 +480,25 @@ _get_vsrc_pipeline_string (GaeguliEncodingMethod encoding_method)
   return NULL;
 }
 
+static void
+_decodebin_pad_added (GstElement * decodebin, GstPad * pad, gpointer user_data)
+{
+  if (GST_PAD_PEER (pad) == NULL) {
+    GstElement *overlay = GST_ELEMENT (user_data);
+    g_autoptr (GstPad) sinkpad =
+        gst_element_get_static_pad (overlay, "video_sink");
+
+    gst_pad_link (pad, sinkpad);
+  }
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
   g_autofree gchar *src_description = NULL;
   g_autofree gchar *vsrc_str = NULL;
   g_autoptr (GError) internal_err = NULL;
+  g_autoptr (GstElement) decodebin = NULL;
   g_autoptr (GstElement) tee = NULL;
   g_autoptr (GstPad) tee_sink = NULL;
 
@@ -519,7 +532,11 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   gst_pad_add_probe (tee_sink, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
       _drop_reconfigure_cb, NULL, NULL);
 
-  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+  decodebin = gst_bin_get_by_name (GST_BIN (self->pipeline), "decodebin");
+  if (decodebin) {
+    g_signal_connect (decodebin, "pad-added",
+        G_CALLBACK (_decodebin_pad_added), self->overlay);
+  }
 
   return TRUE;
 
@@ -742,6 +759,15 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
   }
 
   g_mutex_unlock (&self->lock);
+
+  /* Doing PLAYING -> READY -> PLAYING cycle on the pipeline will prod decodebin
+   * into re-discovery of input stream format and rebuilding its decoding
+   * pipeline. This is needed when a switch is made between two resolutions that
+   * the connected camera can only produce in different output formats, e.g. a
+   * change from raw 640x480 stream to MJPEG 1920x1080.
+   */
+  gst_element_set_state (self->pipeline, GST_STATE_READY);
+  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
 
   return target_id;
 
