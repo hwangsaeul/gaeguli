@@ -58,6 +58,7 @@ main (int argc, char *argv[])
   gboolean help = FALSE;
   const gchar *fifo = NULL;
   const gchar *device = DEFAULT_VIDEO_SOURCE_DEVICE;
+  gboolean overlay = FALSE;
   int result;
 
   g_autoptr (GError) error = NULL;
@@ -68,6 +69,7 @@ main (int argc, char *argv[])
   GOptionEntry entries[] = {
     {"fifo", 'f', 0, G_OPTION_ARG_FILENAME, &fifo, NULL, NULL},
     {"device", 'd', 0, G_OPTION_ARG_FILENAME, &device, NULL, NULL},
+    {"clock-overlay", 'c', 0, G_OPTION_ARG_NONE, &overlay, NULL, NULL},
     {"help", '?', 0, G_OPTION_ARG_NONE, &help, NULL, NULL},
     {NULL}
   };
@@ -93,6 +95,7 @@ main (int argc, char *argv[])
 
   pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE, device,
       DEFAULT_ENCODING_METHOD);
+  g_object_set (pipeline, "clock-overlay", overlay, NULL);
 
   signal_watch_intr_id =
       g_unix_signal_add (SIGINT, (GSourceFunc) intr_handler, pipeline);
