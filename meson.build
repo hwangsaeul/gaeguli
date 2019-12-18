@@ -125,12 +125,14 @@ libsrt_dep = dependency('srt', version: '>=1.3.4')
 gnome = import('gnome')
 
 gaeguli_incs = include_directories('.', 'gaeguli')
+gaeguli_doc_incs = include_directories('gaeguli')
 
 common_ldflags = [ ]
 
 subdir('gaeguli')
 subdir('tests')
 subdir('tools')
+subdir('doc')
 
 if meson.version().version_compare('>= 0.46.0')
   python3 = import('python').find_installation()
