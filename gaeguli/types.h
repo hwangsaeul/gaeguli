@@ -29,6 +29,11 @@
 #define _GAEGULI_EXTERN         extern
 #endif
 
+/**
+ * SECTION: types
+ * @Title: Gaeguli Types
+ * @Short_description:  Several types used to export APIs
+ */
 #define GAEGULI_API_EXPORT     _GAEGULI_EXTERN
 
 typedef enum {

@@ -27,33 +27,112 @@
 #include <glib-object.h>
 #include <gaeguli/types.h>
 
+/**
+ * SECTION: fifo-transmit
+ * @Title: GaeguliFifoTransmit
+ * @Short_description: Object to read fifo and send SRT streaming
+ *
+ * A #GaeguliFifoTransmit is an object capable of receive video from a fifo file and transmit it using SRT protocol.
+ */
 G_BEGIN_DECLS
 
 #define GAEGULI_TYPE_FIFO_TRANSMIT     (gaeguli_fifo_transmit_get_type ())
 G_DECLARE_FINAL_TYPE                   (GaeguliFifoTransmit, gaeguli_fifo_transmit,
                                         GAEGULI, FIFO_TRANSMIT, GObject)
 
+/**
+ * gaeguli_fifo_transmit_new:
+ *
+ * Creates a new #GaeguliFifoTransmit object
+ *
+ * Returns: the newly created object
+ */
 GaeguliFifoTransmit    *gaeguli_fifo_transmit_new      (void);
 
+/**
+ * gaeguli_fifo_transmit_new_full:
+ * @tmpdir: temporaly folder to use to create fifo file
+ *
+ * Creates a new #GaeguliFifoTransmit object with specific parameters.
+ *
+ * Returns: the newly created object
+ */
 GaeguliFifoTransmit    *gaeguli_fifo_transmit_new_full (const gchar            *tmpdir);
 
+/**
+ * gaeguli_fifo_transmit_get_fifo:
+ * @self: a #GaeguliFifoTransmit object
+ *
+ * Gets the path to the fifo file
+ *
+ * Returns: The fifo transmit file path
+ */
 const gchar            *gaeguli_fifo_transmit_get_fifo (GaeguliFifoTransmit    *self);
 
+/**
+ * gaeguli_fifo_transmit_get_read_status:
+ * @self: a #GaeguliFifoTransmit object
+ *
+ * Gets the read  status of the fifo object.
+ *
+ * Returns: a #GIOStatus object
+ */
 GIOStatus               gaeguli_fifo_transmit_get_read_status
                                                        (GaeguliFifoTransmit *self);
 
+/**
+ * gaeguli_fifo_transmit_get_available_bytes:
+ * @self: a #GaeguliFifoTransmit object
+ *
+ * Gets the availabe bytes in the fifo.
+ *
+ * Returns: availabe bytes to read.
+ */
 gssize                  gaeguli_fifo_transmit_get_available_bytes
                                                        (GaeguliFifoTransmit *self);
 
+/**
+ * gaeguli_fifo_transmit_get_available_bytes:
+ * @self: a #GaeguliFifoTransmit object
+ *
+ * Gets stats about the fifo transmited bytes.
+ *
+ * Returns: stats about fifo transmited bytes
+ */
 GVariantDict           *gaeguli_fifo_transmit_get_stats
                                                        (GaeguliFifoTransmit    *self);
 
+/**
+ * gaeguli_fifo_transmit_start:
+ * @self: a #GaeguliFifoTransmit object
+ * @host: destination host
+ * @port: destination port
+ * @mode: SRT mode, wheter to act as listener or caller
+ * @error: a #GError
+ *
+ * Stars the fifo transmist to desired `host` and `port`.
+ *
+ * Returns: an identifier for the transmision known as transmit_id
+ */
 guint                   gaeguli_fifo_transmit_start    (GaeguliFifoTransmit    *self,
                                                         const gchar            *host,
                                                         guint                   port,
                                                         GaeguliSRTMode          mode,
                                                         GError                **error);
 
+/**
+ * gaeguli_fifo_transmit_start_full:
+ * @self: a #GaeguliFifoTransmit object
+ * @host: destination host
+ * @port: destination port
+ * @mode: SRT mode, wheter to act as listener or caller
+ * @username: string to identify the sender
+ * @error: a #GError
+ *
+ * Stars the fifo transmist to desired `host` and `port` with addtional parameters.
+ *
+ * Returns: an identifier for the transmision known as transmit_id
+ */
 guint                   gaeguli_fifo_transmit_start_full
                                                        (GaeguliFifoTransmit    *self,
                                                         const gchar            *host,
@@ -62,6 +141,16 @@ guint                   gaeguli_fifo_transmit_start_full
                                                         const gchar            *username,
                                                         GError                **error);
 
+/**
+ * gaeguli_fifo_transmit_stop:
+ * @self: a #GaeguliFifoTransmit object
+ * @transmit_id: identifier as returned by #gaeguli_fifo_transmit_start
+ * @error: a #GError
+ *
+ * Stops the transmision of specific target_id
+ *
+ * Returns: an identifier for the transmision known as transmit_id
+ */
 gboolean                gaeguli_fifo_transmit_stop     (GaeguliFifoTransmit    *self,
                                                         guint                   transmit_id,
                                                         GError                **error); 
