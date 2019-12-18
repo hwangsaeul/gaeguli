@@ -1,0 +1,5 @@
+option('gtk_doc',
+  type: 'boolean',
+  value: false,
+  description: 'generate API reference',
+)
