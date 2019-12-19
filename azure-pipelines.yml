@@ -17,7 +17,6 @@ jobs:
   - bash: |
       meson test -C build -v --setup debug
     displayName: 'Testing'
-    continueOnError: true
 
 - job: BuildPackageUbuntu1604
   dependsOn: BuildTest
