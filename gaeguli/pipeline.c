@@ -494,11 +494,36 @@ _decodebin_pad_added (GstElement * decodebin, GstPad * pad, gpointer user_data)
 }
 
 static gboolean
+_bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
+{
+  switch (message->type) {
+    case GST_MESSAGE_APPLICATION:{
+      const GstStructure *structure = gst_message_get_structure (message);
+      const gchar *name = gst_structure_get_name (structure);
+
+      if (g_str_equal (name, "gaeguli-pipeline-stream-stopped")) {
+        GaeguliPipeline *self = user_data;
+        guint target_id;
+
+        gst_structure_get_uint (structure, "target-id", &target_id);
+        g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0, target_id);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
   g_autofree gchar *src_description = NULL;
   g_autofree gchar *vsrc_str = NULL;
   g_autoptr (GError) internal_err = NULL;
+  g_autoptr (GstBus) bus = NULL;
   g_autoptr (GstElement) decodebin = NULL;
   g_autoptr (GstElement) tee = NULL;
   g_autoptr (GstPad) tee_sink = NULL;
@@ -521,6 +546,9 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 
   self->pipeline = gst_pipeline_new (NULL);
   gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
+
+  bus = gst_element_get_bus (self->pipeline);
+  gst_bus_add_watch (bus, _bus_watch, self);
 
   self->overlay = gst_bin_get_by_name (GST_BIN (self->pipeline), "overlay");
   g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
@@ -666,8 +694,10 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     gst_bin_remove (GST_BIN (link_target->self->pipeline), link_target->target);
     gst_element_set_state (link_target->target, GST_STATE_NULL);
 
-    g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0,
-        link_target->target_id);
+    gst_element_post_message (link_target->self->pipeline,
+        gst_message_new_application (NULL,
+            gst_structure_new ("gaeguli-pipeline-stream-stopped",
+                "target-id", G_TYPE_UINT, link_target->target_id, NULL)));
 
     g_mutex_lock (&link_target->self->lock);
 
