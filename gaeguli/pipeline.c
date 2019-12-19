@@ -539,6 +539,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
         G_CALLBACK (_decodebin_pad_added), self->overlay);
   }
 
+  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+
   return TRUE;
 
 failed:
@@ -762,14 +764,14 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
 
   g_mutex_unlock (&self->lock);
 
-  /* Doing PLAYING -> READY -> PLAYING cycle on the pipeline will prod decodebin
+  /* Doing PLAYING -> READY -> PLAYING cycle on vsrc pipeline prods decodebin
    * into re-discovery of input stream format and rebuilding its decoding
    * pipeline. This is needed when a switch is made between two resolutions that
    * the connected camera can only produce in different output formats, e.g. a
    * change from raw 640x480 stream to MJPEG 1920x1080.
    */
-  gst_element_set_state (self->pipeline, GST_STATE_READY);
-  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+  gst_element_set_state (self->vsrc, GST_STATE_READY);
+  gst_element_set_state (self->vsrc, GST_STATE_PLAYING);
 
   return target_id;
 
