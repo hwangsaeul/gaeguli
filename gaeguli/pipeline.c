@@ -48,6 +48,7 @@ struct _GaeguliPipeline
   GaeguliEncodingMethod encoding_method;
 
   GHashTable *targets;
+  guint pending_target_removals;
 
   GstElement *pipeline;
   GstElement *vsrc;
@@ -669,6 +670,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     g_mutex_lock (&link_target->self->lock);
 
     if (g_hash_table_size (self->targets) == 0 &&
+        --self->pending_target_removals == 0 &&
         self->stop_pipeline_event_id == 0) {
       self->stop_pipeline_event_id = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
           (GSourceFunc) _stop_pipeline,
@@ -824,6 +826,7 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
   gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
       g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
 
+  ++self->pending_target_removals;
 
 out:
   g_mutex_unlock (&self->lock);
