@@ -1,5 +1,6 @@
-gaeguli (0.9.0-1) UNRELEASED; urgency=medium
+gaeguli (0.10.0-0h8l0) unstable; urgency=medium
 
+  [ Jakub Adam ]
   * Initial release.
 
- -- Jakub Adam <jakub.adam@collabora.com>  Mon, 16 Sep 2019 12:39:41 +0200
+ -- Justin Kim <jeongseok.kim@sk.com>  Fri, 10 Jan 2020 21:53:22 +0900
