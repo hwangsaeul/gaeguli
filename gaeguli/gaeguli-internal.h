@@ -1,5 +1,5 @@
 /**
- *  Copyright 2019 SK Telecom Co., Ltd.
+ *  Copyright 2019-2020 SK Telecom Co., Ltd.
  *    Author: Jeongseok Kim <jeongseok.kim@sk.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,8 +39,8 @@
         queue name=enc_first ! videoconvert ! x265enc tune=zerolatency bitrate=%d ! \
         h265parse ! queue "
 
-/* nvidia tx1 pipeline (for v4l2src) */
-#define GAEGULI_PIPELINE_NVIDIA_TX1_VSRC_STR    "\
+/* nvidia tx{1,2} pipeline */
+#define GAEGULI_PIPELINE_NVIDIA_VSRC_STR    "\
         %s ! capsfilter name=caps ! clockoverlay name=overlay ! \
         tee name=tee allow-not-linked=1 "
 

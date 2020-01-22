@@ -1,5 +1,5 @@
 /**
- *  Copyright 2019 SK Telecom Co., Ltd.
+ *  Copyright 2019-2020 SK Telecom Co., Ltd.
  *    Author: Jeongseok Kim <jeongseok.kim@sk.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
@@ -53,6 +53,8 @@ typedef enum {
   GAEGULI_VIDEO_SOURCE_V4L2SRC,
   GAEGULI_VIDEO_SOURCE_AVFVIDEOSRC,
   GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC,
+  GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC,
+  GAEGULI_VIDEO_SOURCE_NVCAMERASRC,
 } GaeguliVideoSource;
 
 typedef enum {
@@ -72,6 +74,7 @@ typedef enum {
 typedef enum {
   GAEGULI_ENCODING_METHOD_GENERAL = 1,
   GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
+  GAEGULI_ENCODING_METHOD_NVIDIA_TX2,
 } GaeguliEncodingMethod;
 
 #define GAEGULI_RESOURCE_ERROR          (gaeguli_resource_error_quark ())
