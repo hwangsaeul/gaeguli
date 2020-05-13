@@ -383,7 +383,7 @@ _srt_connect (SRTInfo * info)
     g_warning ("%s", error->message);
   }
 
-  info->sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
+  info->sock = srt_create_socket ();
   _apply_socket_options (info->sock);
 
   if (info->stream_id &&
@@ -449,7 +449,7 @@ _srt_open_listen_socket (GSocketAddress * sockaddr, GError ** error)
   g_autoptr (GError) internal_err = NULL;
   g_autofree gchar *error_msg = NULL;
 
-  listen_sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
+  listen_sock = srt_create_socket ();
   _apply_socket_options (listen_sock);
 
   sa_len = g_socket_address_get_native_size (sockaddr);

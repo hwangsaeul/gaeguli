@@ -120,7 +120,7 @@ if gst_dep.length() == 0
   warning ('No proper GStreamer version found')
 endif
 
-libsrt_dep = dependency('srt', version: '>=1.3.4')
+libsrt_dep = dependency('srt', version: '>=1.4.1')
 
 gnome = import('gnome')
 
