@@ -1,4 +1,4 @@
-[![Build Status](https://dev.azure.com/hwangsaeul/hwangsaeul/_apis/build/status/hwangsaeul.gaeguli?branchName=master)](https://dev.azure.com/hwangsaeul/hwangsaeul/_build/latest?definitionId=12&branchName=master)
+![Build Status](https://github.com/hwangsaeul/gaeguli/workflows/CI/badge.svg?branch=master)
 
 # Gaeguli
 *[gæguli]* is SRT streamer designed for edge devices that require strong security and ultra-low latency.
