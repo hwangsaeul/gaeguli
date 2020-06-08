@@ -51,7 +51,7 @@ GaeguliFifoTransmit    *gaeguli_fifo_transmit_new      (void);
 
 /**
  * gaeguli_fifo_transmit_new_full:
- * @tmpdir: temporaly folder to use to create fifo file
+ * @tmpdir: temporary folder to use to create fifo file
  * @fifoname: a fifo file name
  *
  * Creates a new #GaeguliFifoTransmit object with specific parameters.
