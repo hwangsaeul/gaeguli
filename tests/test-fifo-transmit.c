@@ -85,10 +85,10 @@ test_gaeguli_fifo_transmit_same_fifo_path ()
       g_build_filename (g_get_tmp_dir (), "test-gaeguli-fifo-XXXXXX", NULL);
   g_mkdtemp (tmpdir);
 
-  fifo_transmit_1 = gaeguli_fifo_transmit_new_full (tmpdir);
+  fifo_transmit_1 = gaeguli_fifo_transmit_new_full (tmpdir, "fifo");
   g_assert_nonnull (fifo_transmit_1);
 
-  fifo_transmit_2 = gaeguli_fifo_transmit_new_full (tmpdir);
+  fifo_transmit_2 = gaeguli_fifo_transmit_new_full (tmpdir, "fifo");
   g_assert_null (fifo_transmit_2);
 }
 

@@ -267,13 +267,20 @@ gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
 }
 
 GaeguliFifoTransmit *
-gaeguli_fifo_transmit_new_full (const gchar * tmpdir)
+gaeguli_fifo_transmit_new_full (const gchar * tmpdir, const gchar * fifoname)
 {
 
   g_autoptr (GaeguliFifoTransmit) self = NULL;
   g_autofree gchar *fifo_path = NULL;
 
-  fifo_path = g_build_filename (tmpdir, "fifo", NULL);
+  g_return_val_if_fail (tmpdir != NULL, NULL);
+  g_return_val_if_fail (fifoname != NULL, NULL);
+
+  fifo_path = g_build_filename (tmpdir, fifoname, NULL);
+
+  if (g_mkdir_with_parents (tmpdir, 0700) == -1) {
+    g_debug ("Can't create %s: %s", tmpdir, strerror (errno));
+  }
 
   if (access (fifo_path, F_OK) == 0) {
     g_debug ("%s already exists!", fifo_path);
@@ -301,7 +308,7 @@ gaeguli_fifo_transmit_new (void)
   tmpdir = g_build_filename (sys_tmpdir, "gaeguli-fifo-XXXXXX", NULL);
   g_mkdtemp (tmpdir);
 
-  self = gaeguli_fifo_transmit_new_full (tmpdir);
+  self = gaeguli_fifo_transmit_new_full (tmpdir, "fifo");
   if (!self) {
     g_remove (tmpdir);
   }
