@@ -52,12 +52,14 @@ GaeguliFifoTransmit    *gaeguli_fifo_transmit_new      (void);
 /**
  * gaeguli_fifo_transmit_new_full:
  * @tmpdir: temporaly folder to use to create fifo file
+ * @fifoname: a fifo file name
  *
  * Creates a new #GaeguliFifoTransmit object with specific parameters.
  *
  * Returns: the newly created object
  */
-GaeguliFifoTransmit    *gaeguli_fifo_transmit_new_full (const gchar            *tmpdir);
+GaeguliFifoTransmit    *gaeguli_fifo_transmit_new_full (const gchar            *tmpdir,
+                                                        const gchar            *fifoname);
 
 /**
  * gaeguli_fifo_transmit_get_fifo:
