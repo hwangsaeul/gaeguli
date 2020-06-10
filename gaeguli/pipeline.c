@@ -449,6 +449,9 @@ _get_source_description (GaeguliPipeline * self)
     case GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC:
       g_string_append (result, " is-live=1");
       break;
+    case GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC:
+      g_string_append_printf (result, " sensor-id=%s", self->device);
+      break;
     default:
       break;
   }
