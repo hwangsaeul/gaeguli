@@ -1,5 +1,5 @@
 /**
- *  Copyright 2019 SK Telecom Co., Ltd.
+ *  Copyright 2019-2020 SK Telecom Co., Ltd.
  *    Author: Jeongseok Kim <jeongseok.kim@sk.com>
  *            Jakub Adam <jakub.adam@collabora.com>
  *
