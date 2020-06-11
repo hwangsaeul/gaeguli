@@ -73,6 +73,7 @@ typedef struct _LinkTarget
 
 static const gchar *const supported_formats[] = {
   "video/x-raw",
+  "video/x-raw(memory:NVMM)",
   "image/jpeg",
   NULL
 };
@@ -615,11 +616,10 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   caps = gst_caps_new_empty ();
 
   for (i = 0; supported_formats[i] != NULL; i++) {
-    gst_caps_append (caps,
-        gst_caps_new_simple (supported_formats[i],
-            "width", G_TYPE_INT, width,
-            "height", G_TYPE_INT, height,
-            "framerate", GST_TYPE_FRACTION, framerate, 1, NULL));
+    GstCaps *supported_caps = gst_caps_from_string (supported_formats[i]);
+    gst_caps_set_simple (supported_caps, "width", G_TYPE_INT, width, "height",
+        G_TYPE_INT, height, "framerate", GST_TYPE_FRACTION, framerate, 1, NULL);
+    gst_caps_append (caps, supported_caps);
   }
 
   capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
