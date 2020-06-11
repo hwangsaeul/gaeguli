@@ -41,7 +41,7 @@
 
 /* nvidia tx1 pipeline (for v4l2src) */
 #define GAEGULI_PIPELINE_NVIDIA_TX1_VSRC_STR    "\
-        %s ! capsfilter name=caps ! clockoverlay name=overlay ! \
+        %s ! capsfilter name=caps ! \
         tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\

@@ -555,7 +555,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   gst_bus_add_watch (bus, _bus_watch, self);
 
   self->overlay = gst_bin_get_by_name (GST_BIN (self->pipeline), "overlay");
-  g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
+  if (self->overlay)
+    g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
 
   /* Caps of the video source are determined by the caps filter in vsrc pipeline
    * and don't need to be renegotiated when a new target pipeline links to
