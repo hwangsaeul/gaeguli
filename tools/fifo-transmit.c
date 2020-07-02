@@ -76,8 +76,7 @@ main (int argc, char *argv[])
 {
   FifoTransmitOptions options;
   g_autoptr (GError) error = NULL;
-  g_autoptr (GApplication) app =
-      g_application_new ("org.hwangsaeul.Gaeguli1.FifoTransmitApp", 0);
+  g_autoptr (GApplication) app = g_application_new (NULL, 0);
 
   g_autoptr (GOptionGroup) group = NULL;
   g_autoptr (GOptionContext) context = NULL;
