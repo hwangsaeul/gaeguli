@@ -62,8 +62,7 @@ main (int argc, char *argv[])
   int result;
 
   g_autoptr (GError) error = NULL;
-  g_autoptr (GApplication) app =
-      g_application_new ("org.hwangsaeul.Gaeguli1.PipelineApp", 0);
+  g_autoptr (GApplication) app = g_application_new (NULL, 0);
 
   g_autoptr (GOptionContext) context = NULL;
   GOptionEntry entries[] = {
