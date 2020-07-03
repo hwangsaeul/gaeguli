@@ -382,7 +382,7 @@ _get_enc_string (GaeguliEncodingMethod encoding_method,
 
 static GstElement *
 _build_target_pipeline (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate, const gchar * fifo_path,
+    GaeguliVideoCodec codec, guint bitrate, const gchar * srt_uri,
     GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
@@ -403,7 +403,7 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
   pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
-      pipeline_str, fifo_path);
+      pipeline_str, srt_uri);
 
   target_pipeline = gst_parse_launch (pipeline_str, &internal_err);
   if (target_pipeline == NULL) {
@@ -720,24 +720,17 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 }
 
 guint
-gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
+gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, GaeguliVideoResolution resolution,
-    guint framerate, guint bitrate, const gchar * fifo_path, GError ** error)
+    guint framerate, guint bitrate, const gchar * uri, GError ** error)
 {
   guint target_id = 0;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
-  g_return_val_if_fail (fifo_path != NULL, 0);
+  g_return_val_if_fail (uri != NULL, 0);
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
 
   g_mutex_lock (&self->lock);
-
-  if (access (fifo_path, W_OK) != 0) {
-    g_error ("Can't write to fifo (%s)", fifo_path);
-    g_set_error (error, GAEGULI_RESOURCE_ERROR, GAEGULI_RESOURCE_ERROR_WRITE,
-        "Can't access to fifo: %s", fifo_path);
-    goto failed;
-  }
 
   /* Halt vsrc pipeline removal if planned. */
   if (self->stop_pipeline_event_id != 0) {
@@ -755,7 +748,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     _set_stream_caps (self, resolution, framerate);
   }
 
-  target_id = g_str_hash (fifo_path);
+  target_id = g_str_hash (uri);
 
   if (!g_hash_table_contains (self->targets, GINT_TO_POINTER (target_id))) {
     GstElement *target_pipeline;
@@ -770,8 +763,8 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
     target_pipeline =
-        _build_target_pipeline (self->encoding_method, codec, bitrate,
-        fifo_path, &internal_err);
+        _build_target_pipeline (self->encoding_method, codec, bitrate, uri,
+        &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target_pipeline == NULL) {
@@ -820,12 +813,12 @@ failed:
 }
 
 guint
-gaeguli_pipeline_add_fifo_target (GaeguliPipeline * self,
-    const gchar * fifo_path, GError ** error)
+gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
+    const gchar * uri, GError ** error)
 {
-  return gaeguli_pipeline_add_fifo_target_full (self, DEFAULT_VIDEO_CODEC,
+  return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_VIDEO_CODEC,
       DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, DEFAULT_VIDEO_BITRATE,
-      fifo_path, error);
+      uri, error);
 }
 
 GaeguliReturn

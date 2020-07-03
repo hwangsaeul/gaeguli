@@ -19,14 +19,15 @@ static void
 activate (GApplication * app, gpointer user_data)
 {
   g_autoptr (GError) error = NULL;
-  const gchar *fifo = NULL;
+  const gchar *srt_uri = NULL;
 
   GaeguliPipeline *pipeline = user_data;
 
   g_application_hold (app);
 
-  fifo = g_object_get_data (G_OBJECT (app), "fifo");
-  target_id = gaeguli_pipeline_add_fifo_target (pipeline, fifo, &error);
+  srt_uri = g_object_get_data (G_OBJECT (app), "srt_uri");
+  g_print ("Streaming to %s\n", srt_uri);
+  target_id = gaeguli_pipeline_add_srt_target (pipeline, srt_uri, &error);
 }
 
 static gboolean
@@ -56,8 +57,8 @@ int
 main (int argc, char *argv[])
 {
   gboolean help = FALSE;
-  const gchar *fifo = NULL;
   const gchar *device = DEFAULT_VIDEO_SOURCE_DEVICE;
+  const gchar **uri = NULL;
   gboolean overlay = FALSE;
   int result;
 
@@ -66,10 +67,10 @@ main (int argc, char *argv[])
 
   g_autoptr (GOptionContext) context = NULL;
   GOptionEntry entries[] = {
-    {"fifo", 'f', 0, G_OPTION_ARG_FILENAME, &fifo, NULL, NULL},
     {"device", 'd', 0, G_OPTION_ARG_FILENAME, &device, NULL, NULL},
     {"clock-overlay", 'c', 0, G_OPTION_ARG_NONE, &overlay, NULL, NULL},
     {"help", '?', 0, G_OPTION_ARG_NONE, &help, NULL, NULL},
+    {G_OPTION_REMAINING, 0, 0, G_OPTION_ARG_STRING_ARRAY, &uri, NULL, NULL},
     {NULL}
   };
 
@@ -92,6 +93,15 @@ main (int argc, char *argv[])
     return -1;
   }
 
+  if (!uri) {
+    g_printerr ("SRT uri not specified\n");
+    return -1;
+  }
+  if (!g_str_has_prefix (uri[0], "srt://")) {
+    g_printerr ("Invalid SRT uri %s\n", uri[0]);
+    return -1;
+  }
+
   pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE, device,
       DEFAULT_ENCODING_METHOD);
   g_object_set (pipeline, "clock-overlay", overlay, NULL);
@@ -103,7 +113,7 @@ main (int argc, char *argv[])
       app);
 
   g_signal_connect (app, "activate", G_CALLBACK (activate), pipeline);
-  g_object_set_data_full (G_OBJECT (app), "fifo", g_strdup (fifo), g_free);
+  g_object_set_data_full (G_OBJECT (app), "srt_uri", g_strdup (uri[0]), g_free);
 
   result = g_application_run (app, argc, argv);
 

@@ -82,9 +82,9 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
   g_signal_connect (pipeline, "stream-stopped", G_CALLBACK (_stream_stopped_cb),
       fixture);
 
-  target_id = gaeguli_pipeline_add_fifo_target_full (pipeline,
+  target_id = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
-      "/dev/null", &error);
+      "srt://127.0.0.1:1111", &error);
 
   g_assert_cmpuint (target_id, !=, 0);
   fixture->target_id = target_id;
@@ -117,9 +117,9 @@ do_pipeline_cycle (TestFixture * fixture, GaeguliEncodingMethod encoding_method)
       encoding_method);
   g_autoptr (GError) error = NULL;
 
-  gaeguli_pipeline_add_fifo_target_full (pipeline,
+  gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
-      "/dev/null", &error);
+      "srt://127.0.0.1:1111", &error);
 
   fixture->pipeline = pipeline;
 
