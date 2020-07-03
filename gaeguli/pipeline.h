@@ -30,9 +30,10 @@
 /**
  * SECTION: pipeline
  * @Title: GaeguliPipeline
- * @Short_description: Object to read video and send it to fifo
+ * @Short_description: Object to read video and send it using SRT
  *
- * A #GaeguliPipeline is an object capable of receive video from different type of sources and send it to a fifo for further processing.
+ * A #GaeguliPipeline is an object capable of receiving video from different
+ * types of sources and streaming it using SRT protocol.
  */
 
 G_BEGIN_DECLS
@@ -64,50 +65,50 @@ GaeguliPipeline        *gaeguli_pipeline_new_full
                                                  const gchar           *device,
                                                  GaeguliEncodingMethod  encoding_method);
 /**
- * gaeguli_pipeline_add_fifo_target:
+ * gaeguli_pipeline_add_srt_target:
  * @self: a #GaeguliPipeline object
- * @fifo_path: path to fifo file
+ * @uri: SRT URI
  * @error: a #GError
  *
- * Adds a fifo target to the pipeline.
+ * Adds a SRT target to the pipeline.
  *
- * Returns: an identifier for the fifo connection known as target_id
+ * Returns: an identifier for the SRT connection known as target_id
  */
-guint                   gaeguli_pipeline_add_fifo_target
+guint                   gaeguli_pipeline_add_srt_target
                                                 (GaeguliPipeline       *self,
-                                                 const gchar           *fifo_path,
+                                                 const gchar           *uri,
                                                  GError               **error);
 
 /**
- * gaeguli_pipeline_add_fifo_target_full:
+ * gaeguli_pipeline_add_srt_target_full:
  * @self: a #GaeguliPipeline object
  * @codec: codec to use for streaming
  * @resolution: resolution to use for streaming
  * @framerate: framerate to use for streaming
  * @bitrate: bitrate use for streaming
- * @fifo_path: path to fifo file
+ * @uri: SRT URI
  * @error: a #GError
  *
- * Adds a fifo target to the pipeline using specific parameters.
+ * Adds a SRT target to the pipeline using specific parameters.
  *
- * Returns: an identifier for the fifo connection known as target_id
+ * Returns: an identifier for the SRT connection known as target_id
  */
-guint                   gaeguli_pipeline_add_fifo_target_full
+guint                   gaeguli_pipeline_add_srt_target_full
                                                 (GaeguliPipeline       *self,
                                                  GaeguliVideoCodec      codec,
                                                  GaeguliVideoResolution resolution,
                                                  guint                  framerate,
                                                  guint                  bitrate,
-                                                 const gchar           *fifo_path,
+                                                 const gchar           *uri,
                                                  GError               **error);
 
 /**
  * gaeguli_pipeline_remove_target:
  * @self: a #GaeguliPipeline object
- * @target_id: identifier as returned by #gaeguli_pipeline_add_fifo_target
+ * @target_id: identifier as returned by #gaeguli_pipeline_add_srt_target
  * @error: a #GError
  *
- * Removes a specific fifo target.
+ * Removes a specific SRT target.
  *
  * Returns: an #GaeguliReturn
  */

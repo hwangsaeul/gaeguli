@@ -54,6 +54,6 @@
 
 #define GAEGULI_PIPELINE_MUXSINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
-        filesink name=muxink_last location=%s buffer-mode=unbuffered"
+        srtsink uri=%s"
 
 #endif // __GAEGULI_INTERNAL_H__
