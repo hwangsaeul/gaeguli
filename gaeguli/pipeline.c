@@ -383,12 +383,13 @@ _get_enc_string (GaeguliEncodingMethod encoding_method,
 static GstElement *
 _build_target_pipeline (GaeguliEncodingMethod encoding_method,
     GaeguliVideoCodec codec, guint bitrate, const gchar * srt_uri,
-    GError ** error)
+    const gchar * username, GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
   GstPad *ghost_pad = NULL;
+  g_autofree gchar *uri_str = NULL;
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
 
@@ -398,6 +399,14 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
         "Can not determine encoding method");
     return NULL;
+  }
+
+  if (username) {
+    g_autoptr (GstUri) uri = gst_uri_from_string (srt_uri);
+    g_autofree gchar *streamid = g_strdup_printf ("#!::u=%s", username);
+
+    gst_uri_set_query_value (uri, "streamid", streamid);
+    srt_uri = uri_str = gst_uri_to_string (uri);
   }
 
   g_debug ("using encoding pipeline [%s]", pipeline_str);
@@ -722,7 +731,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 guint
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, GaeguliVideoResolution resolution,
-    guint framerate, guint bitrate, const gchar * uri, GError ** error)
+    guint framerate, guint bitrate, const gchar * uri, const gchar * username,
+    GError ** error)
 {
   guint target_id = 0;
 
@@ -764,7 +774,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
     target_pipeline =
         _build_target_pipeline (self->encoding_method, codec, bitrate, uri,
-        &internal_err);
+        username, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target_pipeline == NULL) {
@@ -814,11 +824,11 @@ failed:
 
 guint
 gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
-    const gchar * uri, GError ** error)
+    const gchar * uri, const gchar * username, GError ** error)
 {
   return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_VIDEO_CODEC,
       DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, DEFAULT_VIDEO_BITRATE,
-      uri, error);
+      uri, username, error);
 }
 
 GaeguliReturn
