@@ -68,6 +68,7 @@ GaeguliPipeline        *gaeguli_pipeline_new_full
  * gaeguli_pipeline_add_srt_target:
  * @self: a #GaeguliPipeline object
  * @uri: SRT URI
+ * @username: SRT Stream ID User Name identifying this target
  * @error: a #GError
  *
  * Adds a SRT target to the pipeline.
@@ -77,6 +78,7 @@ GaeguliPipeline        *gaeguli_pipeline_new_full
 guint                   gaeguli_pipeline_add_srt_target
                                                 (GaeguliPipeline       *self,
                                                  const gchar           *uri,
+                                                 const gchar           *username,
                                                  GError               **error);
 
 /**
@@ -86,6 +88,7 @@ guint                   gaeguli_pipeline_add_srt_target
  * @resolution: resolution to use for streaming
  * @framerate: framerate to use for streaming
  * @bitrate: bitrate use for streaming
+ * @username: SRT Stream ID User Name identifying this target
  * @uri: SRT URI
  * @error: a #GError
  *
@@ -100,6 +103,7 @@ guint                   gaeguli_pipeline_add_srt_target_full
                                                  guint                  framerate,
                                                  guint                  bitrate,
                                                  const gchar           *uri,
+                                                 const gchar           *username,
                                                  GError               **error);
 
 /**
