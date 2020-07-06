@@ -1,6 +1,6 @@
 tests = [
   'test-pipeline',
-  'test-fifo-transmit',
+  #'test-fifo-transmit',
 ]
 
 foreach t: tests
