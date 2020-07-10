@@ -380,18 +380,54 @@ _get_enc_string (GaeguliEncodingMethod encoding_method,
   return NULL;
 }
 
+GstBusSyncReply
+_bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
+    gpointer user_data)
+{
+  switch (message->type) {
+    case GST_MESSAGE_ERROR:{
+      g_autoptr (GError) error = NULL;
+      g_autofree gchar *debug = NULL;
+
+      gst_message_parse_error (message, &error, &debug);
+      if (g_error_matches (error, GST_RESOURCE_ERROR,
+              GST_RESOURCE_ERROR_OPEN_WRITE)) {
+        GError **error = user_data;
+
+        g_clear_error (error);
+
+        if (g_str_has_suffix (debug, "already listening on the same port")) {
+          *error = g_error_new (GAEGULI_TRANSMIT_ERROR,
+              GAEGULI_TRANSMIT_ERROR_ADDRINUSE, "Address already in use");
+        } else {
+          *error = g_error_new (GAEGULI_TRANSMIT_ERROR,
+              GAEGULI_TRANSMIT_ERROR_FAILED, "Failed to open SRT socket");
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return GST_BUS_PASS;
+}
+
 static GstElement *
 _build_target_pipeline (GaeguliEncodingMethod encoding_method,
     GaeguliVideoCodec codec, guint bitrate, const gchar * srt_uri,
     const gchar * username, GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
+  g_autoptr (GstElement) srtsink = NULL;
   g_autoptr (GstElement) enc_first = NULL;
+  g_autoptr (GstBus) bus = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
   GstPad *ghost_pad = NULL;
   g_autofree gchar *uri_str = NULL;
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
+  GstStateChangeReturn res;
 
   pipeline_str = _get_enc_string (encoding_method, codec, bitrate);
   if (pipeline_str == NULL) {
@@ -417,7 +453,22 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   target_pipeline = gst_parse_launch (pipeline_str, &internal_err);
   if (target_pipeline == NULL) {
     g_error ("failed to build muxsink pipeline (%s)", internal_err->message);
-    g_propagate_error (error, internal_err);
+    goto failed;
+  }
+
+  srtsink = gst_bin_get_by_name (GST_BIN (target_pipeline), "sink");
+
+  bus = gst_element_get_bus (target_pipeline);
+  gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
+      NULL);
+
+  /* Setting READY state on srtsink check that we can bind to address and port
+   * specified in srt_uri. On failure, bus handler should set internal_err. */
+  res = gst_element_set_state (srtsink, GST_STATE_READY);
+
+  gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
+
+  if (res == GST_STATE_CHANGE_FAILURE) {
     goto failed;
   }
 
@@ -429,6 +480,10 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   return g_steal_pointer (&target_pipeline);
 
 failed:
+  if (internal_err) {
+    g_propagate_error (error, internal_err);
+    internal_err = NULL;
+  }
   return NULL;
 }
 
@@ -779,6 +834,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     /* linking target pipeline with vsrc */
     if (target_pipeline == NULL) {
       g_propagate_error (error, internal_err);
+      internal_err = NULL;
       goto failed;
     }
 
