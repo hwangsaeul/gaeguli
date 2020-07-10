@@ -24,6 +24,9 @@
 
 #include <gst/gst.h>
 
+#define TEST_PORT_BASE 5566
+#define TARGET_BYTES_SENT_LIMIT 10000
+
 typedef struct _TestFixture
 {
   GMainLoop *loop;
@@ -94,6 +97,154 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
   gaeguli_pipeline_stop (pipeline);
 }
 
+typedef struct
+{
+  guint id;
+  gboolean closing;
+  GstElement *receiver_pipeline;
+} TargetTestData;
+
+typedef struct
+{
+  GMutex lock;
+  TestFixture *fixture;
+  GaeguliPipeline *pipeline;
+  TargetTestData targets[5];
+  guint targets_to_create;
+} AddRemoveTestData;
+
+static gboolean
+add_remove_target_cb (AddRemoveTestData * data)
+{
+  gint i;
+
+  g_mutex_lock (&data->lock);
+
+  /* If there's a free slot, create a new fifo transmit. */
+  for (i = 0; data->targets_to_create && i != G_N_ELEMENTS (data->targets); ++i) {
+    TargetTestData *target = &data->targets[i];
+
+    if (target->id == 0 && !target->closing) {
+      g_autoptr (GError) error = NULL;
+      g_autoptr (GstElement) srtsrc = NULL;
+      g_autofree gchar *uri = NULL;
+
+      target->receiver_pipeline =
+          gst_parse_launch ("srtsrc name=src mode=listener ! fakesink", &error);
+      g_assert_no_error (error);
+
+      srtsrc = gst_bin_get_by_name (GST_BIN (target->receiver_pipeline), "src");
+      g_assert_nonnull (srtsrc);
+      g_object_set (srtsrc, "localport", TEST_PORT_BASE + i, NULL);
+
+      gst_element_set_state (target->receiver_pipeline, GST_STATE_PLAYING);
+
+      uri = g_strdup_printf ("srt://127.0.0.1:%d", TEST_PORT_BASE + i);
+
+      target->id = gaeguli_pipeline_add_srt_target_full (data->pipeline,
+          GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30,
+          2048000, uri, NULL, &error);
+      g_assert_no_error (error);
+
+      g_debug ("Added target %u", target->id);
+
+      --data->targets_to_create;
+      break;
+    }
+  }
+
+  /* Check that all targets are in NORMAL state and data are being read. */
+  for (i = 0; i != G_N_ELEMENTS (data->targets); ++i) {
+    TargetTestData *target = &data->targets[i];
+    guint64 bytes_sent;
+    g_autoptr (GError) error = NULL;
+
+    if (target->id == 0 || target->closing) {
+      continue;
+    }
+
+    bytes_sent = gaeguli_pipeline_target_get_bytes_sent (data->pipeline,
+        target->id);
+
+    g_debug ("Target %u has sent %lu B", target->id, bytes_sent);
+
+    /* Remove fifos that have read at least FIFO_READ_LIMIT_BYTES. */
+    if (bytes_sent >= TARGET_BYTES_SENT_LIMIT) {
+      /* First stop the pipeline. */
+      gaeguli_pipeline_remove_target (data->pipeline, target->id, &error);
+      g_assert_no_error (error);
+
+      target->closing = TRUE;
+      /* The removal gets finished in stream_stopped_cb(). */
+    }
+  }
+
+  g_mutex_unlock (&data->lock);
+
+  return G_SOURCE_CONTINUE;
+}
+
+static void
+stream_stopped_cb (GaeguliPipeline * pipeline, guint target_id,
+    AddRemoveTestData * data)
+{
+  gint i;
+  gboolean have_active_targets = FALSE;
+
+  g_mutex_lock (&data->lock);
+
+  for (i = 0; i != G_N_ELEMENTS (data->targets); ++i) {
+    TargetTestData *target = &data->targets[i];
+    g_autoptr (GError) error = NULL;
+
+    if (target->id == target_id) {
+      g_assert_true (target->closing);
+
+      gst_element_set_state (target->receiver_pipeline, GST_STATE_NULL);
+      gst_clear_object (&target->receiver_pipeline);
+
+      g_debug ("Removed target %u", target->id);
+
+      target->id = 0;
+      target->closing = FALSE;
+    } else if (target->id != 0) {
+      have_active_targets = TRUE;
+    }
+  }
+
+  if (!have_active_targets && data->targets_to_create == 0) {
+    /* All fifos finished receiving, quit the test. */
+    g_main_loop_quit (data->fixture->loop);
+  }
+
+  g_mutex_unlock (&data->lock);
+}
+
+static void
+test_gaeguli_pipeline_add_remove_target_random (TestFixture * fixture,
+    gconstpointer unused)
+{
+  AddRemoveTestData data = { 0 };
+  guint idle_source;
+
+  g_mutex_init (&data.lock);
+  data.fixture = fixture;
+  data.pipeline =
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      GAEGULI_ENCODING_METHOD_GENERAL);
+  data.targets_to_create = 10;
+
+  g_signal_connect (data.pipeline, "stream-stopped",
+      (GCallback) stream_stopped_cb, &data);
+
+  idle_source = g_timeout_add (20, (GSourceFunc) add_remove_target_cb, &data);
+  g_main_loop_run (fixture->loop);
+  g_source_remove (idle_source);
+
+  gaeguli_pipeline_stop (data.pipeline);
+  g_clear_object (&data.pipeline);
+}
+
 static gboolean
 _stop_pipeline (TestFixture * fixture)
 {
@@ -154,6 +305,10 @@ main (int argc, char *argv[])
   g_test_init (&argc, &argv, NULL);
   g_test_add ("/gaeguli/pipeline-instance", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_instance, fixture_teardown);
+
+  g_test_add ("/gaeguli/pipeline-add-remove-target-random",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_pipeline_add_remove_target_random, fixture_teardown);
 
   g_test_add ("/gaeguli/pipeline-debug-tx1", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_debug_tx1, fixture_teardown);
