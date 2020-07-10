@@ -107,6 +107,17 @@ guint                   gaeguli_pipeline_add_srt_target_full
                                                  GError               **error);
 
 /**
+ * gaeguli_pipeline_target_get_bytes_sent:
+ * @self: a #GaeguliPipeline object
+ * @target_id: a SRT target as returned by #gaeguli_pipeline_add_srt_target
+ *
+ * Returns: the number of bytes sent over the given SRT target
+ */
+guint64                 gaeguli_pipeline_target_get_bytes_sent
+                                                (GaeguliPipeline       *self,
+                                                 guint                  target_id);
+
+/**
  * gaeguli_pipeline_remove_target:
  * @self: a #GaeguliPipeline object
  * @target_id: identifier as returned by #gaeguli_pipeline_add_srt_target
