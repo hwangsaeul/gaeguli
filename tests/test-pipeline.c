@@ -287,6 +287,147 @@ test_gaeguli_pipeline_address_in_use (void)
   gaeguli_pipeline_stop (pipeline);
 }
 
+typedef struct
+{
+  GMainLoop *loop;
+  GaeguliPipeline *pipeline;
+
+  guint watchdog_id;
+
+  GstElement *receiver1;
+  GstElement *receiver2;
+  GstElement *receiver3;
+
+  gsize receiver1_buffer_cnt;
+  gsize receiver2_buffer_cnt;
+  gsize receiver3_buffer_cnt;
+
+  gsize receiver1_buffer_cnt_last;
+
+} ClientTestData;
+
+static gboolean
+receiver_watchdog_cb (ClientTestData * data)
+{
+  g_debug ("Watchdog timeout");
+
+  /* Check that receiver 1 haven't stopped receiving. */
+  g_assert_cmpuint (data->receiver1_buffer_cnt, >,
+      data->receiver1_buffer_cnt_last);
+
+  data->receiver1_buffer_cnt_last = data->receiver1_buffer_cnt;
+
+  return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+receiver2_remove_cb (ClientTestData * data)
+{
+  /* Stop receiver 2 to let receiver 3 connect. */
+  g_debug ("Stopping receiver 2");
+
+  gst_element_set_state (data->receiver2, GST_STATE_NULL);
+  g_clear_pointer (&data->receiver2, gst_object_unref);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+receiver3_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    ClientTestData * data)
+{
+  /* Fifo transmit should reject second client connecting in listener mode. */
+  g_assert_null (data->receiver2);
+
+  if (++data->receiver3_buffer_cnt == 100) {
+    g_debug ("Receiver 3 started receiving; exiting main loop");
+
+    g_main_loop_quit (data->loop);
+  }
+}
+
+static void
+receiver2_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    ClientTestData * data)
+{
+  ++data->receiver2_buffer_cnt;
+
+  if (data->receiver2_buffer_cnt == 100) {
+    g_autoptr (GError) error = NULL;
+
+    g_debug ("Receiver 2 started receiving; spawning receiver 3");
+
+    data->receiver3 = create_receiver (GAEGULI_SRT_MODE_CALLER,
+        TEST_PORT_BASE + 1, (GCallback) receiver3_buffer_cb, data);
+  } else if (data->receiver2_buffer_cnt == 300) {
+    g_idle_add ((GSourceFunc) receiver2_remove_cb, data);
+  }
+}
+
+static void
+receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    ClientTestData * data)
+{
+  ++data->receiver1_buffer_cnt;
+
+  if (data->receiver1_buffer_cnt == 1) {
+    data->watchdog_id = g_timeout_add (100, (GSourceFunc) receiver_watchdog_cb,
+        data);
+  } else if (data->receiver1_buffer_cnt == 100) {
+    guint target_id;
+    g_autoptr (GError) error = NULL;
+    g_autofree gchar *uri_str = NULL;
+
+    g_debug ("Receiver 1 started receiving; spawning receiver 2");
+
+    uri_str = g_strdup_printf ("srt://127.0.0.1:%d?mode=listener",
+        TEST_PORT_BASE + 1);
+
+    target_id = gaeguli_pipeline_add_srt_target_full (data->pipeline,
+        GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
+        uri_str, NULL, &error);
+    g_assert_no_error (error);
+    g_assert_cmpint (target_id, !=, 0);
+
+    data->receiver2 = create_receiver (GAEGULI_SRT_MODE_CALLER,
+        TEST_PORT_BASE + 1, (GCallback) receiver2_buffer_cb, data);
+  }
+}
+
+static void
+test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
+{
+  g_autoptr (GaeguliPipeline) pipeline =
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      GAEGULI_ENCODING_METHOD_GENERAL);
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *uri_str = NULL;
+  ClientTestData data = { 0 };
+  guint target_id;
+
+  target_id = gaeguli_pipeline_add_srt_target_full (pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
+      "srt://127.0.0.1:" G_STRINGIFY (TEST_PORT_BASE) "?mode=caller", NULL,
+      &error);
+  g_assert_no_error (error);
+  g_assert_cmpint (target_id, !=, 0);
+
+  data.loop = fixture->loop;
+  data.pipeline = pipeline;
+  data.receiver1 = create_receiver (GAEGULI_SRT_MODE_LISTENER, TEST_PORT_BASE,
+      (GCallback) receiver1_buffer_cb, &data);
+
+  g_main_loop_run (fixture->loop);
+
+  g_source_remove (data.watchdog_id);
+  gst_element_set_state (data.receiver1, GST_STATE_NULL);
+  g_clear_pointer (&data.receiver1, gst_object_unref);
+  gst_element_set_state (data.receiver3, GST_STATE_NULL);
+  g_clear_pointer (&data.receiver3, gst_object_unref);
+
+  gaeguli_pipeline_stop (pipeline);
+}
+
 static gboolean
 _stop_pipeline (TestFixture * fixture)
 {
@@ -354,6 +495,10 @@ main (int argc, char *argv[])
 
   g_test_add_func ("/gaeguli/pipeline-address-in-use",
       test_gaeguli_pipeline_address_in_use);
+
+  g_test_add ("/gaeguli/pipeline-listener",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_pipeline_listener, fixture_teardown);
 
   g_test_add ("/gaeguli/pipeline-debug-tx1", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_debug_tx1, fixture_teardown);
