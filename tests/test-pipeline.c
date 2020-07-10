@@ -245,6 +245,29 @@ test_gaeguli_pipeline_add_remove_target_random (TestFixture * fixture,
   g_clear_object (&data.pipeline);
 }
 
+static void
+test_gaeguli_pipeline_address_in_use (void)
+{
+  g_autoptr (GaeguliPipeline) pipeline = gaeguli_pipeline_new ();
+  g_autoptr (GError) error = NULL;
+  guint target_id;
+
+  target_id = gaeguli_pipeline_add_srt_target_full (pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
+      "srt://127.0.0.1:1111?mode=listener", NULL, &error);
+  g_assert_no_error (error);
+  g_assert_cmpint (target_id, !=, 0);
+
+  target_id = gaeguli_pipeline_add_srt_target_full (pipeline,
+      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
+      "srt://127.0.0.2:1111?mode=listener", NULL, &error);
+  g_assert_error (error, GAEGULI_TRANSMIT_ERROR,
+      GAEGULI_TRANSMIT_ERROR_ADDRINUSE);
+  g_assert_cmpint (target_id, ==, 0);
+
+  gaeguli_pipeline_stop (pipeline);
+}
+
 static gboolean
 _stop_pipeline (TestFixture * fixture)
 {
@@ -309,6 +332,9 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/pipeline-add-remove-target-random",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_add_remove_target_random, fixture_teardown);
+
+  g_test_add_func ("/gaeguli/pipeline-address-in-use",
+      test_gaeguli_pipeline_address_in_use);
 
   g_test_add ("/gaeguli/pipeline-debug-tx1", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_debug_tx1, fixture_teardown);
