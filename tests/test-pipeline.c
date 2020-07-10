@@ -113,6 +113,32 @@ typedef struct
   guint targets_to_create;
 } AddRemoveTestData;
 
+static GstElement *
+create_receiver (GaeguliSRTMode mode, guint port, GCallback handoff_callback,
+    gpointer data)
+{
+  g_autoptr (GError) error = NULL;
+  g_autoptr (GstElement) receiver = NULL;
+  g_autoptr (GstElement) sink = NULL;
+  g_autofree gchar *pipeline_str = NULL;
+  gchar *mode_str = mode == GAEGULI_SRT_MODE_CALLER ? "caller" : "listener";
+
+  pipeline_str = g_strdup_printf ("srtsrc uri=srt://127.0.0.1:%d?mode=%s ! "
+      "fakesink name=sink signal-handoffs=1", port, mode_str);
+
+  receiver = gst_parse_launch (pipeline_str, &error);
+  g_assert_no_error (error);
+
+  if (handoff_callback) {
+    sink = gst_bin_get_by_name (GST_BIN (receiver), "sink");
+    g_signal_connect (sink, "handoff", handoff_callback, data);
+  }
+
+  gst_element_set_state (receiver, GST_STATE_PLAYING);
+
+  return g_steal_pointer (&receiver);
+}
+
 static gboolean
 add_remove_target_cb (AddRemoveTestData * data)
 {
@@ -126,18 +152,11 @@ add_remove_target_cb (AddRemoveTestData * data)
 
     if (target->id == 0 && !target->closing) {
       g_autoptr (GError) error = NULL;
-      g_autoptr (GstElement) srtsrc = NULL;
       g_autofree gchar *uri = NULL;
 
-      target->receiver_pipeline =
-          gst_parse_launch ("srtsrc name=src mode=listener ! fakesink", &error);
-      g_assert_no_error (error);
-
-      srtsrc = gst_bin_get_by_name (GST_BIN (target->receiver_pipeline), "src");
-      g_assert_nonnull (srtsrc);
-      g_object_set (srtsrc, "localport", TEST_PORT_BASE + i, NULL);
-
-      gst_element_set_state (target->receiver_pipeline, GST_STATE_PLAYING);
+      target->receiver_pipeline = create_receiver (GAEGULI_SRT_MODE_LISTENER,
+          TEST_PORT_BASE + i, NULL, NULL);
+      g_assert_nonnull (target->receiver_pipeline);
 
       uri = g_strdup_printf ("srt://127.0.0.1:%d", TEST_PORT_BASE + i);
 
