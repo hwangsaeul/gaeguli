@@ -4,7 +4,8 @@ project('gaeguli', 'c',
   meson_version: '>= 0.40',
   default_options: [ 'warning_level=1',
                      'buildtype=debugoptimized',
-                     'c_std=gnu89' ])
+                     'c_std=gnu89',
+                     'stdsplit=false' ])
 
 project_version = meson.project_version()
 version_arr = project_version.split('.')
