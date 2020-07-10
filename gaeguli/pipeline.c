@@ -831,6 +831,43 @@ gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
       uri, username, error);
 }
 
+guint64
+gaeguli_pipeline_target_get_bytes_sent (GaeguliPipeline * self, guint target_id)
+{
+  guint64 result = 0;
+  GstElement *target_pipeline;
+  g_autoptr (GstElement) srtsink = NULL;
+  GstStructure *s;
+
+  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), GAEGULI_RETURN_FAIL);
+  g_return_val_if_fail (target_id != 0, GAEGULI_RETURN_FAIL);
+
+  g_mutex_lock (&self->lock);
+
+  target_pipeline =
+      g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
+  if (target_pipeline == NULL) {
+    g_warning ("Unknown target %u", target_id);
+    goto out;
+  }
+
+  srtsink = gst_bin_get_by_name (GST_BIN (target_pipeline), "sink");
+  if (srtsink == NULL) {
+    g_warning ("SRT sink for target %d not found", target_id);
+    goto out;
+  }
+
+  g_object_get (srtsink, "stats", &s, NULL);
+  if (!gst_structure_get_uint64 (s, "bytes-sent", &result)) {
+    goto out;
+  }
+
+out:
+  g_mutex_unlock (&self->lock);
+
+  return result;
+}
+
 GaeguliReturn
 gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     GError ** error)
