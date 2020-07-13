@@ -8,13 +8,11 @@ source_h = [
   'gaeguli.h',
   'types.h',
   'pipeline.h',
-  'fifo-transmit.h',
 ]
 
 source_c = [
   'types.c',
   'pipeline.c',
-  'fifo-transmit.c',
 ]
 
 install_headers(source_h, subdir: gaeguli_install_header_subdir)

@@ -1,5 +1,4 @@
 tools = [
-  'fifo-transmit',
   'pipeline'
 ]
 
