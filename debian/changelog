@@ -1,3 +1,15 @@
+gaeguli (0.10.1-0h8l0) unstable; urgency=medium
+
+  * fifo-transmit: allow to specifying fifoname
+  * fifo-transmit: fix typo in _new_full document
+  * pipeline: add suport NVARGUSCAMERASRC
+  * pipeline: add NVMM meta to supported format
+  * pipeline: do not change state when src is nvargus
+  * pipeline.c: update year of copyright
+  * pipeline: remove overlay if nvidia matters
+
+ -- Justin Kim <jeongseok.kim@sk.com>  Mon, 13 Jul 2020 22:07:49 +0900
+
 gaeguli (0.10.0-0h8l0) unstable; urgency=medium
 
   [ Jakub Adam ]
