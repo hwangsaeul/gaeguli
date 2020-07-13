@@ -428,6 +428,80 @@ test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
   gaeguli_pipeline_stop (pipeline);
 }
 
+typedef struct
+{
+  GMainLoop *loop;
+  GaeguliPipeline *pipeline;
+  guint listeners_to_create;
+  gint listeners[5];
+} ListenerRandomTestData;
+
+static gboolean
+listener_random_cb (ListenerRandomTestData * data)
+{
+  gint i = g_random_int_range (0, G_N_ELEMENTS (data->listeners));
+  g_autoptr (GError) error = NULL;
+
+  if (data->listeners[i] == 0) {
+    g_autofree gchar *uri = NULL;
+
+    if (data->listeners_to_create == 0) {
+      return G_SOURCE_CONTINUE;
+    }
+
+    uri = g_strdup_printf ("srt://127.0.0.1:%d?mode=listener",
+        TEST_PORT_BASE + i);
+
+    data->listeners[i] = gaeguli_pipeline_add_srt_target_full (data->pipeline,
+        GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
+        uri, NULL, &error);
+    g_assert_no_error (error);
+
+    --data->listeners_to_create;
+    g_debug ("Added a listener. %d more to go.", data->listeners_to_create);
+  } else {
+    gaeguli_pipeline_remove_target (data->pipeline, data->listeners[i], &error);
+    g_assert_no_error (error);
+    data->listeners[i] = 0;
+
+    g_debug ("Removed a listener.");
+
+    if (data->listeners_to_create == 0) {
+      for (i = 0; i != G_N_ELEMENTS (data->listeners); ++i) {
+        if (data->listeners[i] != 0) {
+          return G_SOURCE_CONTINUE;
+        }
+      }
+      /* All listeners have gone through their lifecycle; stop the test. */
+      g_main_loop_quit (data->loop);
+    }
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static void
+test_gaeguli_pipeline_listener_random (TestFixture * fixture,
+    gconstpointer unused)
+{
+  g_autoptr (GaeguliPipeline) pipeline =
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      GAEGULI_ENCODING_METHOD_GENERAL);
+
+  ListenerRandomTestData data = { 0 };
+  guint timeout_source;
+
+  data.pipeline = pipeline;
+  data.loop = fixture->loop;
+  data.listeners_to_create = 10;
+
+  timeout_source = g_timeout_add (50, (GSourceFunc) listener_random_cb, &data);
+  g_main_loop_run (fixture->loop);
+  g_source_remove (timeout_source);
+
+  gaeguli_pipeline_stop (pipeline);
+}
+
 static gboolean
 _stop_pipeline (TestFixture * fixture)
 {
@@ -499,6 +573,10 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/pipeline-listener",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_listener, fixture_teardown);
+
+  g_test_add ("/gaeguli/pipeline-listener-random",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_pipeline_listener_random, fixture_teardown);
 
   g_test_add ("/gaeguli/pipeline-debug-tx1", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_debug_tx1, fixture_teardown);
