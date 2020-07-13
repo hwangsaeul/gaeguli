@@ -1,14 +1,11 @@
 ![Build Status](https://github.com/hwangsaeul/gaeguli/workflows/CI/badge.svg?branch=master)
 
 # Gaeguli
-*[gæguli]* is SRT streamer designed for edge devices that require strong security and ultra-low latency.
+*[gæguli]* is a SRT streamer designed for edge devices that require strong security and ultra-low latency.
 
 ## Overview
-*Gaeguli* implements the supporting library to handling SRT streaming. It is designed with two parts
-*   pipeline: Reads streaming for a video source and injects it into a fifo
-*   fifo-transmitter: Reads fifo and send streaming to a specific URI using SRT protocol
-
-So basically generation and transmission are decoupled.
+*Gaeguli* implements the supporting library for handling SRT streaming. It provides 'pipeline' component
+that deals with receiving frames from a video source and streaming to a specific URI using SRT protocol.
 
 ## Build from sources
 To build the from sources follow the procedure described in
@@ -19,40 +16,24 @@ To build the from sources follow the procedure described in
 
 ### Preparing srt listener
 
-From GStreamer 1.14, SRT is supported from gst-plugins-bad. However, the plugins
-are fully reconstructed so we recommend using srt plugins in GStreamer 1.16 or newer.
+*Gaeguli* requires GStreamer 1.16 or newer. To launch a listener that will receive our stream on port 8888:
 
 ```console
 gst-launch-1.0 \
         srtsrc uri=srt://:8888?mode=listener ! queue ! decodebin ! autovideosink
 ```
 
-Now, the port, 8888, is ready to listen srt stream.
-Note that a `queue` is required right behind `srtsrc`. 
+Note that a `queue` is required right behind `srtsrc`.
 Otherwise, You will see that the time on the receiving side gradually slows down.
-
-### Fifo transmitter
-
-When running `fifo-transmitter`, it will create a fifo in `$tmpdir` which is
-used for capturing byte stream.
-
-```console
-fifo-transmit-1.0 -h 172.30.254.138 -p 8888
-```
-
-The above command will show the location of fifo. You should keep the path to run
-`pipeline` tool.
 
 ### Pipeline
 
-`pipeline` will create a pipeline to capture video from camera, then sending
-TS (Transport Stream) with given fifo.
+To start streaming to a listener running on the same machine, run:
+
 
 ```console
-pipeline-1.0 -f /var/folders/48/29v1_3bs77l8m6pyxd13c7gh0000gn/T/gaeguli-fifo-5VQ57Z/fifo
+pipeline-1.0 -h 127.0.0.1 -p 8888
 ```
-
-Then, in srt listener, you can play video captured from camera.
 
 ## PPA nightly builds
 
