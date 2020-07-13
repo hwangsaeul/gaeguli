@@ -14,7 +14,6 @@
         <title>Gaeguli APIs</title>
         <para>This sections shows the available APIs for Gaeguli.</para>
         <xi:include href="xml/types.xml"/>
-        <xi:include href="xml/fifo-transmit.xml"/>
         <xi:include href="xml/pipeline.xml"/>
         <xi:include href="xml/config.xml"/>
     </chapter>
