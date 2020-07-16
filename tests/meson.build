@@ -1,5 +1,6 @@
 tests = [
   'test-pipeline',
+  'test-adaptor',
 ]
 
 foreach t: tests
