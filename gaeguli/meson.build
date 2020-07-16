@@ -13,6 +13,8 @@ source_h = [
 source_c = [
   'types.c',
   'pipeline.c',
+  'streamadaptor.c',
+  'adaptors/nulladaptor.c',
 ]
 
 install_headers(source_h, subdir: gaeguli_install_header_subdir)

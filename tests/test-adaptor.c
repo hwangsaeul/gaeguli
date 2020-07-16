@@ -1,6 +1,9 @@
 /**
+ *  tests/test-pipeline
+ *
  *  Copyright 2019 SK Telecom Co., Ltd.
  *    Author: Jeongseok Kim <jeongseok.kim@sk.com>
+ *            Jakub Adam <jakub.adam@collabora.com>
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -16,14 +19,25 @@
  *
  */
 
-#ifndef __GAEGULI_H__
-#define __GAEGULI_H__
+#include <adaptors/nulladaptor.h>
 
-#define __GAEGULI_INSIDE__
+static void
+test_gaeguli_adaptor_instance ()
+{
+  g_autoptr (GstElement) srtsink = gst_element_factory_make ("srtsink", NULL);
+  g_autoptr (GaeguliStreamAdaptor) adaptor = NULL;
 
-#include <gaeguli/types.h>
-#include <gaeguli/enumtypes.h>
-#include <gaeguli/pipeline.h>
-#include <gaeguli/streamadaptor.h>
+  adaptor = gaeguli_null_stream_adaptor_new (srtsink);
+  g_assert_nonnull (adaptor);
+}
 
-#endif // __GAEGULI_H__
+int
+main (int argc, char *argv[])
+{
+  gst_init (&argc, &argv);
+
+  g_test_init (&argc, &argv, NULL);
+  g_test_add_func ("/gaeguli/adaptor-instance", test_gaeguli_adaptor_instance);
+
+  return g_test_run ();
+}
