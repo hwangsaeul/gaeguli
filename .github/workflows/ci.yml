@@ -24,7 +24,7 @@ jobs:
       - name: Add H8L ppa
         run: |
           sudo apt-get install --assume-yes software-properties-common
-          sudo add-apt-repository ppa:hwangsaeul/stable
+          sudo add-apt-repository ppa:hwangsaeul/nightly
           sudo apt-get update
 
       - name: Install package dependencies
@@ -35,12 +35,21 @@ jobs:
                   gstreamer1.0-plugins-bad \
                   gstreamer1.0-plugins-ugly \
                   libsrt-dev \
-                  libjson-glib-dev
-
-      - uses: BSFishy/meson-build@v1.0.1
+                  libjson-glib-dev \
+                  meson ninja-build 
+      - name: Meson Build
+        run: |
+          meson build
+      - uses: actions/upload-artifact@v1
+        if: failure()
         with:
-          action: build
-          directory: build
-          options: --verbose
-          meson-version: 0.54
-          ninja-version: 1.9.0
+          name: Build
+          path: build/meson-logs/meson-log.txt
+      - name: Meson Test
+        run: |
+          meson test -C build -v --setup debug
+      - uses: actions/upload-artifact@v1
+        if: failure()
+        with:
+          name: Test
+          path: build/meson-logs/testlog.txt
