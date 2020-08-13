@@ -73,6 +73,18 @@ typedef struct _LinkTarget
   GstElement *target;
 } LinkTarget;
 
+typedef struct _GaeguliTarget
+{
+  GstElement *pipeline;
+} GaeguliTarget;
+
+static void
+gaeguli_target_free (GaeguliTarget * target)
+{
+  gst_clear_object (&target->pipeline);
+  g_free (target);
+}
+
 static const gchar *const supported_formats[] = {
   "video/x-raw",
   "video/x-raw(memory:NVMM)",
@@ -130,6 +142,7 @@ link_target_unref (LinkTarget * link_target)
 
 /* *INDENT-OFF* */
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (LinkTarget, link_target_unref)
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (GaeguliTarget, gaeguli_target_free)
 /* *INDENT-ON* */
 
 typedef enum
@@ -308,7 +321,7 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
 
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
-      NULL, (GDestroyNotify) gst_object_unref);
+      NULL, (GDestroyNotify) gaeguli_target_free);
 
   self->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
@@ -429,12 +442,12 @@ _bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
   return GST_BUS_PASS;
 }
 
-static GstElement *
-_build_target_pipeline (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate, const gchar * srt_uri,
-    const gchar * username, GError ** error)
+static GaeguliTarget *
+_build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
+    guint bitrate, const gchar * srt_uri, const gchar * username,
+    GError ** error)
 {
-  g_autoptr (GstElement) target_pipeline = NULL;
+  g_autoptr (GaeguliTarget) target = NULL;
   g_autoptr (GstElement) srtsink = NULL;
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstBus) bus = NULL;
@@ -466,15 +479,18 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
       pipeline_str, srt_uri);
 
-  target_pipeline = gst_parse_launch (pipeline_str, &internal_err);
-  if (target_pipeline == NULL) {
+  target = g_new0 (GaeguliTarget, 1);
+  target->pipeline = gst_parse_launch (pipeline_str, &internal_err);
+  if (target->pipeline == NULL) {
     g_error ("failed to build muxsink pipeline (%s)", internal_err->message);
     goto failed;
   }
 
-  srtsink = gst_bin_get_by_name (GST_BIN (target_pipeline), "sink");
+  gst_object_ref_sink (target->pipeline);
 
-  bus = gst_element_get_bus (target_pipeline);
+  srtsink = gst_bin_get_by_name (GST_BIN (target->pipeline), "sink");
+
+  bus = gst_element_get_bus (target->pipeline);
   gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
       NULL);
 
@@ -488,12 +504,12 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
     goto failed;
   }
 
-  enc_first = gst_bin_get_by_name (GST_BIN (target_pipeline), "enc_first");
+  enc_first = gst_bin_get_by_name (GST_BIN (target->pipeline), "enc_first");
   enc_sinkpad = gst_element_get_static_pad (enc_first, "sink");
   ghost_pad = gst_ghost_pad_new ("ghost_sink", enc_sinkpad);
-  gst_element_add_pad (target_pipeline, ghost_pad);
+  gst_element_add_pad (target->pipeline, ghost_pad);
 
-  return g_steal_pointer (&target_pipeline);
+  return g_steal_pointer (&target);
 
 failed:
   if (internal_err) {
@@ -832,7 +848,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
   target_id = g_str_hash (uri);
 
   if (!g_hash_table_contains (self->targets, GINT_TO_POINTER (target_id))) {
-    GstElement *target_pipeline;
+    GaeguliTarget *target = NULL;
     GstPadTemplate *templ = NULL;
 
     g_autoptr (GstElement) tee = NULL;
@@ -843,20 +859,19 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    target_pipeline =
-        _build_target_pipeline (self->encoding_method, codec, bitrate, uri,
+    target = _build_target (self->encoding_method, codec, bitrate, uri,
         username, &internal_err);
 
     /* linking target pipeline with vsrc */
-    if (target_pipeline == NULL) {
+    if (target == NULL) {
       g_propagate_error (error, internal_err);
       internal_err = NULL;
       goto failed;
     }
 
-    gst_bin_add (GST_BIN (self->pipeline), target_pipeline);
-    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id),
-        gst_object_ref (target_pipeline));
+    gst_bin_add (GST_BIN (self->pipeline), target->pipeline);
+
+    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
 
     tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
     templ =
@@ -865,7 +880,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
 
     link_target =
-        link_target_new (self, self->vsrc, target_id, target_pipeline, TRUE);
+        link_target_new (self, self->vsrc, target_id, target->pipeline, TRUE);
 
     gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
         g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
@@ -907,7 +922,7 @@ guint64
 gaeguli_pipeline_target_get_bytes_sent (GaeguliPipeline * self, guint target_id)
 {
   guint64 result = 0;
-  GstElement *target_pipeline;
+  GaeguliTarget *target;
   g_autoptr (GstElement) srtsink = NULL;
   GstStructure *s;
 
@@ -916,14 +931,13 @@ gaeguli_pipeline_target_get_bytes_sent (GaeguliPipeline * self, guint target_id)
 
   g_mutex_lock (&self->lock);
 
-  target_pipeline =
-      g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
-  if (target_pipeline == NULL) {
+  target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
+  if (target == NULL) {
     g_warning ("Unknown target %u", target_id);
     goto out;
   }
 
-  srtsink = gst_bin_get_by_name (GST_BIN (target_pipeline), "sink");
+  srtsink = gst_bin_get_by_name (GST_BIN (target->pipeline), "sink");
   if (srtsink == NULL) {
     g_warning ("SRT sink for target %d not found", target_id);
     goto out;
@@ -944,8 +958,7 @@ GaeguliReturn
 gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     GError ** error)
 {
-  GstElement *target_pipeline;
-
+  g_autoptr (GaeguliTarget) target = NULL;
   g_autoptr (GstPad) ghost_sinkpad = NULL;
   g_autoptr (GstPad) ghost_srcpad = NULL;
   g_autoptr (GstPad) tee_srcpad = NULL;
@@ -958,21 +971,18 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
 
   g_mutex_lock (&self->lock);
 
-  target_pipeline =
-      g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
-  if (target_pipeline == NULL) {
+  if (!g_hash_table_steal_extended (self->targets, GINT_TO_POINTER (target_id),
+          NULL, (gpointer *) & target)) {
     g_debug ("no target pipeline mapped with [%x]", target_id);
     goto out;
   }
 
-  g_hash_table_remove (self->targets, GINT_TO_POINTER (target_id));
-
-  ghost_sinkpad = gst_element_get_static_pad (target_pipeline, "ghost_sink");
+  ghost_sinkpad = gst_element_get_static_pad (target->pipeline, "ghost_sink");
   ghost_srcpad = gst_pad_get_peer (ghost_sinkpad);
   tee_srcpad = gst_ghost_pad_get_target (GST_GHOST_PAD (ghost_srcpad));
 
   link_target =
-      link_target_new (self, self->vsrc, target_id, target_pipeline, FALSE);
+      link_target_new (self, self->vsrc, target_id, target->pipeline, FALSE);
 
   gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
       g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
