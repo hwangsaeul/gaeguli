@@ -24,6 +24,7 @@
 #include "types.h"
 #include "enumtypes.h"
 #include "gaeguli-internal.h"
+#include "adaptors/nulladaptor.h"
 
 #include <unistd.h>
 
@@ -76,12 +77,14 @@ typedef struct _LinkTarget
 typedef struct _GaeguliTarget
 {
   GstElement *pipeline;
+  GaeguliStreamAdaptor *adaptor;
 } GaeguliTarget;
 
 static void
 gaeguli_target_free (GaeguliTarget * target)
 {
   gst_clear_object (&target->pipeline);
+  g_clear_object (&target->adaptor);
   g_free (target);
 }
 
@@ -445,7 +448,7 @@ _bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
 static GaeguliTarget *
 _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
     guint bitrate, const gchar * srt_uri, const gchar * username,
-    GError ** error)
+    GType adaptor_type, GError ** error)
 {
   g_autoptr (GaeguliTarget) target = NULL;
   g_autoptr (GstElement) srtsink = NULL;
@@ -493,6 +496,8 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
   bus = gst_element_get_bus (target->pipeline);
   gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
       NULL);
+
+  target->adaptor = g_object_new (adaptor_type, "srtsink", srtsink, NULL);
 
   /* Setting READY state on srtsink check that we can bind to address and port
    * specified in srt_uri. On failure, bus handler should set internal_err. */
@@ -860,7 +865,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
     target = _build_target (self->encoding_method, codec, bitrate, uri,
-        username, &internal_err);
+        username, self->adaptor_type, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target == NULL) {
