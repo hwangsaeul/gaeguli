@@ -57,6 +57,8 @@ struct _GaeguliPipeline
   gboolean show_overlay;
 
   guint stop_pipeline_event_id;
+
+  GType adaptor_type;
 };
 
 typedef struct _LinkTarget
@@ -136,6 +138,7 @@ typedef enum
   PROP_DEVICE,
   PROP_ENCODING_METHOD,
   PROP_CLOCK_OVERLAY,
+  PROP_STREAM_ADAPTOR,
 
   /*< private > */
   PROP_LAST
@@ -197,6 +200,9 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_CLOCK_OVERLAY:
       g_value_set_boolean (value, self->show_overlay);
       break;
+    case PROP_STREAM_ADAPTOR:
+      g_value_set_gtype (value, self->adaptor_type);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -226,6 +232,9 @@ gaeguli_pipeline_set_property (GObject * object,
       if (self->overlay) {
         g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
       }
+      break;
+    case PROP_STREAM_ADAPTOR:
+      self->adaptor_type = g_value_get_gtype (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -259,6 +268,11 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       g_param_spec_boolean ("clock-overlay", "clock overlay",
       "Overlay the current time on the video stream", FALSE,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_STREAM_ADAPTOR] =
+      g_param_spec_gtype ("stream-adaptor", "stream adaptor",
+      "Type of network stream adoption the pipeline should perform",
+      GAEGULI_TYPE_STREAM_ADAPTOR, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
@@ -295,6 +309,8 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
       NULL, (GDestroyNotify) gst_object_unref);
+
+  self->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
 
 GaeguliPipeline *
