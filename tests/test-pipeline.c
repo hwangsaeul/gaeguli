@@ -296,7 +296,6 @@ typedef struct
 
   GstElement *receiver1;
   GstElement *receiver2;
-  GstElement *receiver3;
 
   gsize receiver1_buffer_cnt;
   gsize receiver2_buffer_cnt;
@@ -320,32 +319,6 @@ receiver_watchdog_cb (ClientTestData * data)
   return G_SOURCE_CONTINUE;
 }
 
-static gboolean
-receiver2_remove_cb (ClientTestData * data)
-{
-  /* Stop receiver 2 to let receiver 3 connect. */
-  g_debug ("Stopping receiver 2");
-
-  gst_element_set_state (data->receiver2, GST_STATE_NULL);
-  g_clear_pointer (&data->receiver2, gst_object_unref);
-
-  return G_SOURCE_REMOVE;
-}
-
-static void
-receiver3_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
-    ClientTestData * data)
-{
-  /* Fifo transmit should reject second client connecting in listener mode. */
-  g_assert_null (data->receiver2);
-
-  if (++data->receiver3_buffer_cnt == 100) {
-    g_debug ("Receiver 3 started receiving; exiting main loop");
-
-    g_main_loop_quit (data->loop);
-  }
-}
-
 static void
 receiver2_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
     ClientTestData * data)
@@ -353,14 +326,9 @@ receiver2_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
   ++data->receiver2_buffer_cnt;
 
   if (data->receiver2_buffer_cnt == 100) {
-    g_autoptr (GError) error = NULL;
+    g_debug ("Receiver 2 started receiving; exiting the main loop");
 
-    g_debug ("Receiver 2 started receiving; spawning receiver 3");
-
-    data->receiver3 = create_receiver (GAEGULI_SRT_MODE_CALLER,
-        TEST_PORT_BASE + 1, (GCallback) receiver3_buffer_cb, data);
-  } else if (data->receiver2_buffer_cnt == 300) {
-    g_idle_add ((GSourceFunc) receiver2_remove_cb, data);
+    g_main_loop_quit (data->loop);
   }
 }
 
@@ -422,8 +390,8 @@ test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
   g_source_remove (data.watchdog_id);
   gst_element_set_state (data.receiver1, GST_STATE_NULL);
   g_clear_pointer (&data.receiver1, gst_object_unref);
-  gst_element_set_state (data.receiver3, GST_STATE_NULL);
-  g_clear_pointer (&data.receiver3, gst_object_unref);
+  gst_element_set_state (data.receiver2, GST_STATE_NULL);
+  g_clear_pointer (&data.receiver2, gst_object_unref);
 
   gaeguli_pipeline_stop (pipeline);
 }
