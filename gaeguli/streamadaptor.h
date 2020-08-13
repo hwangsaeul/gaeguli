@@ -23,7 +23,7 @@
 #error "Only <gaeguli/gaeguli.h> can be included directly."
 #endif
 
-#include <glib-object.h>
+#include <gst/gst.h>
 
 G_BEGIN_DECLS
 
@@ -34,6 +34,9 @@ G_DECLARE_DERIVABLE_TYPE (GaeguliStreamAdaptor, gaeguli_stream_adaptor, GAEGULI,
 struct _GaeguliStreamAdaptorClass
 {
   GObjectClass parent_class;
+
+  void      (* on_stats)                 (GaeguliStreamAdaptor * self,
+                                          GstStructure * stats);
 };
 
 G_END_DECLS
