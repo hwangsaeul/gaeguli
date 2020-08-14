@@ -20,11 +20,10 @@
 
 #include <gst/gstelement.h>
 
-#define ADAPTOR_STATS_COLLECTION_INTERVAL_SECONDS 5
-
 typedef struct
 {
   GstElement *srtsink;
+  guint stats_interval;
   guint stats_timeout_id;
 } GaeguliStreamAdaptorPrivate;
 
@@ -36,6 +35,7 @@ G_DEFINE_TYPE_WITH_PRIVATE (GaeguliStreamAdaptor, gaeguli_stream_adaptor,
 enum
 {
   PROP_SRTSINK = 1,
+  PROP_STATS_INTERVAL,
   PROP_LAST
 };
 
@@ -64,6 +64,16 @@ _stats_collection_timeout (gpointer user_data)
 }
 
 static void
+gaeguli_stream_adaptor_start_timer (GaeguliStreamAdaptor * self)
+{
+  GaeguliStreamAdaptorPrivate *priv =
+      gaeguli_stream_adaptor_get_instance_private (self);
+
+  priv->stats_timeout_id =
+      g_timeout_add (priv->stats_interval, _stats_collection_timeout, self);
+}
+
+static void
 gaeguli_stream_adaptor_set_srtsink (GaeguliStreamAdaptor * self,
     GstElement * srtsink)
 {
@@ -74,9 +84,22 @@ gaeguli_stream_adaptor_set_srtsink (GaeguliStreamAdaptor * self,
   priv->srtsink = gst_object_ref (srtsink);
 
   if (klass->on_stats) {
-    priv->stats_timeout_id =
-        g_timeout_add_seconds (ADAPTOR_STATS_COLLECTION_INTERVAL_SECONDS,
-        _stats_collection_timeout, self);
+    gaeguli_stream_adaptor_start_timer (self);
+  }
+}
+
+static void
+gaeguli_stream_adaptor_set_stats_interval (GaeguliStreamAdaptor * self,
+    guint ms)
+{
+  GaeguliStreamAdaptorPrivate *priv =
+      gaeguli_stream_adaptor_get_instance_private (self);
+
+  priv->stats_interval = ms;
+
+  if (priv->stats_timeout_id != 0) {
+    g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
+    gaeguli_stream_adaptor_start_timer (self);
   }
 }
 
@@ -94,6 +117,27 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
   switch (property_id) {
     case PROP_SRTSINK:
       gaeguli_stream_adaptor_set_srtsink (self, g_value_get_object (value));
+      break;
+    case PROP_STATS_INTERVAL:
+      gaeguli_stream_adaptor_set_stats_interval (self,
+          g_value_get_uint (value));
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
+  }
+}
+
+static void
+gaeguli_stream_adaptor_get_property (GObject * object, guint property_id,
+    GValue * value, GParamSpec * pspec)
+{
+  GaeguliStreamAdaptor *self = GAEGULI_STREAM_ADAPTOR (object);
+  GaeguliStreamAdaptorPrivate *priv =
+      gaeguli_stream_adaptor_get_instance_private (self);
+
+  switch (property_id) {
+    case PROP_STATS_INTERVAL:
+      g_value_set_uint (value, priv->stats_interval);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -119,10 +163,16 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
   gobject_class->set_property = gaeguli_stream_adaptor_set_property;
+  gobject_class->get_property = gaeguli_stream_adaptor_get_property;
   gobject_class->dispose = gaeguli_stream_adaptor_dispose;
 
   g_object_class_install_property (gobject_class, PROP_SRTSINK,
       g_param_spec_object ("srtsink", "SRT sink",
           "SRT sink", GST_TYPE_ELEMENT,
           G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_STATS_INTERVAL,
+      g_param_spec_uint ("stats-interval", "Statistics collection interval",
+          "Statistics collection interval in milliseconds", 1, G_MAXUINT, 10,
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 }
