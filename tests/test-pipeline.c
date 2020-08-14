@@ -21,8 +21,7 @@
 
 #include <gaeguli/gaeguli.h>
 #include "pipeline.h"
-
-#include <gst/gst.h>
+#include "common/receiver.h"
 
 #define TEST_PORT_BASE 5566
 #define TARGET_BYTES_SENT_LIMIT 10000
@@ -113,32 +112,6 @@ typedef struct
   guint targets_to_create;
 } AddRemoveTestData;
 
-static GstElement *
-create_receiver (GaeguliSRTMode mode, guint port, GCallback handoff_callback,
-    gpointer data)
-{
-  g_autoptr (GError) error = NULL;
-  g_autoptr (GstElement) receiver = NULL;
-  g_autoptr (GstElement) sink = NULL;
-  g_autofree gchar *pipeline_str = NULL;
-  gchar *mode_str = mode == GAEGULI_SRT_MODE_CALLER ? "caller" : "listener";
-
-  pipeline_str = g_strdup_printf ("srtsrc uri=srt://127.0.0.1:%d?mode=%s ! "
-      "fakesink name=sink signal-handoffs=1", port, mode_str);
-
-  receiver = gst_parse_launch (pipeline_str, &error);
-  g_assert_no_error (error);
-
-  if (handoff_callback) {
-    sink = gst_bin_get_by_name (GST_BIN (receiver), "sink");
-    g_signal_connect (sink, "handoff", handoff_callback, data);
-  }
-
-  gst_element_set_state (receiver, GST_STATE_PLAYING);
-
-  return g_steal_pointer (&receiver);
-}
-
 static gboolean
 add_remove_target_cb (AddRemoveTestData * data)
 {
@@ -154,7 +127,8 @@ add_remove_target_cb (AddRemoveTestData * data)
       g_autoptr (GError) error = NULL;
       g_autofree gchar *uri = NULL;
 
-      target->receiver_pipeline = create_receiver (GAEGULI_SRT_MODE_LISTENER,
+      target->receiver_pipeline =
+          gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
           TEST_PORT_BASE + i, NULL, NULL);
       g_assert_nonnull (target->receiver_pipeline);
 
@@ -357,7 +331,7 @@ receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
     g_assert_no_error (error);
     g_assert_cmpint (target_id, !=, 0);
 
-    data->receiver2 = create_receiver (GAEGULI_SRT_MODE_CALLER,
+    data->receiver2 = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_CALLER,
         TEST_PORT_BASE + 1, (GCallback) receiver2_buffer_cb, data);
   }
 }
@@ -382,8 +356,8 @@ test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
 
   data.loop = fixture->loop;
   data.pipeline = pipeline;
-  data.receiver1 = create_receiver (GAEGULI_SRT_MODE_LISTENER, TEST_PORT_BASE,
-      (GCallback) receiver1_buffer_cb, &data);
+  data.receiver1 = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
+      TEST_PORT_BASE, (GCallback) receiver1_buffer_cb, &data);
 
   g_main_loop_run (fixture->loop);
 

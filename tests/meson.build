@@ -1,3 +1,5 @@
+subdir('common')
+
 tests = [
   'test-pipeline',
   'test-adaptor',
@@ -9,8 +11,8 @@ foreach t: tests
   exe = executable(
     t, '@0@.c'.format(t),
     c_args: '-DG_LOG_DOMAIN="gaeguli-tests"',
-    include_directories: gaeguli_incs,
     dependencies: [ libgaeguli_dep ],
+    link_with: libhwangsae_test_common,
     install: false,
   )
 
