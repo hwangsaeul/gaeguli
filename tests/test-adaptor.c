@@ -83,15 +83,48 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
   test_adaptor->last_callback = now;
 
   if (--test_adaptor->callbacks_left == 0) {
-    g_debug ("Stopping the main loop");
-    g_main_loop_quit (loop);
+    g_debug ("Invoking change of encoding parameters");
+
+    gaeguli_stream_adaptor_signal_encoding_parameters (self,
+        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, 12345678,
+        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, 37, NULL);
   }
+}
+
+static void
+_on_encoding_parameters (GaeguliTestAdaptor * adaptor, GstStructure * params,
+    gpointer data)
+{
+  guint val = 0;
+
+  g_assert_cmpstr (gst_structure_get_name (params), ==,
+      "application/x-gaeguli-encoding-parameters");
+
+  g_assert_cmpint (gst_structure_n_fields (params), ==, 2);
+
+  g_assert_true (gst_structure_has_field (params,
+          GAEGULI_ENCODING_PARAMETER_BITRATE));
+  g_assert_true (gst_structure_get_uint (params,
+          GAEGULI_ENCODING_PARAMETER_BITRATE, &val));
+  g_assert_cmpint (val, ==, 12345678);
+
+  g_assert_true (gst_structure_has_field (params,
+          GAEGULI_ENCODING_PARAMETER_QUANTIZER));
+  g_assert_true (gst_structure_get_uint (params,
+          GAEGULI_ENCODING_PARAMETER_QUANTIZER, &val));
+  g_assert_cmpint (val, ==, 37);
+
+  g_debug ("Stopping the main loop");
+  g_main_loop_quit (loop);
 }
 
 static void
 gaeguli_test_adaptor_init (GaeguliTestAdaptor * self)
 {
   self->callbacks_left = 3;
+
+  g_signal_connect (self, "encoding-parameters",
+      G_CALLBACK (_on_encoding_parameters), NULL);
 }
 
 static void

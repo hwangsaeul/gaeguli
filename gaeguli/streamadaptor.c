@@ -39,6 +39,14 @@ enum
   PROP_LAST
 };
 
+enum
+{
+  SIG_ENCODING_PARAMETERS,
+  LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL] = { 0 };
+
 static void
 gaeguli_stream_adaptor_collect_stats (GaeguliStreamAdaptor * self)
 {
@@ -101,6 +109,21 @@ gaeguli_stream_adaptor_set_stats_interval (GaeguliStreamAdaptor * self,
     g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
     gaeguli_stream_adaptor_start_timer (self);
   }
+}
+
+void
+gaeguli_stream_adaptor_signal_encoding_parameters (GaeguliStreamAdaptor * self,
+    const gchar * param, ...)
+{
+  g_autoptr (GstStructure) s = NULL;
+  va_list varargs;
+
+  va_start (varargs, param);
+  s = gst_structure_new_valist ("application/x-gaeguli-encoding-parameters",
+      param, varargs);
+  va_end (varargs);
+
+  g_signal_emit (self, signals[SIG_ENCODING_PARAMETERS], 0, s);
 }
 
 static void
@@ -175,4 +198,9 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
       g_param_spec_uint ("stats-interval", "Statistics collection interval",
           "Statistics collection interval in milliseconds", 1, G_MAXUINT, 10,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  signals[SIG_ENCODING_PARAMETERS] =
+      g_signal_new ("encoding-parameters", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST, 0, NULL,
+      NULL, NULL, G_TYPE_NONE, 1, GST_TYPE_STRUCTURE);
 }

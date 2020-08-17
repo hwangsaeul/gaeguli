@@ -27,6 +27,11 @@
 
 G_BEGIN_DECLS
 
+/* Bitrate in bits/second */
+#define GAEGULI_ENCODING_PARAMETER_BITRATE "bitrate"
+/* Constant quantizer to apply */
+#define GAEGULI_ENCODING_PARAMETER_QUANTIZER "quantizer"
+
 #define GAEGULI_TYPE_STREAM_ADAPTOR   (gaeguli_stream_adaptor_get_type ())
 G_DECLARE_DERIVABLE_TYPE (GaeguliStreamAdaptor, gaeguli_stream_adaptor, GAEGULI,
     STREAM_ADAPTOR, GObject)
@@ -38,6 +43,11 @@ struct _GaeguliStreamAdaptorClass
   void      (* on_stats)                 (GaeguliStreamAdaptor * self,
                                           GstStructure * stats);
 };
+
+void                    gaeguli_stream_adaptor_signal_encoding_parameters
+                                                (GaeguliStreamAdaptor       *self,
+                                                 const gchar                *param,
+                                                 ...) G_GNUC_NULL_TERMINATED;
 
 G_END_DECLS
 
