@@ -55,8 +55,9 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
 {
   GaeguliTestAdaptor *test_adaptor = GAEGULI_TEST_ADAPTOR (self);
   guint64 now = g_get_monotonic_time ();
+  g_autofree gchar *stats_str = gst_structure_to_string (stats);
 
-  g_debug ("Stats callback invoked");
+  g_debug ("Stats callback invoked with stats structure: %s", stats_str);
 
   g_assert_nonnull (stats);
   g_assert_cmpstr (gst_structure_get_name (stats), ==,
