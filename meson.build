@@ -1,7 +1,7 @@
 project('gaeguli', 'c',
   version: '0.11.0',
   license: 'Apache-2.0',
-  meson_version: '>= 0.40',
+  meson_version: '>= 0.46',
   default_options: [ 'warning_level=1',
                      'buildtype=debugoptimized',
                      'c_std=gnu89',
