@@ -23,6 +23,7 @@
 typedef struct
 {
   GstElement *srtsink;
+  GstStructure *initial_encoding_parameters;
   guint stats_interval;
   guint stats_timeout_id;
 } GaeguliStreamAdaptorPrivate;
@@ -35,6 +36,7 @@ G_DEFINE_TYPE_WITH_PRIVATE (GaeguliStreamAdaptor, gaeguli_stream_adaptor,
 enum
 {
   PROP_SRTSINK = 1,
+  PROP_INITIAL_ENCODING_PARAMETERS,
   PROP_STATS_INTERVAL,
   PROP_LAST
 };
@@ -136,10 +138,15 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
 {
   GaeguliStreamAdaptor *self = GAEGULI_STREAM_ADAPTOR (object);
+  GaeguliStreamAdaptorPrivate *priv =
+      gaeguli_stream_adaptor_get_instance_private (self);
 
   switch (property_id) {
     case PROP_SRTSINK:
       gaeguli_stream_adaptor_set_srtsink (self, g_value_get_object (value));
+      break;
+    case PROP_INITIAL_ENCODING_PARAMETERS:
+      priv->initial_encoding_parameters = g_value_get_boxed (value);
       break;
     case PROP_STATS_INTERVAL:
       gaeguli_stream_adaptor_set_stats_interval (self,
@@ -159,6 +166,9 @@ gaeguli_stream_adaptor_get_property (GObject * object, guint property_id,
       gaeguli_stream_adaptor_get_instance_private (self);
 
   switch (property_id) {
+    case PROP_INITIAL_ENCODING_PARAMETERS:
+      g_value_set_boxed (value, priv->initial_encoding_parameters);
+      break;
     case PROP_STATS_INTERVAL:
       g_value_set_uint (value, priv->stats_interval);
       break;
@@ -193,6 +203,13 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
       g_param_spec_object ("srtsink", "SRT sink",
           "SRT sink", GST_TYPE_ELEMENT,
           G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class,
+      PROP_INITIAL_ENCODING_PARAMETERS,
+      g_param_spec_boxed ("initial-encoding-parameters",
+          "Initial encoding parameters", "Initial encoding parameters",
+          GST_TYPE_STRUCTURE,
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_STATS_INTERVAL,
       g_param_spec_uint ("stats-interval", "Statistics collection interval",
