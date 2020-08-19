@@ -445,6 +445,13 @@ _bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
   return GST_BUS_PASS;
 }
 
+static GstStructure *
+_get_encoding_parameters (GstElement * encoder)
+{
+  // TODO
+  return gst_structure_new_empty ("application/x-gaeguli-encoding-parameters");
+}
+
 static GaeguliTarget *
 _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
     guint bitrate, const gchar * srt_uri, const gchar * username,
@@ -453,6 +460,7 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
   g_autoptr (GaeguliTarget) target = NULL;
   g_autoptr (GstElement) srtsink = NULL;
   g_autoptr (GstElement) enc_first = NULL;
+  g_autoptr (GstElement) encoder = NULL;
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
   GstPad *ghost_pad = NULL;
@@ -497,7 +505,10 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
   gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
       NULL);
 
-  target->adaptor = g_object_new (adaptor_type, "srtsink", srtsink, NULL);
+  encoder = gst_bin_get_by_name (GST_BIN (target->pipeline), "enc");
+
+  target->adaptor = g_object_new (adaptor_type, "srtsink", srtsink,
+      "initial-encoding-parameters", _get_encoding_parameters (encoder), NULL);
 
   /* Setting READY state on srtsink check that we can bind to address and port
    * specified in srt_uri. On failure, bus handler should set internal_err. */
