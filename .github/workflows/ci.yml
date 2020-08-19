@@ -47,9 +47,9 @@ jobs:
           path: build/meson-logs/meson-log.txt
       - name: Meson Test
         run: |
-          meson test -C build -v --setup debug
+          meson test -C build --setup debug
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
           name: Test
-          path: build/meson-logs/testlog.txt
+          path: build/meson-logs/testlog-debug.txt
