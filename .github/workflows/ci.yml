@@ -52,4 +52,4 @@ jobs:
         if: failure()
         with:
           name: Test
-          path: build/meson-logs/testlog.txt
+          path: build/meson-logs/testlog-debug.txt
