@@ -8,6 +8,7 @@ source_h = [
   'gaeguli.h',
   'types.h',
   'pipeline.h',
+  'streamadaptor.h',
 ]
 
 source_c = [
