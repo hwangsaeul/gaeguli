@@ -47,6 +47,7 @@ struct _GaeguliPipeline
   GaeguliVideoSource source;
   gchar *device;
   GaeguliEncodingMethod encoding_method;
+  guint fps;
 
   GHashTable *targets;
   guint pending_target_removals;
@@ -363,7 +364,7 @@ gaeguli_pipeline_new (void)
 }
 
 typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
-    guint bitrate);
+    guint bitrate, guint idr_period);
 
 struct encoding_method_params
 {
@@ -374,16 +375,18 @@ struct encoding_method_params
 };
 
 static gchar *
-_format_general_pipeline (const gchar * pipeline_str, guint bitrate)
+_format_general_pipeline (const gchar * pipeline_str, guint bitrate,
+    guint idr_period)
 {
   /* x26[4,5]enc take bitrate in kbps. */
-  return g_strdup_printf (pipeline_str, bitrate / 1000);
+  return g_strdup_printf (pipeline_str, bitrate / 1000, idr_period);
 }
 
 static gchar *
-_format_tx1_pipeline (const gchar * pipeline_str, guint bitrate)
+_format_tx1_pipeline (const gchar * pipeline_str, guint bitrate,
+    guint idr_period)
 {
-  return g_strdup_printf (pipeline_str, bitrate);
+  return g_strdup_printf (pipeline_str, bitrate, idr_period);
 }
 
 static struct encoding_method_params enc_params[] = {
@@ -400,13 +403,13 @@ static struct encoding_method_params enc_params[] = {
 
 static gchar *
 _get_enc_string (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate)
+    GaeguliVideoCodec codec, guint bitrate, guint idr_period)
 {
   struct encoding_method_params *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
     if (params->encoding_method == encoding_method && params->codec == codec)
-      return params->format_func (params->pipeline_str, bitrate);
+      return params->format_func (params->pipeline_str, bitrate, idr_period);
   }
 
   return NULL;
@@ -454,8 +457,8 @@ _get_encoding_parameters (GstElement * encoder)
 
 static GaeguliTarget *
 _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
-    guint bitrate, const gchar * srt_uri, const gchar * username,
-    GType adaptor_type, GError ** error)
+    guint bitrate, guint idr_period, const gchar * srt_uri,
+    const gchar * username, GType adaptor_type, GError ** error)
 {
   g_autoptr (GaeguliTarget) target = NULL;
   g_autoptr (GstElement) srtsink = NULL;
@@ -469,7 +472,7 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
   g_autoptr (GError) internal_err = NULL;
   GstStateChangeReturn res;
 
-  pipeline_str = _get_enc_string (encoding_method, codec, bitrate);
+  pipeline_str = _get_enc_string (encoding_method, codec, bitrate, idr_period);
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
@@ -859,6 +862,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
   if (g_hash_table_size (self->targets) == 0) {
     /* First target to connect sets the video parameters. */
     _set_stream_caps (self, resolution, framerate);
+    self->fps = framerate;
   }
 
   target_id = g_str_hash (uri);
@@ -875,8 +879,8 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    target = _build_target (self->encoding_method, codec, bitrate, uri,
-        username, self->adaptor_type, &internal_err);
+    target = _build_target (self->encoding_method, codec, bitrate, self->fps,
+        uri, username, self->adaptor_type, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target == NULL) {
