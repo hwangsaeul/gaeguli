@@ -23,7 +23,6 @@
 #include "pipeline.h"
 #include "common/receiver.h"
 
-#define TEST_PORT_BASE 5566
 #define TARGET_BYTES_SENT_LIMIT 10000
 
 typedef struct _TestFixture
@@ -31,12 +30,14 @@ typedef struct _TestFixture
   GMainLoop *loop;
   GaeguliPipeline *pipeline;
   guint target_id;
+  guint port_base;
 } TestFixture;
 
 static void
 fixture_setup (TestFixture * fixture, gconstpointer unused)
 {
   fixture->loop = g_main_loop_new (NULL, FALSE);
+  fixture->port_base = g_random_int_range (15000, 40000);
 }
 
 static void
@@ -129,10 +130,11 @@ add_remove_target_cb (AddRemoveTestData * data)
 
       target->receiver_pipeline =
           gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
-          TEST_PORT_BASE + i, NULL, NULL);
+          data->fixture->port_base + i, NULL, NULL);
       g_assert_nonnull (target->receiver_pipeline);
 
-      uri = g_strdup_printf ("srt://127.0.0.1:%d", TEST_PORT_BASE + i);
+      uri = g_strdup_printf ("srt://127.0.0.1:%d",
+          data->fixture->port_base + i);
 
       target->id = gaeguli_pipeline_add_srt_target_full (data->pipeline,
           GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30,
@@ -263,7 +265,7 @@ test_gaeguli_pipeline_address_in_use (void)
 
 typedef struct
 {
-  GMainLoop *loop;
+  TestFixture *fixture;
   GaeguliPipeline *pipeline;
 
   guint watchdog_id;
@@ -302,7 +304,7 @@ receiver2_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
   if (data->receiver2_buffer_cnt == 100) {
     g_debug ("Receiver 2 started receiving; exiting the main loop");
 
-    g_main_loop_quit (data->loop);
+    g_main_loop_quit (data->fixture->loop);
   }
 }
 
@@ -323,7 +325,7 @@ receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
     g_debug ("Receiver 1 started receiving; spawning receiver 2");
 
     uri_str = g_strdup_printf ("srt://127.0.0.1:%d?mode=listener",
-        TEST_PORT_BASE + 1);
+        data->fixture->port_base + 1);
 
     target_id = gaeguli_pipeline_add_srt_target_full (data->pipeline,
         GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
@@ -332,7 +334,7 @@ receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
     g_assert_cmpint (target_id, !=, 0);
 
     data->receiver2 = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_CALLER,
-        TEST_PORT_BASE + 1, (GCallback) receiver2_buffer_cb, data);
+        data->fixture->port_base + 1, (GCallback) receiver2_buffer_cb, data);
   }
 }
 
@@ -347,17 +349,18 @@ test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
   ClientTestData data = { 0 };
   guint target_id;
 
+  uri_str = g_strdup_printf ("srt://127.0.0.1:%d?mode=caller",
+      fixture->port_base);
   target_id = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
-      "srt://127.0.0.1:" G_STRINGIFY (TEST_PORT_BASE) "?mode=caller", NULL,
-      &error);
+      uri_str, NULL, &error);
   g_assert_no_error (error);
   g_assert_cmpint (target_id, !=, 0);
 
-  data.loop = fixture->loop;
+  data.fixture = fixture;
   data.pipeline = pipeline;
   data.receiver1 = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
-      TEST_PORT_BASE, (GCallback) receiver1_buffer_cb, &data);
+      data.fixture->port_base, (GCallback) receiver1_buffer_cb, &data);
 
   g_main_loop_run (fixture->loop);
 
@@ -372,7 +375,7 @@ test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
 
 typedef struct
 {
-  GMainLoop *loop;
+  TestFixture *fixture;
   GaeguliPipeline *pipeline;
   guint listeners_to_create;
   gint listeners[5];
@@ -392,7 +395,7 @@ listener_random_cb (ListenerRandomTestData * data)
     }
 
     uri = g_strdup_printf ("srt://127.0.0.1:%d?mode=listener",
-        TEST_PORT_BASE + i);
+        data->fixture->port_base + i);
 
     data->listeners[i] = gaeguli_pipeline_add_srt_target_full (data->pipeline,
         GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 30, 2048000,
@@ -415,7 +418,7 @@ listener_random_cb (ListenerRandomTestData * data)
         }
       }
       /* All listeners have gone through their lifecycle; stop the test. */
-      g_main_loop_quit (data->loop);
+      g_main_loop_quit (data->fixture->loop);
     }
   }
 
@@ -433,8 +436,8 @@ test_gaeguli_pipeline_listener_random (TestFixture * fixture,
   ListenerRandomTestData data = { 0 };
   guint timeout_source;
 
+  data.fixture = fixture;
   data.pipeline = pipeline;
-  data.loop = fixture->loop;
   data.listeners_to_create = 10;
 
   timeout_source = g_timeout_add (50, (GSourceFunc) listener_random_cb, &data);
