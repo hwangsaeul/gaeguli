@@ -405,7 +405,8 @@ listener_random_cb (ListenerRandomTestData * data)
     g_assert_no_error (error);
 
     --data->listeners_to_create;
-    g_debug ("Added a listener. %d more to go.", data->listeners_to_create);
+    g_debug ("Added a listener. %d more to go.(random seed: %d)",
+        data->listeners_to_create, i);
   } else {
     gaeguli_pipeline_remove_target (data->pipeline, data->listeners[i], &error);
     g_assert_no_error (error);
