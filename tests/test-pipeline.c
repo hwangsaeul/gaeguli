@@ -413,6 +413,7 @@ listener_random_cb (ListenerRandomTestData * data)
     data->listeners[i] = 0;
 
     g_debug ("Removed a listener.");
+    g_usleep (10000);
 
     if (data->listeners_to_create == 0) {
       for (i = 0; i != G_N_ELEMENTS (data->listeners); ++i) {
