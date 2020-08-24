@@ -692,8 +692,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   return TRUE;
 
 failed:
-  g_clear_object (&self->vsrc);
-  g_clear_object (&self->pipeline);
+  gst_clear_object (&self->vsrc);
+  gst_clear_object (&self->pipeline);
 
   return FALSE;
 }
