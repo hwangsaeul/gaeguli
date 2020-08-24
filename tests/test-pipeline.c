@@ -243,7 +243,9 @@ test_gaeguli_pipeline_add_remove_target_random (TestFixture * fixture,
 static void
 test_gaeguli_pipeline_address_in_use (void)
 {
-  g_autoptr (GaeguliPipeline) pipeline = gaeguli_pipeline_new ();
+  g_autoptr (GaeguliPipeline) pipeline =
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      GAEGULI_ENCODING_METHOD_GENERAL);
   g_autoptr (GError) error = NULL;
   guint target_id;
 
