@@ -14,13 +14,6 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
-        with:
-          python-version: '3.8' 
-      - name: Install meson dependencies
-        run: |
-          python -m pip install scikit-build   
-
       - name: Add H8L ppa
         run: |
           sudo apt-get install --assume-yes software-properties-common
@@ -31,8 +24,10 @@ jobs:
         run: |
           sudo apt-get install --assume-yes \
                   libgstreamer1.0-dev libgstreamer-plugins-bad1.0-dev \
+                  gstreamer1.0-libav \
                   gstreamer1.0-plugins-good \
                   gstreamer1.0-plugins-bad \
+                  gstreamer1.0-plugins-bad-dbg \
                   gstreamer1.0-plugins-ugly \
                   libsrt-dev \
                   libjson-glib-dev \
