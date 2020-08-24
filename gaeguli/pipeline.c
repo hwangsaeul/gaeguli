@@ -495,7 +495,7 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
 
   target = g_new0 (GaeguliTarget, 1);
   target->pipeline = gst_parse_launch (pipeline_str, &internal_err);
-  if (target->pipeline == NULL) {
+  if (internal_err) {
     g_error ("failed to build muxsink pipeline (%s)", internal_err->message);
     goto failed;
   }
@@ -657,7 +657,7 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   g_debug ("trying to create video source pipeline (%s)", vsrc_str);
   self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
 
-  if (self->vsrc == NULL) {
+  if (internal_err) {
     g_error ("failed to build source pipeline (%s)", internal_err->message);
     g_propagate_error (error, internal_err);
     goto failed;
