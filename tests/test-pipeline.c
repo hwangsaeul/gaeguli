@@ -449,6 +449,90 @@ test_gaeguli_pipeline_listener_random (TestFixture * fixture,
   gaeguli_pipeline_stop (pipeline);
 }
 
+typedef struct
+{
+  GMainLoop *loop;
+  guint target_id;
+} ConnectionErrorTestData;
+
+static void
+_on_connection_error (GaeguliPipeline * pipeline, guint target_id,
+    GError * error, gpointer user_data)
+{
+  ConnectionErrorTestData *data = user_data;
+
+  g_assert (target_id == data->target_id);
+
+  g_assert_true (g_error_matches (error, GST_RESOURCE_ERROR,
+          GST_RESOURCE_ERROR_WRITE));
+
+  g_main_loop_quit (data->loop);
+}
+
+static void
+_on_connection_error_not_reached (GaeguliPipeline * pipeline, guint target_id,
+    GError * error, gpointer user_data)
+{
+  g_assert_not_reached ();
+}
+
+static void
+_on_buffer_received (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    gpointer data)
+{
+  g_main_loop_quit (data);
+}
+
+static void
+test_gaeguli_pipeline_connection_error (TestFixture * fixture,
+    gconstpointer unused)
+{
+  ConnectionErrorTestData data;
+  g_autoptr (GaeguliPipeline) pipeline =
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      GAEGULI_ENCODING_METHOD_GENERAL);
+  g_autoptr (GstElement) receiver = NULL;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *uri = NULL;
+  gulong handler_id;
+
+  g_assert_nonnull (pipeline);
+
+  uri = g_strdup_printf ("srt://127.0.0.1:%d?mode=caller", fixture->port_base);
+
+  data.loop = fixture->loop;
+
+  g_debug ("Running a target without a listener. This should issue errors.");
+  data.target_id = gaeguli_pipeline_add_srt_target (pipeline, uri, NULL,
+      &error);
+  g_assert_no_error (error);
+
+  handler_id = g_signal_connect (pipeline, "connection-error",
+      (GCallback) _on_connection_error, &data);
+
+  g_main_loop_run (fixture->loop);
+
+  gaeguli_pipeline_remove_target (pipeline, data.target_id, &error);
+  g_assert_no_error (error);
+
+  g_signal_handler_disconnect (pipeline, handler_id);
+
+  g_signal_connect (pipeline, "connection-error",
+      (GCallback) _on_connection_error_not_reached, &data);
+
+  receiver = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
+      fixture->port_base, (GCallback) _on_buffer_received, fixture->loop);
+  g_assert_nonnull (receiver);
+
+  g_debug ("Running a target with a listener. This should report no errors.");
+  gaeguli_pipeline_add_srt_target (pipeline, uri, NULL, &error);
+
+  g_main_loop_run (fixture->loop);
+
+  gaeguli_pipeline_stop (pipeline);
+  gst_element_set_state (receiver, GST_STATE_NULL);
+}
+
 static gboolean
 _stop_pipeline (TestFixture * fixture)
 {
@@ -524,6 +608,10 @@ main (int argc, char *argv[])
   g_test_add ("/gaeguli/pipeline-listener-random",
       TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_listener_random, fixture_teardown);
+
+  g_test_add ("/gaeguli/pipeline-connection-error",
+      TestFixture, NULL, fixture_setup,
+      test_gaeguli_pipeline_connection_error, fixture_teardown);
 
   g_test_add ("/gaeguli/pipeline-debug-tx1", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_debug_tx1, fixture_teardown);

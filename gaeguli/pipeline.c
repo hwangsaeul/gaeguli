@@ -170,6 +170,7 @@ enum
 {
   SIG_STREAM_STARTED,
   SIG_STREAM_STOPPED,
+  SIG_CONNECTION_ERROR,
   LAST_SIGNAL
 };
 
@@ -306,6 +307,11 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       g_signal_new ("stream-stopped", G_TYPE_FROM_CLASS (klass),
       G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
       NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
+
+  signals[SIG_CONNECTION_ERROR] =
+      g_signal_new ("connection-error", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
+      NULL, NULL, G_TYPE_NONE, 2, G_TYPE_UINT, G_TYPE_ERROR);
 }
 
 
@@ -614,20 +620,44 @@ _decodebin_pad_added (GstElement * decodebin, GstPad * pad, gpointer user_data)
   }
 }
 
+gboolean
+_find_target_by_srtsink (gpointer key, gpointer value, gpointer user_data)
+{
+  return ((GaeguliTarget *) value)->srtsink == user_data;
+}
+
 static gboolean
 _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
 {
+  GaeguliPipeline *self = user_data;
+
   switch (message->type) {
     case GST_MESSAGE_APPLICATION:{
       const GstStructure *structure = gst_message_get_structure (message);
       const gchar *name = gst_structure_get_name (structure);
 
       if (g_str_equal (name, "gaeguli-pipeline-stream-stopped")) {
-        GaeguliPipeline *self = user_data;
         guint target_id;
 
         gst_structure_get_uint (structure, "target-id", &target_id);
         g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0, target_id);
+      }
+      break;
+    }
+    case GST_MESSAGE_WARNING:{
+      GaeguliTarget *target;
+      g_autoptr (GError) error = NULL;
+
+      target = g_hash_table_find (self->targets, _find_target_by_srtsink,
+          message->src);
+      if (!target) {
+        break;
+      }
+
+      gst_message_parse_warning (message, &error, NULL);
+      if (g_error_matches (error, GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_WRITE)) {
+        g_signal_emit (self, signals[SIG_CONNECTION_ERROR], 0, target->id,
+            error);
       }
       break;
     }
