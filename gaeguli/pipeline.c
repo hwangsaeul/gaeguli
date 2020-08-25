@@ -78,6 +78,7 @@ typedef struct _LinkTarget
 typedef struct _GaeguliTarget
 {
   GstElement *pipeline;
+  GstElement *srtsink;
   GaeguliStreamAdaptor *adaptor;
 } GaeguliTarget;
 
@@ -85,6 +86,7 @@ static void
 gaeguli_target_free (GaeguliTarget * target)
 {
   gst_clear_object (&target->pipeline);
+  gst_clear_object (&target->srtsink);
   g_clear_object (&target->adaptor);
   g_free (target);
 }
@@ -461,7 +463,6 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
     const gchar * username, GType adaptor_type, GError ** error)
 {
   g_autoptr (GaeguliTarget) target = NULL;
-  g_autoptr (GstElement) srtsink = NULL;
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstElement) encoder = NULL;
   g_autoptr (GstBus) bus = NULL;
@@ -502,7 +503,7 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
 
   gst_object_ref_sink (target->pipeline);
 
-  srtsink = gst_bin_get_by_name (GST_BIN (target->pipeline), "sink");
+  target->srtsink = gst_bin_get_by_name (GST_BIN (target->pipeline), "sink");
 
   bus = gst_element_get_bus (target->pipeline);
   gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
@@ -510,12 +511,12 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
 
   encoder = gst_bin_get_by_name (GST_BIN (target->pipeline), "enc");
 
-  target->adaptor = g_object_new (adaptor_type, "srtsink", srtsink,
+  target->adaptor = g_object_new (adaptor_type, "srtsink", target->srtsink,
       "initial-encoding-parameters", _get_encoding_parameters (encoder), NULL);
 
   /* Setting READY state on srtsink check that we can bind to address and port
    * specified in srt_uri. On failure, bus handler should set internal_err. */
-  res = gst_element_set_state (srtsink, GST_STATE_READY);
+  res = gst_element_set_state (target->srtsink, GST_STATE_READY);
 
   gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
 
@@ -943,7 +944,6 @@ gaeguli_pipeline_target_get_bytes_sent (GaeguliPipeline * self, guint target_id)
 {
   guint64 result = 0;
   GaeguliTarget *target;
-  g_autoptr (GstElement) srtsink = NULL;
   GstStructure *s;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), GAEGULI_RETURN_FAIL);
@@ -957,13 +957,12 @@ gaeguli_pipeline_target_get_bytes_sent (GaeguliPipeline * self, guint target_id)
     goto out;
   }
 
-  srtsink = gst_bin_get_by_name (GST_BIN (target->pipeline), "sink");
-  if (srtsink == NULL) {
+  if (target->srtsink == NULL) {
     g_warning ("SRT sink for target %d not found", target_id);
     goto out;
   }
 
-  g_object_get (srtsink, "stats", &s, NULL);
+  g_object_get (target->srtsink, "stats", &s, NULL);
   if (!gst_structure_get_uint64 (s, "bytes-sent", &result)) {
     goto out;
   }
