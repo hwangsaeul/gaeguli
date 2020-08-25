@@ -77,6 +77,7 @@ typedef struct _LinkTarget
 
 typedef struct _GaeguliTarget
 {
+  guint id;
   GstElement *pipeline;
   GstElement *srtsink;
   GaeguliStreamAdaptor *adaptor;
@@ -889,6 +890,8 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
       internal_err = NULL;
       goto failed;
     }
+
+    target->id = target_id;
 
     gst_bin_add (GST_BIN (self->pipeline), target->pipeline);
 
