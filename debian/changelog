@@ -1,3 +1,9 @@
+gaeguli (0.10.2-0h8l0) unstable; urgency=medium
+
+  * pipeline: force a keyframe every second
+
+ -- Justin Kim <jeongseok.kim@sk.com>  Tue, 25 Aug 2020 12:37:35 +0000
+
 gaeguli (0.10.1-0h8l0) unstable; urgency=medium
 
   * fifo-transmit: allow to specifying fifoname
