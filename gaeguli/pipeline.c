@@ -331,7 +331,7 @@ gaeguli_pipeline_new (void)
 }
 
 typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
-    guint bitrate);
+    guint bitrate, guint idr_period);
 
 struct encoding_method_params
 {
@@ -342,16 +342,18 @@ struct encoding_method_params
 };
 
 static gchar *
-_format_general_pipeline (const gchar * pipeline_str, guint bitrate)
+_format_general_pipeline (const gchar * pipeline_str, guint bitrate,
+    guint idr_period)
 {
   /* x26[4,5]enc take bitrate in kbps. */
-  return g_strdup_printf (pipeline_str, bitrate / 1000);
+  return g_strdup_printf (pipeline_str, bitrate / 1000, idr_period);
 }
 
 static gchar *
-_format_tx1_pipeline (const gchar * pipeline_str, guint bitrate)
+_format_tx1_pipeline (const gchar * pipeline_str, guint bitrate,
+    guint idr_period)
 {
-  return g_strdup_printf (pipeline_str, bitrate);
+  return g_strdup_printf (pipeline_str, bitrate, idr_period);
 }
 
 static struct encoding_method_params enc_params[] = {
@@ -368,13 +370,13 @@ static struct encoding_method_params enc_params[] = {
 
 static gchar *
 _get_enc_string (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate)
+    GaeguliVideoCodec codec, guint bitrate, guint idr_period)
 {
   struct encoding_method_params *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
     if (params->encoding_method == encoding_method && params->codec == codec)
-      return params->format_func (params->pipeline_str, bitrate);
+      return params->format_func (params->pipeline_str, bitrate, idr_period);
   }
 
   return NULL;
@@ -382,8 +384,8 @@ _get_enc_string (GaeguliEncodingMethod encoding_method,
 
 static GstElement *
 _build_target_pipeline (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate, const gchar * fifo_path,
-    GError ** error)
+    GaeguliVideoCodec codec, guint bitrate, guint framerate,
+    const gchar * fifo_path, GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
   g_autoptr (GstElement) enc_first = NULL;
@@ -392,7 +394,7 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
 
-  pipeline_str = _get_enc_string (encoding_method, codec, bitrate);
+  pipeline_str = _get_enc_string (encoding_method, codec, bitrate, framerate);
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
@@ -771,7 +773,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
 
     target_pipeline =
         _build_target_pipeline (self->encoding_method, codec, bitrate,
-        fifo_path, &internal_err);
+        framerate, fifo_path, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target_pipeline == NULL) {
