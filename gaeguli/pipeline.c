@@ -80,6 +80,8 @@ typedef struct _GaeguliTarget
   guint id;
   GstElement *pipeline;
   GstElement *srtsink;
+  GstPad *tee_srcpad;
+  gulong pending_pad_probe;
   GaeguliStreamAdaptor *adaptor;
 } GaeguliTarget;
 
@@ -88,6 +90,7 @@ gaeguli_target_free (GaeguliTarget * target)
 {
   gst_clear_object (&target->pipeline);
   gst_clear_object (&target->srtsink);
+  gst_clear_object (&target->tee_srcpad);
   g_clear_object (&target->adaptor);
   g_free (target);
 }
@@ -788,6 +791,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   LinkTarget *link_target = user_data;
   g_autoptr (GstPad) sink_pad = NULL;
   g_autoptr (GaeguliPipeline) self = g_object_ref (link_target->self);
+  GaeguliTarget *target = NULL;
 
   /* 
    * GST_PAD_PROBE_TYPE_IDLE can cause infinite waiting in filesink.
@@ -798,6 +802,14 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
    * https://github.com/hwangsaeul/gaeguli/pull/10#discussion_r327031325
    */
   gst_pad_remove_probe (pad, info->id);
+
+  g_mutex_lock (&link_target->self->lock);
+
+  target = g_hash_table_lookup (self->targets,
+      GINT_TO_POINTER (link_target->target_id));
+  if (target && (target->pending_pad_probe == info->id)) {
+    target->pending_pad_probe = 0;
+  }
 
   if (link_target->link) {
     GstPad *tee_ghost_pad = NULL;
@@ -820,6 +832,9 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     if (gst_pad_link (tee_ghost_pad, sink_pad) != GST_PAD_LINK_OK) {
       g_error ("failed to link tee src to target sink");
     }
+
+    g_mutex_unlock (&link_target->self->lock);
+
     g_signal_emit (link_target->self, signals[SIG_STREAM_STARTED], 0,
         link_target->target_id);
   } else {
@@ -849,8 +864,6 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
         gst_message_new_application (NULL,
             gst_structure_new ("gaeguli-pipeline-stream-stopped",
                 "target-id", G_TYPE_UINT, link_target->target_id, NULL)));
-
-    g_mutex_lock (&link_target->self->lock);
 
     if (g_hash_table_size (self->targets) == 0 &&
         --self->pending_target_removals == 0 &&
@@ -904,7 +917,6 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GstPadTemplate *templ = NULL;
 
     g_autoptr (GstElement) tee = NULL;
-    g_autoptr (GstPad) tee_srcpad = NULL;
 
     g_autoptr (LinkTarget) link_target = NULL;
     g_autoptr (GError) internal_err = NULL;
@@ -931,12 +943,13 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     templ =
         gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
         "src_%u");
-    tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
+    target->tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
 
     link_target =
         link_target_new (self, self->vsrc, target_id, target->pipeline, TRUE);
 
-    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
+    target->pending_pad_probe = gst_pad_add_probe (target->tee_srcpad,
+        GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
         g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
   }
 
@@ -1011,11 +1024,6 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     GError ** error)
 {
   g_autoptr (GaeguliTarget) target = NULL;
-  g_autoptr (GstPad) ghost_sinkpad = NULL;
-  g_autoptr (GstPad) ghost_srcpad = NULL;
-  g_autoptr (GstPad) tee_srcpad = NULL;
-
-  g_autoptr (LinkTarget) link_target = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), GAEGULI_RETURN_FAIL);
   g_return_val_if_fail (target_id != 0, GAEGULI_RETURN_FAIL);
@@ -1029,17 +1037,18 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     goto out;
   }
 
-  ghost_sinkpad = gst_element_get_static_pad (target->pipeline, "ghost_sink");
-  ghost_srcpad = gst_pad_get_peer (ghost_sinkpad);
-  tee_srcpad = gst_ghost_pad_get_target (GST_GHOST_PAD (ghost_srcpad));
+  if (target->pending_pad_probe != 0) {
+    /* Target removed before its link pad probe got called. */
+    gst_pad_remove_probe (target->tee_srcpad, target->pending_pad_probe);
+    target->pending_pad_probe = 0;
+  } else {
+    gst_pad_add_probe (target->tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK,
+        _link_probe_cb, link_target_new (self, self->vsrc, target_id,
+            target->pipeline, FALSE), (GDestroyNotify) link_target_unref);
 
-  link_target =
-      link_target_new (self, self->vsrc, target_id, target->pipeline, FALSE);
+    ++self->pending_target_removals;
+  }
 
-  gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
-      g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
-
-  ++self->pending_target_removals;
 
 out:
   g_mutex_unlock (&self->lock);
