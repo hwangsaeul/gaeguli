@@ -1,5 +1,5 @@
 project('gaeguli', 'c',
-  version: '0.11.0',
+  version: '1.99.0',
   license: 'Apache-2.0',
   meson_version: '>= 0.46',
   default_options: [ 'warning_level=1',
@@ -13,7 +13,7 @@ project_version_major = version_arr[0].to_int()
 project_version_minor = version_arr[1].to_int()
 project_version_micro = version_arr[2].to_int()
 
-apiversion = '1.0'
+apiversion = '2.0'
 soversion = 0
 curversion = project_version_minor * 100 + project_version_micro
 libversion = '@0@.@1@.0'.format(soversion, curversion)
