@@ -8,7 +8,7 @@ Build-Depends:
  gstreamer1.0-plugins-ugly,
  libgstreamer-plugins-bad1.0-dev,
  libgstreamer1.0-dev,
- libsrt-dev (>= 1.4.1~),
+ libsrt-dev (>= 1.4.1~) | libsrt-gnutls-dev | libsrt-openssl-dev,
  meson,
 Standards-Version: 4.2.1
 Section: libs
@@ -33,7 +33,7 @@ Architecture: any
 Depends:
  libgaeguli2 (= ${binary:Version}),
  libgstreamer-plugins-bad1.0-dev,
- libsrt-dev (>= 1.4.1~),
+ libsrt-dev (>= 1.4.1~) | libsrt-gnutls-dev | libsrt-openssl-dev,
  ${misc:Depends},
 Description: Ultra-low latency SRT streamer
  Gæguli is an SRT streamer designed for edge devices that require
