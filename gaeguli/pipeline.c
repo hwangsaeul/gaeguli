@@ -63,25 +63,15 @@ struct _GaeguliPipeline
   GType adaptor_type;
 };
 
-typedef struct _LinkTarget
-{
-  gint refcount;
-
-  GaeguliPipeline *self;
-  gboolean link;
-  guint target_id;
-
-  GstElement *src;
-  GstElement *target;
-} LinkTarget;
-
 typedef struct _GaeguliTarget
 {
   guint id;
   GstElement *pipeline;
   GstElement *srtsink;
   GstPad *tee_srcpad;
+  GstPad *sinkpad;
   gulong pending_pad_probe;
+  GWeakRef gaeguli_pipeline;
   GaeguliStreamAdaptor *adaptor;
 } GaeguliTarget;
 
@@ -91,6 +81,9 @@ gaeguli_target_free (GaeguliTarget * target)
   gst_clear_object (&target->pipeline);
   gst_clear_object (&target->srtsink);
   gst_clear_object (&target->tee_srcpad);
+  gst_clear_object (&target->sinkpad);
+
+  g_weak_ref_clear (&target->gaeguli_pipeline);
   g_clear_object (&target->adaptor);
   g_free (target);
 }
@@ -102,56 +95,7 @@ static const gchar *const supported_formats[] = {
   NULL
 };
 
-static LinkTarget *
-link_target_new (GaeguliPipeline * self, GstElement * src, guint target_id,
-    GstElement * target, gboolean link)
-{
-  LinkTarget *t = g_new0 (LinkTarget, 1);
-
-  t->refcount = 1;
-
-  t->self = g_object_ref (self);
-  t->src = g_object_ref (src);
-  t->target = g_object_ref (target);
-  t->target_id = target_id;
-  t->link = link;
-
-  return t;
-}
-
-#if 0
-static LinkTarget *
-link_target_ref (LinkTarget * link_target)
-{
-  g_return_val_if_fail (link_target != NULL, NULL);
-  g_return_val_if_fail (link_target->self != NULL, NULL);
-  g_return_val_if_fail (link_target->src != NULL, NULL);
-  g_return_val_if_fail (link_target->target != NULL, NULL);
-
-  g_atomic_int_inc (&link_target->refcount);
-
-  return link_target;
-}
-#endif
-
-static void
-link_target_unref (LinkTarget * link_target)
-{
-  g_return_if_fail (link_target != NULL);
-  g_return_if_fail (link_target->self != NULL);
-  g_return_if_fail (link_target->src != NULL);
-  g_return_if_fail (link_target->target != NULL);
-
-  if (g_atomic_int_dec_and_test (&link_target->refcount)) {
-    g_clear_object (&link_target->self);
-    g_clear_object (&link_target->src);
-    g_clear_object (&link_target->target);
-    g_free (link_target);
-  }
-}
-
 /* *INDENT-OFF* */
-G_DEFINE_AUTOPTR_CLEANUP_FUNC (LinkTarget, link_target_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC (GaeguliTarget, gaeguli_target_free)
 /* *INDENT-ON* */
 
@@ -477,7 +421,6 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
   g_autoptr (GstElement) encoder = NULL;
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
-  GstPad *ghost_pad = NULL;
   g_autofree gchar *uri_str = NULL;
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
@@ -536,8 +479,10 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
 
   enc_first = gst_bin_get_by_name (GST_BIN (target->pipeline), "enc_first");
   enc_sinkpad = gst_element_get_static_pad (enc_first, "sink");
-  ghost_pad = gst_ghost_pad_new ("ghost_sink", enc_sinkpad);
-  gst_element_add_pad (target->pipeline, ghost_pad);
+
+  target->sinkpad = gst_ghost_pad_new (NULL, enc_sinkpad);
+  gst_object_ref_sink (target->sinkpad);
+  gst_element_add_pad (target->pipeline, target->sinkpad);
 
   return g_steal_pointer (&target);
 
@@ -798,12 +743,11 @@ _set_state_null (GstElement * element)
 static GstPadProbeReturn
 _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 {
-  LinkTarget *link_target = user_data;
-  g_autoptr (GstPad) sink_pad = NULL;
-  g_autoptr (GaeguliPipeline) self = g_object_ref (link_target->self);
-  GaeguliTarget *target = NULL;
+  GaeguliTarget *target = user_data;
+  g_autoptr (GaeguliPipeline) self = NULL;
+  GstPad *tee_ghost_pad = NULL;
 
-  /* 
+  /*
    * GST_PAD_PROBE_TYPE_IDLE can cause infinite waiting in filesink.
    * In addition, to prevent events generated in gst_ghost_pad_new()
    * from invoking this probe callback again, we remove the probe first.
@@ -813,71 +757,78 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
    */
   gst_pad_remove_probe (pad, info->id);
 
-  g_mutex_lock (&link_target->self->lock);
-
-  target = g_hash_table_lookup (self->targets,
-      GINT_TO_POINTER (link_target->target_id));
-  if (target && (target->pending_pad_probe == info->id)) {
+  if (target->pending_pad_probe == info->id) {
     target->pending_pad_probe = 0;
   }
 
-  if (link_target->link) {
-    GstPad *tee_ghost_pad = NULL;
+  g_debug ("start link target [%x]", target->id);
 
-    /* linking */
-    g_debug ("start link target [%x]", link_target->target_id);
+  tee_ghost_pad = gst_ghost_pad_new (NULL, target->tee_srcpad);
+  if (tee_ghost_pad == NULL) {
+    g_error ("ghost pad is null");
+  }
 
-    tee_ghost_pad = gst_ghost_pad_new (NULL, pad);
-    gst_pad_set_active (tee_ghost_pad, TRUE);
-    gst_element_add_pad (link_target->self->vsrc, tee_ghost_pad);
-    sink_pad = gst_element_get_static_pad (link_target->target, "ghost_sink");
+  gst_element_add_pad (GST_ELEMENT_PARENT (GST_PAD_PARENT (target->tee_srcpad)),
+      tee_ghost_pad);
 
-    if (sink_pad == NULL) {
-      g_error ("sink pad is null");
-    }
-    if (tee_ghost_pad == NULL) {
-      g_error ("ghost pad is null");
-    }
-    gst_element_sync_state_with_parent (link_target->target);
-    if (gst_pad_link (tee_ghost_pad, sink_pad) != GST_PAD_LINK_OK) {
-      g_error ("failed to link tee src to target sink");
-    }
+  gst_element_sync_state_with_parent (target->pipeline);
+  if (gst_pad_link (tee_ghost_pad, target->sinkpad) != GST_PAD_LINK_OK) {
+    g_error ("failed to link tee src to target sink");
+  }
 
-    g_mutex_unlock (&link_target->self->lock);
+  self = g_weak_ref_get (&target->gaeguli_pipeline);
+  if (self) {
+    g_signal_emit (self, signals[SIG_STREAM_STARTED], 0, target->id);
+  }
 
-    g_signal_emit (link_target->self, signals[SIG_STREAM_STARTED], 0,
-        link_target->target_id);
-  } else {
-    /* unlinking */
+  return GST_PAD_PROBE_REMOVE;
+}
 
-    g_autoptr (GstPad) ghost_sinkpad =
-        gst_element_get_static_pad (link_target->target, "ghost_sink");
-    g_autoptr (GstPad) ghost_srcpad = gst_pad_get_peer (ghost_sinkpad);
-    g_autoptr (GstPad) srcpad =
-        gst_ghost_pad_get_target (GST_GHOST_PAD (ghost_srcpad));
-    g_autoptr (GstElement) tee =
-        gst_bin_get_by_name (GST_BIN (link_target->self->vsrc), "tee");
+static GstPadProbeReturn
+_unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+{
+  GaeguliTarget *target = user_data;
+  g_autoptr (GstElement) topmost_pipeline = NULL;
+  g_autoptr (GstPad) ghost_srcpad = NULL;
+  g_autoptr (GaeguliPipeline) self = NULL;
 
-    g_debug ("start unlink target [%x]", link_target->target_id);
+  /* Remove the probe first. See _link_probe_cb() for details. */
+  gst_pad_remove_probe (pad, info->id);
 
-    if (!gst_pad_unlink (ghost_srcpad, ghost_sinkpad)) {
-      g_error ("failed to unlink");
-    }
+  if (target->pending_pad_probe == info->id) {
+    target->pending_pad_probe = 0;
+  }
 
-    gst_ghost_pad_set_target (GST_GHOST_PAD (ghost_srcpad), NULL);
-    gst_element_remove_pad (link_target->self->vsrc, ghost_srcpad);
-    gst_element_release_request_pad (tee, srcpad);
-    gst_bin_remove (GST_BIN (link_target->self->pipeline), link_target->target);
+  ghost_srcpad = gst_pad_get_peer (target->sinkpad);
 
-    /* This probe may get called from the target's streaming thread, so let the
-     * state change happen in the main thread. */
-    g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc) _set_state_null,
-        gst_object_ref (link_target->target), gst_object_unref);
+  g_debug ("start unlink target [%x]", target->id);
 
-    gst_element_post_message (link_target->self->pipeline,
-        gst_message_new_application (NULL,
-            gst_structure_new ("gaeguli-pipeline-stream-stopped",
-                "target-id", G_TYPE_UINT, link_target->target_id, NULL)));
+  if (!gst_pad_unlink (ghost_srcpad, target->sinkpad)) {
+    g_error ("failed to unlink");
+  }
+
+  gst_ghost_pad_set_target (GST_GHOST_PAD (ghost_srcpad), NULL);
+  gst_element_remove_pad (GST_PAD_PARENT (ghost_srcpad), ghost_srcpad);
+  gst_element_release_request_pad (GST_PAD_PARENT (target->tee_srcpad),
+      target->tee_srcpad);
+
+  topmost_pipeline =
+      GST_ELEMENT (gst_object_get_parent (GST_OBJECT (target->pipeline)));
+  gst_bin_remove (GST_BIN (topmost_pipeline), target->pipeline);
+
+  /* This probe may get called from the target's streaming thread, so let the
+   * state change happen in the main thread. */
+  g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc) _set_state_null,
+      gst_object_ref (target->pipeline), gst_object_unref);
+
+  gst_element_post_message (topmost_pipeline,
+      gst_message_new_application (NULL,
+          gst_structure_new ("gaeguli-pipeline-stream-stopped",
+              "target-id", G_TYPE_UINT, target->id, NULL)));
+
+  self = g_weak_ref_get (&target->gaeguli_pipeline);
+  if (self) {
+    g_mutex_lock (&self->lock);
 
     if (g_hash_table_size (self->targets) == 0 &&
         --self->pending_target_removals == 0 &&
@@ -887,7 +838,7 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
           gst_object_ref (self), gst_object_unref);
     }
 
-    g_mutex_unlock (&link_target->self->lock);
+    g_mutex_unlock (&self->lock);
   }
 
   return GST_PAD_PROBE_REMOVE;
@@ -931,8 +882,6 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GstPadTemplate *templ = NULL;
 
     g_autoptr (GstElement) tee = NULL;
-
-    g_autoptr (LinkTarget) link_target = NULL;
     g_autoptr (GError) internal_err = NULL;
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
@@ -948,6 +897,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     }
 
     target->id = target_id;
+    g_weak_ref_init (&target->gaeguli_pipeline, self);
 
     gst_bin_add (GST_BIN (self->pipeline), target->pipeline);
 
@@ -959,12 +909,8 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
         "src_%u");
     target->tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
 
-    link_target =
-        link_target_new (self, self->vsrc, target_id, target->pipeline, TRUE);
-
     target->pending_pad_probe = gst_pad_add_probe (target->tee_srcpad,
-        GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb,
-        g_steal_pointer (&link_target), (GDestroyNotify) link_target_unref);
+        GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb, target, NULL);
   }
 
   g_mutex_unlock (&self->lock);
@@ -1056,11 +1002,12 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     gst_pad_remove_probe (target->tee_srcpad, target->pending_pad_probe);
     target->pending_pad_probe = 0;
   } else {
+    GstPad *tee_srcpad = target->tee_srcpad;
+
     gst_element_set_state (target->srtsink, GST_STATE_NULL);
 
-    gst_pad_add_probe (target->tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK,
-        _link_probe_cb, link_target_new (self, self->vsrc, target_id,
-            target->pipeline, FALSE), (GDestroyNotify) link_target_unref);
+    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _unlink_probe_cb,
+        g_steal_pointer (&target), (GDestroyNotify) gaeguli_target_free);
 
     ++self->pending_target_removals;
   }
