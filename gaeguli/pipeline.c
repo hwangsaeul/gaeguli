@@ -1056,6 +1056,8 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
     gst_pad_remove_probe (target->tee_srcpad, target->pending_pad_probe);
     target->pending_pad_probe = 0;
   } else {
+    gst_element_set_state (target->srtsink, GST_STATE_NULL);
+
     gst_pad_add_probe (target->tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK,
         _link_probe_cb, link_target_new (self, self->vsrc, target_id,
             target->pipeline, FALSE), (GDestroyNotify) link_target_unref);
