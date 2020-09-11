@@ -590,6 +590,10 @@ main (int argc, char *argv[])
   gst_init (&argc, &argv);
 
   g_test_init (&argc, &argv, NULL);
+
+  /* Don't treat warnings as fatal, which is GTest default. */
+  g_log_set_always_fatal (G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
+
   g_test_add ("/gaeguli/pipeline-instance", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_instance, fixture_teardown);
 
