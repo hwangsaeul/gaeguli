@@ -785,6 +785,16 @@ _stop_pipeline (GaeguliPipeline * self)
   return G_SOURCE_REMOVE;
 }
 
+static gboolean
+_set_state_null (GstElement * element)
+{
+  g_return_val_if_fail (element != NULL, G_SOURCE_REMOVE);
+
+  gst_element_set_state (element, GST_STATE_NULL);
+
+  return G_SOURCE_REMOVE;
+}
+
 static GstPadProbeReturn
 _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 {
@@ -858,7 +868,11 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     gst_element_remove_pad (link_target->self->vsrc, ghost_srcpad);
     gst_element_release_request_pad (tee, srcpad);
     gst_bin_remove (GST_BIN (link_target->self->pipeline), link_target->target);
-    gst_element_set_state (link_target->target, GST_STATE_NULL);
+
+    /* This probe may get called from the target's streaming thread, so let the
+     * state change happen in the main thread. */
+    g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc) _set_state_null,
+        gst_object_ref (link_target->target), gst_object_unref);
 
     gst_element_post_message (link_target->self->pipeline,
         gst_message_new_application (NULL,
