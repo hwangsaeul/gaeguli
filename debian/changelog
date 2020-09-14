@@ -1,3 +1,11 @@
+gaeguli (0.10.3-0h8l0) unstable; urgency=medium
+
+  [ J. Kim ]
+  * fifo-transmit: increase send buffer
+  * fifo-transmit: forcedly print send-rate in mbps
+
+ -- Justin Kim <jeongseok.kim@sk.com>  Mon, 14 Sep 2020 12:41:12 +0000
+
 gaeguli (0.10.2-0h8l1) unstable; urgency=medium
 
   * meson.build: bump up version to 0.10.2
