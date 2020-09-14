@@ -162,6 +162,7 @@ struct _GaeguliFifoTransmit
   gsize buf_len;
 
   GVariantDict *stats;
+  guint stats_timeout_id;
 };
 
 /* *INDENT-OFF* */
@@ -214,9 +215,14 @@ gaeguli_fifo_transmit_dispose (GObject * object)
 
   g_clear_pointer (&self->fifo_dir, g_free);
   g_clear_pointer (&self->fifo_path, g_free);
+  if (self->stats_timeout_id != 0) {
+    g_source_remove (self->stats_timeout_id);
+    self->stats_timeout_id = 0;
+  }
   g_clear_pointer (&self->stats, g_variant_dict_unref);
 
   g_clear_object (&self->cancellable);
+
 
   G_OBJECT_CLASS (gaeguli_fifo_transmit_parent_class)->dispose (object);
 }
@@ -245,6 +251,19 @@ gaeguli_fifo_transmit_class_init (GaeguliFifoTransmitClass * klass)
   object_class->finalize = gaeguli_fifo_transmit_finalize;
 }
 
+gboolean
+_stats_print_timeout (gpointer user_data)
+{
+  GaeguliFifoTransmit *self = user_data;
+  g_autoptr (GVariant) variant =
+      g_variant_dict_lookup_value (self->stats, "send-rate-mbps",
+      G_VARIANT_TYPE_DOUBLE);
+
+  g_info ("sent-rate: %.4f Mbps", g_variant_get_double (variant));
+
+  return G_SOURCE_CONTINUE;
+}
+
 static void
 gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
 {
@@ -266,12 +285,17 @@ gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
   self->stats = g_variant_dict_new (NULL);
   g_variant_dict_insert_value (self->stats, "bytes-read",
       g_variant_new_uint64 (0));
+  g_variant_dict_insert_value (self->stats, "bytes-retransmitted",
+      g_variant_new_uint64 (0));
+  g_variant_dict_insert_value (self->stats, "send-rate-mbps",
+      g_variant_new_double (0));
+
+  self->stats_timeout_id = g_timeout_add (5000, _stats_print_timeout, self);
 }
 
 GaeguliFifoTransmit *
 gaeguli_fifo_transmit_new_full (const gchar * tmpdir, const gchar * fifoname)
 {
-
   g_autoptr (GaeguliFifoTransmit) self = NULL;
   g_autofree gchar *fifo_path = NULL;
 
@@ -502,6 +526,7 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     gconstpointer buf, gsize buf_len)
 {
   gssize len = 0;
+  SRT_TRACEBSTATS stats;
 
   if (info->sock == SRT_INVALID_SOCK && !_srt_open (info)) {
     return;
@@ -538,6 +563,13 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
       g_warning ("%s", srt_getlasterror_str ());
       return;
     }
+
+    if (srt_bstats (info->sock, &stats, 0) >= 0) {
+      g_variant_dict_insert_value (self->stats, "send-rate-mbps",
+          g_variant_new_double (stats.mbpsSendRate));
+      g_variant_dict_insert_value (self->stats, "bytes-retransmitted",
+          g_variant_new_uint64 (stats.byteRetrans));
+    };
 
     len += sent;
   }
