@@ -72,6 +72,8 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
 
   g_assert_true (gst_structure_has_field (stats, "packets-sent-lost"));
   g_assert_true (gst_structure_has_field (stats, "packets-retransmitted"));
+  g_assert_true (gst_structure_has_field (stats, "send-rate-mbps"));
+  g_assert_true (gst_structure_has_field (stats, "bandwidth-mbps"));
 
   /* Check callback invocation irregularity lies within 1/5 of STATS_INTERVAL */
   if (test_adaptor->last_callback != 0) {
