@@ -28,6 +28,7 @@ GMainLoop *loop = NULL;
 /* GaeguliTestAdaptor class */
 
 #define STATS_INTERVAL_MS 10
+#define TEST_BITRATE 999888
 
 #define GAEGULI_TYPE_TEST_ADAPTOR   (gaeguli_test_adaptor_get_type ())
 
@@ -133,7 +134,25 @@ gaeguli_test_adaptor_init (GaeguliTestAdaptor * self)
 static void
 gaeguli_test_adaptor_constructed (GObject * self)
 {
+  const GstStructure *initial_params = NULL;
+  guint val;
+
   g_object_set (self, "stats-interval", STATS_INTERVAL_MS, NULL);
+
+  initial_params = gaeguli_stream_adaptor_get_initial_encoding_parameters
+      (GAEGULI_STREAM_ADAPTOR (self));
+
+  g_assert_cmpstr (gst_structure_get_name (initial_params), ==,
+      "application/x-gaeguli-encoding-parameters");
+
+  g_assert_true (gst_structure_has_field (initial_params,
+          GAEGULI_ENCODING_PARAMETER_BITRATE));
+  g_assert_true (gst_structure_get_uint (initial_params,
+          GAEGULI_ENCODING_PARAMETER_BITRATE, &val));
+  g_assert_cmpint (val, ==, TEST_BITRATE - (TEST_BITRATE % 1000));
+
+  g_assert_true (gst_structure_has_field (initial_params,
+          GAEGULI_ENCODING_PARAMETER_QUANTIZER));
 }
 
 static void
@@ -170,8 +189,9 @@ test_gaeguli_adaptor_stats ()
       GAEGULI_ENCODING_METHOD_GENERAL);
   g_object_set (pipeline, "stream-adaptor", GAEGULI_TYPE_TEST_ADAPTOR, NULL);
 
-  gaeguli_pipeline_add_srt_target (pipeline, "srt://127.0.0.1:1111",
-      NULL, &error);
+  gaeguli_pipeline_add_srt_target_full (pipeline, GAEGULI_VIDEO_CODEC_H264,
+      GAEGULI_VIDEO_RESOLUTION_640X480, 15, TEST_BITRATE,
+      "srt://127.0.0.1:1111", NULL, &error);
   g_assert_no_error (error);
 
   receiver = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER, 1111,

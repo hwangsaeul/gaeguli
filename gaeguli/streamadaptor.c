@@ -113,6 +113,20 @@ gaeguli_stream_adaptor_set_stats_interval (GaeguliStreamAdaptor * self,
   }
 }
 
+const GstStructure *
+gaeguli_stream_adaptor_get_initial_encoding_parameters (GaeguliStreamAdaptor *
+    self)
+{
+  GaeguliStreamAdaptorPrivate *priv;
+
+  g_return_val_if_fail (self != NULL, NULL);
+  g_return_val_if_fail (GAEGULI_IS_STREAM_ADAPTOR (self), NULL);
+
+  priv = gaeguli_stream_adaptor_get_instance_private (self);
+
+  return priv->initial_encoding_parameters;
+}
+
 void
 gaeguli_stream_adaptor_signal_encoding_parameters (GaeguliStreamAdaptor * self,
     const gchar * param, ...)
@@ -146,7 +160,7 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
       gaeguli_stream_adaptor_set_srtsink (self, g_value_get_object (value));
       break;
     case PROP_INITIAL_ENCODING_PARAMETERS:
-      priv->initial_encoding_parameters = g_value_get_boxed (value);
+      priv->initial_encoding_parameters = g_value_dup_boxed (value);
       break;
     case PROP_STATS_INTERVAL:
       gaeguli_stream_adaptor_set_stats_interval (self,
@@ -185,6 +199,7 @@ gaeguli_stream_adaptor_dispose (GObject * object)
       gaeguli_stream_adaptor_get_instance_private (self);
 
   gst_clear_object (&priv->srtsink);
+  gst_clear_structure (&priv->initial_encoding_parameters);
   g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
 
   G_OBJECT_CLASS (gaeguli_stream_adaptor_parent_class)->dispose (object);
