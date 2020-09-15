@@ -407,8 +407,33 @@ _bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
 static GstStructure *
 _get_encoding_parameters (GstElement * encoder)
 {
-  // TODO
-  return gst_structure_new_empty ("application/x-gaeguli-encoding-parameters");
+  g_autoptr (GstStructure) params =
+      gst_structure_new_empty ("application/x-gaeguli-encoding-parameters");
+
+  const gchar *encoder_type =
+      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
+
+  if (g_str_equal (encoder_type, "x264enc")) {
+    guint bitrate = 0;
+    guint quantizer = 0;
+
+    g_object_get (encoder, "bitrate", &bitrate, "quantizer", &quantizer, NULL);
+
+    gst_structure_set (params,
+        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, bitrate * 1000,
+        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, quantizer, NULL);
+  } else if (g_str_equal (encoder_type, "x265enc")) {
+    guint bitrate = 0;
+
+    g_object_get (encoder, "bitrate", &bitrate, NULL);
+
+    gst_structure_set (params,
+        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, bitrate * 1000, NULL);
+  } else {
+    g_warning ("Unsupported encoder '%s'", encoder_type);
+  }
+
+  return g_steal_pointer (&params);
 }
 
 static GaeguliTarget *

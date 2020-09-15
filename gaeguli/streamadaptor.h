@@ -44,6 +44,9 @@ struct _GaeguliStreamAdaptorClass
                                           GstStructure * stats);
 };
 
+const GstStructure *    gaeguli_stream_adaptor_get_initial_encoding_parameters
+                                                (GaeguliStreamAdaptor       *self);
+
 void                    gaeguli_stream_adaptor_signal_encoding_parameters
                                                 (GaeguliStreamAdaptor       *self,
                                                  const gchar                *param,
