@@ -28,7 +28,9 @@ GMainLoop *loop = NULL;
 /* GaeguliTestAdaptor class */
 
 #define STATS_INTERVAL_MS 10
-#define TEST_BITRATE 999888
+#define TEST_BITRATE1 12345678
+#define TEST_BITRATE2 999888
+#define TEST_QUANTIZATION 37
 
 #define GAEGULI_TYPE_TEST_ADAPTOR   (gaeguli_test_adaptor_get_type ())
 
@@ -85,11 +87,27 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
   test_adaptor->last_callback = now;
 
   if (--test_adaptor->callbacks_left == 0) {
+    g_autoptr (GstElement) srtsink = NULL;
+    g_autoptr (GstElement) encoder = NULL;
+    guint bitrate, quantizer;
+
     g_debug ("Invoking change of encoding parameters");
 
     gaeguli_stream_adaptor_signal_encoding_parameters (self,
-        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, 12345678,
-        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, 37, NULL);
+        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, TEST_BITRATE1,
+        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, TEST_QUANTIZATION,
+        NULL);
+
+    g_object_get (self, "srtsink", &srtsink, NULL);
+
+    encoder = gst_bin_get_by_name (GST_BIN (GST_ELEMENT_PARENT (srtsink)),
+        "enc");
+    g_assert_nonnull (encoder);
+
+    g_object_get (encoder, "bitrate", &bitrate, "quantizer", &quantizer, NULL);
+    /* x264enc takes bitrate in kbps */
+    g_assert_cmpint (bitrate, ==, TEST_BITRATE1 / 1000);
+    g_assert_cmpint (quantizer, ==, TEST_QUANTIZATION);
   }
 }
 
@@ -108,13 +126,13 @@ _on_encoding_parameters (GaeguliTestAdaptor * adaptor, GstStructure * params,
           GAEGULI_ENCODING_PARAMETER_BITRATE));
   g_assert_true (gst_structure_get_uint (params,
           GAEGULI_ENCODING_PARAMETER_BITRATE, &val));
-  g_assert_cmpint (val, ==, 12345678);
+  g_assert_cmpint (val, ==, TEST_BITRATE1);
 
   g_assert_true (gst_structure_has_field (params,
           GAEGULI_ENCODING_PARAMETER_QUANTIZER));
   g_assert_true (gst_structure_get_uint (params,
           GAEGULI_ENCODING_PARAMETER_QUANTIZER, &val));
-  g_assert_cmpint (val, ==, 37);
+  g_assert_cmpint (val, ==, TEST_QUANTIZATION);
 
   g_debug ("Stopping the main loop");
   g_main_loop_quit (loop);
@@ -147,7 +165,7 @@ gaeguli_test_adaptor_constructed (GObject * self)
           GAEGULI_ENCODING_PARAMETER_BITRATE));
   g_assert_true (gst_structure_get_uint (initial_params,
           GAEGULI_ENCODING_PARAMETER_BITRATE, &val));
-  g_assert_cmpint (val, ==, TEST_BITRATE - (TEST_BITRATE % 1000));
+  g_assert_cmpint (val, ==, TEST_BITRATE2 - (TEST_BITRATE2 % 1000));
 
   g_assert_true (gst_structure_has_field (initial_params,
           GAEGULI_ENCODING_PARAMETER_QUANTIZER));
@@ -188,7 +206,7 @@ test_gaeguli_adaptor_stats ()
   g_object_set (pipeline, "stream-adaptor", GAEGULI_TYPE_TEST_ADAPTOR, NULL);
 
   gaeguli_pipeline_add_srt_target_full (pipeline, GAEGULI_VIDEO_CODEC_H264,
-      GAEGULI_VIDEO_RESOLUTION_640X480, 15, TEST_BITRATE,
+      GAEGULI_VIDEO_RESOLUTION_640X480, 15, TEST_BITRATE2,
       "srt://127.0.0.1:1111", NULL, &error);
   g_assert_no_error (error);
 

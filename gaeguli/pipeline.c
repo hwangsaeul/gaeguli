@@ -436,6 +436,40 @@ _get_encoding_parameters (GstElement * encoder)
   return g_steal_pointer (&params);
 }
 
+static void
+_set_encoding_parameters (GstElement * encoder, GstStructure * params)
+{
+  guint val;
+  g_autofree gchar *params_str = NULL;
+
+  const gchar *encoder_type =
+      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
+
+  params_str = gst_structure_to_string (params);
+  g_debug ("Changing encoding parameters to %s", params_str);
+
+  if (g_str_equal (encoder_type, "x264enc")) {
+    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
+            &val)) {
+      g_object_set (encoder, "bitrate", val / 1000, NULL);
+    }
+
+    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
+            &val)) {
+      gst_element_set_state (encoder, GST_STATE_READY);
+      g_object_set (encoder, "quantizer", val, NULL);
+      gst_element_set_state (encoder, GST_STATE_PLAYING);
+    }
+  } else if (g_str_equal (encoder_type, "x265enc")) {
+    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
+            &val)) {
+      g_object_set (encoder, "bitrate", val / 1000, NULL);
+    }
+  } else {
+    g_warning ("Unsupported encoder '%s'", encoder_type);
+  }
+}
+
 static GaeguliTarget *
 _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
     guint bitrate, guint idr_period, const gchar * srt_uri,
@@ -491,6 +525,9 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
 
   target->adaptor = g_object_new (adaptor_type, "srtsink", target->srtsink,
       "initial-encoding-parameters", _get_encoding_parameters (encoder), NULL);
+
+  g_signal_connect_swapped (target->adaptor, "encoding-parameters",
+      (GCallback) _set_encoding_parameters, encoder);
 
   /* Setting READY state on srtsink check that we can bind to address and port
    * specified in srt_uri. On failure, bus handler should set internal_err. */
