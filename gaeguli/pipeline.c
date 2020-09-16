@@ -58,8 +58,6 @@ struct _GaeguliPipeline
   GstElement *overlay;
   gboolean show_overlay;
 
-  guint stop_pipeline_event_id;
-
   GType adaptor_type;
 };
 
@@ -651,6 +649,15 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
 
         gst_structure_get_uint (structure, "target-id", &target_id);
         g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0, target_id);
+
+        g_mutex_lock (&self->lock);
+        if (g_hash_table_size (self->targets) == 0 &&
+            --self->pending_target_removals == 0) {
+          g_mutex_unlock (&self->lock);
+          gaeguli_pipeline_stop (self);
+          g_mutex_lock (&self->lock);
+        }
+        g_mutex_unlock (&self->lock);
       }
       break;
     }
@@ -785,14 +792,6 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
 }
 
 static gboolean
-_stop_pipeline (GaeguliPipeline * self)
-{
-  gaeguli_pipeline_stop (self);
-
-  return G_SOURCE_REMOVE;
-}
-
-static gboolean
 _set_state_null (GstElement * element)
 {
   g_return_val_if_fail (element != NULL, G_SOURCE_REMOVE);
@@ -852,7 +851,6 @@ _unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   GaeguliTarget *target = user_data;
   g_autoptr (GstElement) topmost_pipeline = NULL;
   g_autoptr (GstPad) ghost_srcpad = NULL;
-  g_autoptr (GaeguliPipeline) self = NULL;
 
   /* Remove the probe first. See _link_probe_cb() for details. */
   gst_pad_remove_probe (pad, info->id);
@@ -888,21 +886,6 @@ _unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
           gst_structure_new ("gaeguli-pipeline-stream-stopped",
               "target-id", G_TYPE_UINT, target->id, NULL)));
 
-  self = g_weak_ref_get (&target->gaeguli_pipeline);
-  if (self) {
-    g_mutex_lock (&self->lock);
-
-    if (g_hash_table_size (self->targets) == 0 &&
-        --self->pending_target_removals == 0 &&
-        self->stop_pipeline_event_id == 0) {
-      self->stop_pipeline_event_id = g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
-          (GSourceFunc) _stop_pipeline,
-          gst_object_ref (self), gst_object_unref);
-    }
-
-    g_mutex_unlock (&self->lock);
-  }
-
   return GST_PAD_PROBE_REMOVE;
 }
 
@@ -919,12 +902,6 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
 
   g_mutex_lock (&self->lock);
-
-  /* Halt vsrc pipeline removal if planned. */
-  if (self->stop_pipeline_event_id != 0) {
-    g_source_remove (self->stop_pipeline_event_id);
-    self->stop_pipeline_event_id = 0;
-  }
 
   /* assume that it's first target */
   if (self->vsrc == NULL && !_build_vsrc_pipeline (self, error)) {
@@ -1094,11 +1071,6 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
   }
 
   g_mutex_lock (&self->lock);
-
-  if (self->stop_pipeline_event_id) {
-    g_source_remove (self->stop_pipeline_event_id);
-    self->stop_pipeline_event_id = 0;
-  }
 
   g_clear_pointer (&self->vsrc, gst_object_unref);
   g_clear_pointer (&self->overlay, gst_object_unref);
