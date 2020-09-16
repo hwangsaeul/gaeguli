@@ -46,7 +46,7 @@
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
-        omxh264enc insert-sps-pps=true control-rate=1 bitrate=%d iframeinterval=%d ! queue "
+        omxh264enc insert-sps-pps=true control-rate=2 bitrate=%d iframeinterval=%d ! queue "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
