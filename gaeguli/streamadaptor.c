@@ -180,6 +180,9 @@ gaeguli_stream_adaptor_get_property (GObject * object, guint property_id,
       gaeguli_stream_adaptor_get_instance_private (self);
 
   switch (property_id) {
+    case PROP_SRTSINK:
+      g_value_set_object (value, priv->srtsink);
+      break;
     case PROP_INITIAL_ENCODING_PARAMETERS:
       g_value_set_boxed (value, priv->initial_encoding_parameters);
       break;
@@ -217,7 +220,7 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
   g_object_class_install_property (gobject_class, PROP_SRTSINK,
       g_param_spec_object ("srtsink", "SRT sink",
           "SRT sink", GST_TYPE_ELEMENT,
-          G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class,
       PROP_INITIAL_ENCODING_PARAMETERS,
