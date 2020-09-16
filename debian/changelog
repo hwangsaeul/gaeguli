@@ -1,3 +1,12 @@
+gaeguli (0.10.4-0h8l0) unstable; urgency=medium
+
+  [ J. Kim ]
+  * gaeguli-internal: fix IDR property name for old L4T
+  * gaeguli-internal: remove unsupported property of old L4T
+  * gaeguli-internal: convert VBR to CBR for old L4T
+
+ -- Justin Kim <jeongseok.kim@sk.com>  Wed, 16 Sep 2020 10:18:21 +0000
+
 gaeguli (0.10.3-0h8l0) unstable; urgency=medium
 
   [ J. Kim ]
