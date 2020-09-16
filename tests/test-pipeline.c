@@ -317,7 +317,7 @@ receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
   ++data->receiver1_buffer_cnt;
 
   if (data->receiver1_buffer_cnt == 1) {
-    data->watchdog_id = g_timeout_add (100, (GSourceFunc) receiver_watchdog_cb,
+    data->watchdog_id = g_timeout_add (150, (GSourceFunc) receiver_watchdog_cb,
         data);
   } else if (data->receiver1_buffer_cnt == 100) {
     guint target_id;
