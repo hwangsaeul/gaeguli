@@ -16,6 +16,7 @@ source_c = [
   'pipeline.c',
   'streamadaptor.c',
   'adaptors/nulladaptor.c',
+  'adaptors/bandwidthadaptor.c',
 ]
 
 install_headers(source_h, subdir: gaeguli_install_header_subdir)
