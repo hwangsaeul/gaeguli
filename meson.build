@@ -1,7 +1,7 @@
 project('gaeguli', 'c',
   version: '1.99.0',
   license: 'Apache-2.0',
-  meson_version: '>= 0.46',
+  meson_version: '>= 0.48.2',
   default_options: [ 'warning_level=1',
                      'buildtype=debugoptimized',
                      'c_std=gnu89',
@@ -99,8 +99,6 @@ subdir('tests')
 subdir('tools')
 subdir('doc')
 
-if meson.version().version_compare('>= 0.46.0')
-  python3 = import('python').find_installation()
-  run_command(python3, '-c',
-    'import shutil; shutil.copy("hooks/pre-commit.hook", ".git/hooks/pre-commit")')
-endif
+python3 = import('python').find_installation()
+run_command(python3, '-c',
+  'import shutil; shutil.copy("hooks/pre-commit.hook", ".git/hooks/pre-commit")')
