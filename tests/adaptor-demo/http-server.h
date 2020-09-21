@@ -15,31 +15,20 @@
  *  limitations under the License.
  */
 
-#include <glib-unix.h>
+#ifndef __GAEGULI_HTTP_SERVER_H__
+#define __GAEGULI_HTTP_SERVER_H__
 
-#include "adaptor-demo.h"
+#include <glib-object.h>
 
-static gboolean
-sigint_handler (gpointer user_data)
-{
-  g_main_loop_quit (user_data);
-  return G_SOURCE_REMOVE;
-}
+#define GAEGULI_TYPE_HTTP_SERVER gaeguli_http_server_get_type()
 
-int
-main (int argc, char *argv[])
-{
-  g_autoptr (GMainLoop) loop = g_main_loop_new (NULL, FALSE);
-  g_autoptr (GaeguliAdaptorDemo) app = gaeguli_adaptor_demo_new ();
+G_DECLARE_FINAL_TYPE (GaeguliHttpServer, gaeguli_http_server, GAEGULI,
+    HTTP_SERVER, GObject)
 
-  g_unix_signal_add (SIGINT, sigint_handler, loop);
+GaeguliHttpServer *
+gaeguli_http_server_new ();
 
-  {
-    g_autofree gchar *http_uri = gaeguli_adaptor_demo_get_control_uri (app);
-    g_print ("Control panel URI: %s\n", http_uri);
-  }
+gchar *
+gaeguli_http_server_get_uri (GaeguliHttpServer * self);
 
-  g_main_loop_run (loop);
-
-  return 0;
-}
+#endif /* __GAEGULI_HTTP_SERVER_H__ */
