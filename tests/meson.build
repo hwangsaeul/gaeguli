@@ -1,4 +1,5 @@
 subdir('common')
+subdir('adaptor-demo')
 
 tests = [
   'test-pipeline',
