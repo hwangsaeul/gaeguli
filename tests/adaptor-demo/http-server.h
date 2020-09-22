@@ -31,4 +31,16 @@ gaeguli_http_server_new ();
 gchar *
 gaeguli_http_server_get_uri (GaeguliHttpServer * self);
 
+void
+gaeguli_http_server_send_property (GaeguliHttpServer * self, const gchar * name,
+    GValue * value);
+
+void
+gaeguli_http_server_send_property_string (GaeguliHttpServer * self,
+    const gchar * name, const gchar * value);
+
+void
+gaeguli_http_server_send_property_uint (GaeguliHttpServer * self,
+    const gchar * name, guint value);
+
 #endif /* __GAEGULI_HTTP_SERVER_H__ */

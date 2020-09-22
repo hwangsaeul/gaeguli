@@ -171,12 +171,85 @@ gaeguli_http_server_get_uri (GaeguliHttpServer * self)
 }
 
 static void
+gaeguli_http_server_send_to_clients (GaeguliHttpServer * self, JsonNode * msg)
+{
+  g_autofree gchar *msg_str = json_to_string (msg, TRUE);
+  GSList *it;
+
+
+  for (it = self->websocket_connections; it; it = it->next) {
+    SoupWebsocketConnection *connection = it->data;
+    SoupWebsocketState socket_state;
+
+    socket_state = soup_websocket_connection_get_state (connection);
+
+    if (socket_state == SOUP_WEBSOCKET_STATE_OPEN) {
+      soup_websocket_connection_send_text (connection, msg_str);
+    } else {
+      g_printerr ("Trying to send message using websocket that isn't open.\n");
+    }
+  }
+}
+
+void
+gaeguli_http_server_send_property_string (GaeguliHttpServer * self,
+    const gchar * name, const gchar * value)
+{
+  GValue val = G_VALUE_INIT;
+
+  g_value_init (&val, G_TYPE_STRING);
+  g_value_set_string (&val, value);
+  gaeguli_http_server_send_property (self, name, &val);
+  g_value_unset (&val);
+}
+
+void
+gaeguli_http_server_send_property_uint (GaeguliHttpServer * self,
+    const gchar * name, guint value)
+{
+  GValue val = G_VALUE_INIT;
+
+  g_value_init (&val, G_TYPE_UINT);
+  g_value_set_uint (&val, value);
+  gaeguli_http_server_send_property (self, name, &val);
+  g_value_unset (&val);
+}
+
+void
+gaeguli_http_server_send_property (GaeguliHttpServer * self, const gchar * name,
+    GValue * value)
+{
+  g_autoptr (JsonBuilder) builder = json_builder_new ();
+  g_autoptr (JsonNode) root = NULL;
+
+  json_builder_begin_object (builder);
+  json_builder_set_member_name (builder, "msg");
+  json_builder_add_string_value (builder, "property");
+
+  json_builder_set_member_name (builder, "name");
+  json_builder_add_string_value (builder, name);
+
+  json_builder_set_member_name (builder, "value");
+  if (G_VALUE_HOLDS_STRING (value)) {
+    json_builder_add_string_value (builder, g_value_get_string (value));
+  } else if (G_VALUE_HOLDS_UINT (value)) {
+    json_builder_add_int_value (builder, g_value_get_uint (value));
+  }
+
+  json_builder_end_object (builder);
+
+  root = json_builder_get_root (builder);
+
+  gaeguli_http_server_send_to_clients (self, root);
+}
+
+static void
 gaeguli_http_server_init (GaeguliHttpServer * self)
 {
   g_autoptr (GResolver) resolver = g_resolver_get_default ();
   g_autoptr (GSocketAddress) address = NULL;
   g_autoptr (GError) error = NULL;
-  g_autolist (GSocketAddress) addresses = NULL;
+  g_autolist (GInetAddress) addresses = NULL;
 
   self->soup_server = soup_server_new (NULL, NULL);
 
