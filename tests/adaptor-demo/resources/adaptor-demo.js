@@ -2,6 +2,7 @@
 
 class Client {
   constructor() {
+    this.onproperty = undefined
     this.onopen = undefined
     this.onerror = undefined
     this.__ws = undefined
@@ -24,11 +25,8 @@ class Client {
       var msg = JSON.parse(message.data)
 
       switch (msg.msg) {
-        case 'offer':
-          this.onoffer(msg)
-          break
-        case 'candidate':
-          this.oncandidate(msg.candidate)
+        case 'property':
+          this.onproperty(msg)
           break
       }
     }
@@ -68,6 +66,9 @@ export class AdaptorDemo {
     }
 
     this.__signaling = new Client()
+    this.__signaling.onproperty = msg => {
+      document.getElementById(msg.name).innerText = msg.value
+    }
     this.__signaling.connect()
   }
 }
