@@ -88,6 +88,7 @@ gaeguli_target_free (GaeguliTarget * target)
 
 static const gchar *const supported_formats[] = {
   "video/x-raw",
+  "video/x-raw(memory:GLMemory)",
   "video/x-raw(memory:NVMM)",
   "image/jpeg",
   NULL
