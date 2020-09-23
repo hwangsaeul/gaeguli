@@ -528,6 +528,8 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
   g_signal_connect_swapped (target->adaptor, "encoding-parameters",
       (GCallback) _set_encoding_parameters, encoder);
 
+  gaeguli_stream_adaptor_start (target->adaptor);
+
   /* Setting READY state on srtsink check that we can bind to address and port
    * specified in srt_uri. On failure, bus handler should set internal_err. */
   res = gst_element_set_state (target->srtsink, GST_STATE_READY);
