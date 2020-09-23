@@ -24,6 +24,7 @@
 #include <gaeguli/types.h>
 #include <gaeguli/enumtypes.h>
 #include <gaeguli/pipeline.h>
+#include <gaeguli/target.h>
 #include <gaeguli/streamadaptor.h>
 
 #endif // __GAEGULI_H__

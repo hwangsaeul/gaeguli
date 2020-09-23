@@ -1,0 +1,80 @@
+/**
+ *  Copyright 2019-2020 SK Telecom Co., Ltd.
+ *    Author: Jeongseok Kim <jeongseok.kim@sk.com>
+ *            Jakub Adam <jakub.adam@collabora.com>
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ */
+
+#ifndef __GAEGULI_TARGET_H__
+#define __GAEGULI_TARGET_H__
+
+#if !defined(__GAEGULI_INSIDE__) && !defined(GAEGULI_COMPILATION)
+#error "Only <gaeguli/gaeguli.h> can be included directly."
+#endif
+
+#include <gst/gst.h>
+#include <gaeguli/types.h>
+
+typedef struct _GaeguliPipeline GaeguliPipeline;
+
+/**
+ * SECTION: target
+ * @Title: GaeguliTarget
+ * @Short_description: A SRT stream source
+ *
+ * A #GaeguliTarget represents an encoded video stream available on a defined
+ * UDP port for consumption by clients connecting using SRT protocol.
+ */
+
+G_BEGIN_DECLS
+
+#define GAEGULI_TYPE_TARGET   (gaeguli_target_get_type ())
+G_DECLARE_FINAL_TYPE          (GaeguliTarget, gaeguli_target, GAEGULI, TARGET, GObject)
+
+struct _GaeguliTarget
+{
+  GObject parent;
+
+  guint id;
+  GstElement *pipeline;
+};
+
+
+GaeguliTarget          *gaeguli_target_new           (GaeguliPipeline       *owner,
+                                                      guint                  id,
+                                                      GaeguliVideoCodec      codec,
+                                                      guint                  bitrate,
+                                                      guint                  idr_period,
+                                                      const gchar           *srt_uri,
+                                                      const gchar           *username,
+                                                      GError               **error);
+
+void                    gaeguli_target_link_with_pad (GaeguliTarget        *self,
+                                                      GstPad               *pad);
+
+void                    gaeguli_target_unlink        (GaeguliTarget        *self);
+
+/**
+ * gaeguli_pipeline_target_get_bytes_sent:
+ * @self: a #GaeguliPipeline object
+ * @target_id: a SRT target as returned by #gaeguli_pipeline_add_srt_target
+ *
+ * Returns: the number of bytes sent over the given SRT target
+ */
+guint64                 gaeguli_target_get_bytes_sent (GaeguliTarget       *self);
+
+G_END_DECLS
+
+#endif // __GAEGULI_TARGET_H__

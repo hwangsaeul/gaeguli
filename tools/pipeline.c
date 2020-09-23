@@ -13,7 +13,7 @@
 #include <gst/gst.h>
 
 static guint signal_watch_intr_id;
-static guint target_id;
+static GaeguliTarget *target;
 
 static struct
 {
@@ -33,7 +33,7 @@ activate (GApplication * app, gpointer user_data)
   g_application_hold (app);
 
   g_print ("Streaming to %s\n", options.uri);
-  target_id = gaeguli_pipeline_add_srt_target (pipeline, options.uri,
+  target = gaeguli_pipeline_add_srt_target (pipeline, options.uri,
       options.username, &error);
 }
 
@@ -43,7 +43,7 @@ intr_handler (gpointer user_data)
   GaeguliPipeline *pipeline = user_data;
   g_autoptr (GError) error = NULL;
 
-  gaeguli_pipeline_remove_target (pipeline, target_id, &error);
+  gaeguli_pipeline_remove_target (pipeline, target, &error);
 
   g_debug ("target removed");
 
