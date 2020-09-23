@@ -30,7 +30,7 @@ G_DECLARE_FINAL_TYPE (GaeguliBandwidthStreamAdaptor, gaeguli_bandwidth_stream_ad
 /**
  * gaeguli_bandwidth_stream_adaptor_new:
  * @srtsink: a #GstSrtSink element to collect data from
- * @initial_encoding_params: initial encoding parameters
+ * @baseline_parameters: baseline encoding parameters
  *
  * Creates a stream adaptor that adjusts stream bitrate to the measured
  * bandwidth of the network connection.
@@ -39,7 +39,7 @@ G_DECLARE_FINAL_TYPE (GaeguliBandwidthStreamAdaptor, gaeguli_bandwidth_stream_ad
  */
 GaeguliStreamAdaptor     *gaeguli_bandwidth_stream_adaptor_new
                                                 (GstElement            *srtsink,
-                                                 GstStructure          *initial_encoding_params);
+                                                 GstStructure          *baseline_parameters);
 
 G_END_DECLS
 

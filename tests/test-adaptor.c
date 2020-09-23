@@ -153,24 +153,24 @@ gaeguli_test_adaptor_init (GaeguliTestAdaptor * self)
 static void
 gaeguli_test_adaptor_constructed (GObject * self)
 {
-  const GstStructure *initial_params = NULL;
+  const GstStructure *baseline_params = NULL;
   guint val;
 
   g_object_set (self, "stats-interval", STATS_INTERVAL_MS, NULL);
 
-  initial_params = gaeguli_stream_adaptor_get_initial_encoding_parameters
+  baseline_params = gaeguli_stream_adaptor_get_baseline_parameters
       (GAEGULI_STREAM_ADAPTOR (self));
 
-  g_assert_cmpstr (gst_structure_get_name (initial_params), ==,
+  g_assert_cmpstr (gst_structure_get_name (baseline_params), ==,
       "application/x-gaeguli-encoding-parameters");
 
-  g_assert_true (gst_structure_has_field (initial_params,
+  g_assert_true (gst_structure_has_field (baseline_params,
           GAEGULI_ENCODING_PARAMETER_BITRATE));
-  g_assert_true (gst_structure_get_uint (initial_params,
+  g_assert_true (gst_structure_get_uint (baseline_params,
           GAEGULI_ENCODING_PARAMETER_BITRATE, &val));
   g_assert_cmpint (val, ==, TEST_BITRATE2 - (TEST_BITRATE2 % 1000));
 
-  g_assert_true (gst_structure_has_field (initial_params,
+  g_assert_true (gst_structure_has_field (baseline_params,
           GAEGULI_ENCODING_PARAMETER_QUANTIZER));
 }
 

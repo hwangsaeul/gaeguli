@@ -23,7 +23,7 @@
 typedef struct
 {
   GstElement *srtsink;
-  GstStructure *initial_encoding_parameters;
+  GstStructure *baseline_parameters;
   guint stats_interval;
   guint stats_timeout_id;
 } GaeguliStreamAdaptorPrivate;
@@ -36,7 +36,7 @@ G_DEFINE_TYPE_WITH_PRIVATE (GaeguliStreamAdaptor, gaeguli_stream_adaptor,
 enum
 {
   PROP_SRTSINK = 1,
-  PROP_INITIAL_ENCODING_PARAMETERS,
+  PROP_BASELINE_PARAMETERS,
   PROP_STATS_INTERVAL,
   PROP_LAST
 };
@@ -114,8 +114,7 @@ gaeguli_stream_adaptor_set_stats_interval (GaeguliStreamAdaptor * self,
 }
 
 const GstStructure *
-gaeguli_stream_adaptor_get_initial_encoding_parameters (GaeguliStreamAdaptor *
-    self)
+gaeguli_stream_adaptor_get_baseline_parameters (GaeguliStreamAdaptor * self)
 {
   GaeguliStreamAdaptorPrivate *priv;
 
@@ -124,7 +123,7 @@ gaeguli_stream_adaptor_get_initial_encoding_parameters (GaeguliStreamAdaptor *
 
   priv = gaeguli_stream_adaptor_get_instance_private (self);
 
-  return priv->initial_encoding_parameters;
+  return priv->baseline_parameters;
 }
 
 void
@@ -159,8 +158,8 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
     case PROP_SRTSINK:
       gaeguli_stream_adaptor_set_srtsink (self, g_value_get_object (value));
       break;
-    case PROP_INITIAL_ENCODING_PARAMETERS:
-      priv->initial_encoding_parameters = g_value_dup_boxed (value);
+    case PROP_BASELINE_PARAMETERS:
+      priv->baseline_parameters = g_value_dup_boxed (value);
       break;
     case PROP_STATS_INTERVAL:
       gaeguli_stream_adaptor_set_stats_interval (self,
@@ -183,8 +182,8 @@ gaeguli_stream_adaptor_get_property (GObject * object, guint property_id,
     case PROP_SRTSINK:
       g_value_set_object (value, priv->srtsink);
       break;
-    case PROP_INITIAL_ENCODING_PARAMETERS:
-      g_value_set_boxed (value, priv->initial_encoding_parameters);
+    case PROP_BASELINE_PARAMETERS:
+      g_value_set_boxed (value, priv->baseline_parameters);
       break;
     case PROP_STATS_INTERVAL:
       g_value_set_uint (value, priv->stats_interval);
@@ -202,7 +201,7 @@ gaeguli_stream_adaptor_dispose (GObject * object)
       gaeguli_stream_adaptor_get_instance_private (self);
 
   gst_clear_object (&priv->srtsink);
-  gst_clear_structure (&priv->initial_encoding_parameters);
+  gst_clear_structure (&priv->baseline_parameters);
   g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
 
   G_OBJECT_CLASS (gaeguli_stream_adaptor_parent_class)->dispose (object);
@@ -222,11 +221,10 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
           "SRT sink", GST_TYPE_ELEMENT,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 
-  g_object_class_install_property (gobject_class,
-      PROP_INITIAL_ENCODING_PARAMETERS,
-      g_param_spec_boxed ("initial-encoding-parameters",
-          "Initial encoding parameters", "Initial encoding parameters",
-          GST_TYPE_STRUCTURE,
+  g_object_class_install_property (gobject_class, PROP_BASELINE_PARAMETERS,
+      g_param_spec_boxed ("baseline-parameters",
+          "Baseline encoding parameters", "Baseline encoding parameters the "
+          "adaptor derives its proposed modifications from", GST_TYPE_STRUCTURE,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_STATS_INTERVAL,
