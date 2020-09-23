@@ -126,6 +126,15 @@ gaeguli_stream_adaptor_get_baseline_parameters (GaeguliStreamAdaptor * self)
   return priv->baseline_parameters;
 }
 
+gboolean
+gaeguli_stream_adaptor_get_baseline_parameter_uint (GaeguliStreamAdaptor * self,
+    const gchar * name, guint * value)
+{
+  const GstStructure *s = gaeguli_stream_adaptor_get_baseline_parameters (self);
+
+  return gst_structure_get_uint (s, name, value);
+}
+
 void
 gaeguli_stream_adaptor_signal_encoding_parameters (GaeguliStreamAdaptor * self,
     const gchar * param, ...)
