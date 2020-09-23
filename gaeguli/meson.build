@@ -6,12 +6,14 @@ configure_file(output: 'config.h', configuration: cdata)
 
 source_h = [
   'gaeguli.h',
+  'target.h',
   'types.h',
   'pipeline.h',
   'streamadaptor.h',
 ]
 
 source_c = [
+  'target.c',
   'types.c',
   'pipeline.c',
   'streamadaptor.c',

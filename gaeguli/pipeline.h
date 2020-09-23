@@ -27,6 +27,8 @@
 #include <glib-object.h>
 #include <gaeguli/types.h>
 
+typedef struct _GaeguliTarget GaeguliTarget;
+
 /**
  * SECTION: pipeline
  * @Title: GaeguliPipeline
@@ -73,9 +75,10 @@ GaeguliPipeline        *gaeguli_pipeline_new_full
  *
  * Adds a SRT target to the pipeline.
  *
- * Returns: an identifier for the SRT connection known as target_id
+ * Returns: A #GageuliTarget. The object is owned by #GaeguliPipeline.
+ * You should g_object_ref() it to keep the reference.
  */
-guint                   gaeguli_pipeline_add_srt_target
+GaeguliTarget          *gaeguli_pipeline_add_srt_target
                                                 (GaeguliPipeline       *self,
                                                  const gchar           *uri,
                                                  const gchar           *username,
@@ -94,9 +97,10 @@ guint                   gaeguli_pipeline_add_srt_target
  *
  * Adds a SRT target to the pipeline using specific parameters.
  *
- * Returns: an identifier for the SRT connection known as target_id
+ * Returns: A #GageuliTarget. The object is owned by #GaeguliPipeline.
+ * You should g_object_ref() it to keep the reference.
  */
-guint                   gaeguli_pipeline_add_srt_target_full
+GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
                                                 (GaeguliPipeline       *self,
                                                  GaeguliVideoCodec      codec,
                                                  GaeguliVideoResolution resolution,
@@ -107,20 +111,9 @@ guint                   gaeguli_pipeline_add_srt_target_full
                                                  GError               **error);
 
 /**
- * gaeguli_pipeline_target_get_bytes_sent:
- * @self: a #GaeguliPipeline object
- * @target_id: a SRT target as returned by #gaeguli_pipeline_add_srt_target
- *
- * Returns: the number of bytes sent over the given SRT target
- */
-guint64                 gaeguli_pipeline_target_get_bytes_sent
-                                                (GaeguliPipeline       *self,
-                                                 guint                  target_id);
-
-/**
  * gaeguli_pipeline_remove_target:
  * @self: a #GaeguliPipeline object
- * @target_id: identifier as returned by #gaeguli_pipeline_add_srt_target
+ * @target: the #GaeguliTarget to remove
  * @error: a #GError
  *
  * Removes a specific SRT target.
@@ -129,7 +122,7 @@ guint64                 gaeguli_pipeline_target_get_bytes_sent
  */
 GaeguliReturn           gaeguli_pipeline_remove_target
                                                 (GaeguliPipeline       *self,
-                                                 guint                  target_id,
+                                                 GaeguliTarget         *target,
                                                  GError               **error);
 
 /**

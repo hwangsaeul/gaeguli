@@ -19,16 +19,8 @@
 
 #include "config.h"
 
-#include "pipeline.h"
-
-#include "types.h"
-#include "enumtypes.h"
 #include "gaeguli-internal.h"
 #include "adaptors/nulladaptor.h"
-
-#include <unistd.h>
-
-#include <gst/gst.h>
 
 /* *INDENT-OFF* */
 #if !GLIB_CHECK_VERSION(2,57,1)
@@ -50,7 +42,7 @@ struct _GaeguliPipeline
   guint fps;
 
   GHashTable *targets;
-  guint pending_target_removals;
+  guint num_active_targets;
 
   GstElement *pipeline;
   GstElement *vsrc;
@@ -61,31 +53,6 @@ struct _GaeguliPipeline
   GType adaptor_type;
 };
 
-typedef struct _GaeguliTarget
-{
-  guint id;
-  GstElement *pipeline;
-  GstElement *srtsink;
-  GstPad *tee_srcpad;
-  GstPad *sinkpad;
-  gulong pending_pad_probe;
-  GWeakRef gaeguli_pipeline;
-  GaeguliStreamAdaptor *adaptor;
-} GaeguliTarget;
-
-static void
-gaeguli_target_free (GaeguliTarget * target)
-{
-  gst_clear_object (&target->pipeline);
-  gst_clear_object (&target->srtsink);
-  gst_clear_object (&target->tee_srcpad);
-  gst_clear_object (&target->sinkpad);
-
-  g_weak_ref_clear (&target->gaeguli_pipeline);
-  g_clear_object (&target->adaptor);
-  g_free (target);
-}
-
 static const gchar *const supported_formats[] = {
   "video/x-raw",
   "video/x-raw(memory:GLMemory)",
@@ -94,10 +61,6 @@ static const gchar *const supported_formats[] = {
   NULL
 };
 
-/* *INDENT-OFF* */
-G_DEFINE_AUTOPTR_CLEANUP_FUNC (GaeguliTarget, gaeguli_target_free)
-/* *INDENT-ON* */
-
 typedef enum
 {
   PROP_SOURCE = 1,
@@ -105,6 +68,7 @@ typedef enum
   PROP_ENCODING_METHOD,
   PROP_CLOCK_OVERLAY,
   PROP_STREAM_ADAPTOR,
+  PROP_GST_PIPELINE,
 
   /*< private > */
   PROP_LAST
@@ -169,6 +133,9 @@ gaeguli_pipeline_get_property (GObject * object,
       break;
     case PROP_STREAM_ADAPTOR:
       g_value_set_gtype (value, self->adaptor_type);
+      break;
+    case PROP_GST_PIPELINE:
+      g_value_set_object (value, self->pipeline);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -241,23 +208,28 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       "Type of network stream adoption the pipeline should perform",
       GAEGULI_TYPE_STREAM_ADAPTOR, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_GST_PIPELINE] =
+      g_param_spec_object ("gst-pipeline", "GStreamer pipeline",
+      "The internal GStreamer pipeline", GST_TYPE_PIPELINE,
+      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
 
   signals[SIG_STREAM_STARTED] =
       g_signal_new ("stream-started", G_TYPE_FROM_CLASS (klass),
       G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
-      NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
+      NULL, NULL, G_TYPE_NONE, 1, GAEGULI_TYPE_TARGET);
 
   signals[SIG_STREAM_STOPPED] =
       g_signal_new ("stream-stopped", G_TYPE_FROM_CLASS (klass),
       G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
-      NULL, NULL, G_TYPE_NONE, 1, G_TYPE_UINT);
+      NULL, NULL, G_TYPE_NONE, 1, GAEGULI_TYPE_TARGET);
 
   signals[SIG_CONNECTION_ERROR] =
       g_signal_new ("connection-error", G_TYPE_FROM_CLASS (klass),
       G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
-      NULL, NULL, G_TYPE_NONE, 2, G_TYPE_UINT, G_TYPE_ERROR);
+      NULL, NULL, G_TYPE_NONE, 2, GAEGULI_TYPE_TARGET, G_TYPE_ERROR);
 }
 
 
@@ -280,7 +252,7 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
 
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
-      NULL, (GDestroyNotify) gaeguli_target_free);
+      NULL, g_object_unref);
 
   self->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
@@ -316,245 +288,6 @@ gaeguli_pipeline_new (void)
       DEFAULT_VIDEO_SOURCE_DEVICE, DEFAULT_ENCODING_METHOD);
 
   return g_steal_pointer (&pipeline);
-}
-
-typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
-    guint bitrate, guint idr_period);
-
-struct encoding_method_params
-{
-  const gchar *pipeline_str;
-  GaeguliEncodingMethod encoding_method;
-  GaeguliVideoCodec codec;
-  PipelineFormatFunc format_func;
-};
-
-static gchar *
-_format_general_pipeline (const gchar * pipeline_str, guint bitrate,
-    guint idr_period)
-{
-  /* x26[4,5]enc take bitrate in kbps. */
-  return g_strdup_printf (pipeline_str, bitrate / 1000, idr_period);
-}
-
-static gchar *
-_format_tx1_pipeline (const gchar * pipeline_str, guint bitrate,
-    guint idr_period)
-{
-  return g_strdup_printf (pipeline_str, bitrate, idr_period);
-}
-
-static struct encoding_method_params enc_params[] = {
-  {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
-      GAEGULI_VIDEO_CODEC_H264, _format_general_pipeline},
-  {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
-      GAEGULI_VIDEO_CODEC_H265, _format_general_pipeline},
-  {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
-      GAEGULI_VIDEO_CODEC_H264, _format_tx1_pipeline},
-  {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
-      GAEGULI_VIDEO_CODEC_H265, _format_tx1_pipeline},
-  {NULL, 0, 0},
-};
-
-static gchar *
-_get_enc_string (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate, guint idr_period)
-{
-  struct encoding_method_params *params = enc_params;
-
-  for (; params->pipeline_str != NULL; params++) {
-    if (params->encoding_method == encoding_method && params->codec == codec)
-      return params->format_func (params->pipeline_str, bitrate, idr_period);
-  }
-
-  return NULL;
-}
-
-GstBusSyncReply
-_bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
-    gpointer user_data)
-{
-  switch (message->type) {
-    case GST_MESSAGE_ERROR:{
-      g_autoptr (GError) error = NULL;
-      g_autofree gchar *debug = NULL;
-
-      gst_message_parse_error (message, &error, &debug);
-      if (g_error_matches (error, GST_RESOURCE_ERROR,
-              GST_RESOURCE_ERROR_OPEN_WRITE)) {
-        GError **error = user_data;
-
-        g_clear_error (error);
-
-        if (g_str_has_suffix (debug, "already listening on the same port")) {
-          *error = g_error_new (GAEGULI_TRANSMIT_ERROR,
-              GAEGULI_TRANSMIT_ERROR_ADDRINUSE, "Address already in use");
-        } else {
-          *error = g_error_new (GAEGULI_TRANSMIT_ERROR,
-              GAEGULI_TRANSMIT_ERROR_FAILED, "Failed to open SRT socket");
-        }
-      }
-      break;
-    }
-    default:
-      break;
-  }
-
-  return GST_BUS_PASS;
-}
-
-static GstStructure *
-_get_encoding_parameters (GstElement * encoder)
-{
-  g_autoptr (GstStructure) params =
-      gst_structure_new_empty ("application/x-gaeguli-encoding-parameters");
-
-  const gchar *encoder_type =
-      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
-
-  if (g_str_equal (encoder_type, "x264enc")) {
-    guint bitrate = 0;
-    guint quantizer = 0;
-
-    g_object_get (encoder, "bitrate", &bitrate, "quantizer", &quantizer, NULL);
-
-    gst_structure_set (params,
-        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, bitrate * 1000,
-        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, quantizer, NULL);
-  } else if (g_str_equal (encoder_type, "x265enc")) {
-    guint bitrate = 0;
-
-    g_object_get (encoder, "bitrate", &bitrate, NULL);
-
-    gst_structure_set (params,
-        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, bitrate * 1000, NULL);
-  } else {
-    g_warning ("Unsupported encoder '%s'", encoder_type);
-  }
-
-  return g_steal_pointer (&params);
-}
-
-static void
-_set_encoding_parameters (GstElement * encoder, GstStructure * params)
-{
-  guint val;
-  g_autofree gchar *params_str = NULL;
-
-  const gchar *encoder_type =
-      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
-
-  params_str = gst_structure_to_string (params);
-  g_debug ("Changing encoding parameters to %s", params_str);
-
-  if (g_str_equal (encoder_type, "x264enc")) {
-    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
-            &val)) {
-      g_object_set (encoder, "bitrate", val / 1000, NULL);
-    }
-
-    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
-            &val)) {
-      gst_element_set_state (encoder, GST_STATE_READY);
-      g_object_set (encoder, "quantizer", val, NULL);
-      gst_element_set_state (encoder, GST_STATE_PLAYING);
-    }
-  } else if (g_str_equal (encoder_type, "x265enc")) {
-    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
-            &val)) {
-      g_object_set (encoder, "bitrate", val / 1000, NULL);
-    }
-  } else {
-    g_warning ("Unsupported encoder '%s'", encoder_type);
-  }
-}
-
-static GaeguliTarget *
-_build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
-    guint bitrate, guint idr_period, const gchar * srt_uri,
-    const gchar * username, GType adaptor_type, GError ** error)
-{
-  g_autoptr (GaeguliTarget) target = NULL;
-  g_autoptr (GstElement) enc_first = NULL;
-  g_autoptr (GstElement) encoder = NULL;
-  g_autoptr (GstBus) bus = NULL;
-  g_autoptr (GstPad) enc_sinkpad = NULL;
-  g_autofree gchar *uri_str = NULL;
-  g_autofree gchar *pipeline_str = NULL;
-  g_autoptr (GError) internal_err = NULL;
-  GstStateChangeReturn res;
-
-  pipeline_str = _get_enc_string (encoding_method, codec, bitrate, idr_period);
-  if (pipeline_str == NULL) {
-    g_set_error (error, GAEGULI_RESOURCE_ERROR,
-        GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
-        "Can not determine encoding method");
-    return NULL;
-  }
-
-  if (username) {
-    g_autoptr (GstUri) uri = gst_uri_from_string (srt_uri);
-    g_autofree gchar *streamid = g_strdup_printf ("#!::u=%s", username);
-
-    gst_uri_set_query_value (uri, "streamid", streamid);
-    srt_uri = uri_str = gst_uri_to_string (uri);
-  }
-
-  g_debug ("using encoding pipeline [%s]", pipeline_str);
-
-  pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
-      pipeline_str, srt_uri);
-
-  target = g_new0 (GaeguliTarget, 1);
-  target->pipeline = gst_parse_launch (pipeline_str, &internal_err);
-  if (internal_err) {
-    g_warning ("failed to build muxsink pipeline (%s)", internal_err->message);
-    goto failed;
-  }
-
-  gst_object_ref_sink (target->pipeline);
-
-  target->srtsink = gst_bin_get_by_name (GST_BIN (target->pipeline), "sink");
-
-  bus = gst_element_get_bus (target->pipeline);
-  gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
-      NULL);
-
-  encoder = gst_bin_get_by_name (GST_BIN (target->pipeline), "enc");
-
-  target->adaptor = g_object_new (adaptor_type, "srtsink", target->srtsink,
-      "baseline-parameters", _get_encoding_parameters (encoder), NULL);
-
-  g_signal_connect_swapped (target->adaptor, "encoding-parameters",
-      (GCallback) _set_encoding_parameters, encoder);
-
-  gaeguli_stream_adaptor_start (target->adaptor);
-
-  /* Setting READY state on srtsink check that we can bind to address and port
-   * specified in srt_uri. On failure, bus handler should set internal_err. */
-  res = gst_element_set_state (target->srtsink, GST_STATE_READY);
-
-  gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
-
-  if (res == GST_STATE_CHANGE_FAILURE) {
-    goto failed;
-  }
-
-  enc_first = gst_bin_get_by_name (GST_BIN (target->pipeline), "enc_first");
-  enc_sinkpad = gst_element_get_static_pad (enc_first, "sink");
-
-  target->sinkpad = gst_ghost_pad_new (NULL, enc_sinkpad);
-  gst_object_ref_sink (target->sinkpad);
-  gst_element_add_pad (target->pipeline, target->sinkpad);
-
-  return g_steal_pointer (&target);
-
-failed:
-  if (internal_err) {
-    g_propagate_error (error, internal_err);
-    internal_err = NULL;
-  }
-  return NULL;
 }
 
 static GstPadProbeReturn
@@ -631,53 +364,35 @@ _decodebin_pad_added (GstElement * decodebin, GstPad * pad, gpointer user_data)
   }
 }
 
-gboolean
-_find_target_by_srtsink (gpointer key, gpointer value, gpointer user_data)
-{
-  return ((GaeguliTarget *) value)->srtsink == user_data;
-}
-
 static gboolean
 _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
 {
   GaeguliPipeline *self = user_data;
 
   switch (message->type) {
-    case GST_MESSAGE_APPLICATION:{
-      const GstStructure *structure = gst_message_get_structure (message);
-      const gchar *name = gst_structure_get_name (structure);
-
-      if (g_str_equal (name, "gaeguli-pipeline-stream-stopped")) {
-        guint target_id;
-
-        gst_structure_get_uint (structure, "target-id", &target_id);
-        g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0, target_id);
-
-        g_mutex_lock (&self->lock);
-        if (g_hash_table_size (self->targets) == 0 &&
-            --self->pending_target_removals == 0) {
-          g_mutex_unlock (&self->lock);
-          gaeguli_pipeline_stop (self);
-          g_mutex_lock (&self->lock);
-        }
-        g_mutex_unlock (&self->lock);
-      }
-      break;
-    }
     case GST_MESSAGE_WARNING:{
+      gpointer target_id;
       GaeguliTarget *target;
       g_autoptr (GError) error = NULL;
 
-      target = g_hash_table_find (self->targets, _find_target_by_srtsink,
-          message->src);
+      if (!message->src) {
+        break;
+      }
+
+      target_id = g_object_get_data (G_OBJECT (message->src),
+          "gaeguli-target-id");
+
+      g_mutex_lock (&self->lock);
+      target = g_hash_table_lookup (self->targets, target_id);
+      g_mutex_unlock (&self->lock);
+
       if (!target) {
         break;
       }
 
       gst_message_parse_warning (message, &error, NULL);
       if (g_error_matches (error, GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_WRITE)) {
-        g_signal_emit (self, signals[SIG_CONNECTION_ERROR], 0, target->id,
-            error);
+        g_signal_emit (self, signals[SIG_CONNECTION_ERROR], 0, target, error);
       }
       break;
     }
@@ -794,111 +509,41 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   g_object_set (capsfilter, "caps", caps, NULL);
 }
 
-static gboolean
-_set_state_null (GstElement * element)
+static void
+gaeguli_pipeline_emit_stream_started (GaeguliPipeline * self,
+    GaeguliTarget * target)
 {
-  g_return_val_if_fail (element != NULL, G_SOURCE_REMOVE);
+  g_mutex_lock (&self->lock);
+  ++self->num_active_targets;
+  g_mutex_unlock (&self->lock);
 
-  gst_element_set_state (element, GST_STATE_NULL);
-
-  return G_SOURCE_REMOVE;
+  g_signal_emit (self, signals[SIG_STREAM_STARTED], 0, target);
 }
 
-static GstPadProbeReturn
-_link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+static void
+gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
+    GaeguliTarget * target)
 {
-  GaeguliTarget *target = user_data;
-  g_autoptr (GaeguliPipeline) self = NULL;
-  GstPad *tee_ghost_pad = NULL;
+  g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0, target);
 
-  /*
-   * GST_PAD_PROBE_TYPE_IDLE can cause infinite waiting in filesink.
-   * In addition, to prevent events generated in gst_ghost_pad_new()
-   * from invoking this probe callback again, we remove the probe first.
-   *
-   * For more details, refer to
-   * https://github.com/hwangsaeul/gaeguli/pull/10#discussion_r327031325
-   */
-  gst_pad_remove_probe (pad, info->id);
-
-  if (target->pending_pad_probe == info->id) {
-    target->pending_pad_probe = 0;
+  g_mutex_lock (&self->lock);
+  if (g_hash_table_size (self->targets) == 0 && --self->num_active_targets == 0) {
+    g_mutex_unlock (&self->lock);
+    gaeguli_pipeline_stop (self);
+    g_mutex_lock (&self->lock);
   }
-
-  g_debug ("start link target [%x]", target->id);
-
-  tee_ghost_pad = gst_ghost_pad_new (NULL, target->tee_srcpad);
-  if (tee_ghost_pad == NULL) {
-    g_error ("ghost pad is null");
-  }
-
-  gst_element_add_pad (GST_ELEMENT_PARENT (GST_PAD_PARENT (target->tee_srcpad)),
-      tee_ghost_pad);
-
-  gst_element_sync_state_with_parent (target->pipeline);
-  if (gst_pad_link (tee_ghost_pad, target->sinkpad) != GST_PAD_LINK_OK) {
-    g_error ("failed to link tee src to target sink");
-  }
-
-  self = g_weak_ref_get (&target->gaeguli_pipeline);
-  if (self) {
-    g_signal_emit (self, signals[SIG_STREAM_STARTED], 0, target->id);
-  }
-
-  return GST_PAD_PROBE_REMOVE;
+  g_mutex_unlock (&self->lock);
 }
 
-static GstPadProbeReturn
-_unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
-{
-  GaeguliTarget *target = user_data;
-  g_autoptr (GstElement) topmost_pipeline = NULL;
-  g_autoptr (GstPad) ghost_srcpad = NULL;
-
-  /* Remove the probe first. See _link_probe_cb() for details. */
-  gst_pad_remove_probe (pad, info->id);
-
-  if (target->pending_pad_probe == info->id) {
-    target->pending_pad_probe = 0;
-  }
-
-  ghost_srcpad = gst_pad_get_peer (target->sinkpad);
-
-  g_debug ("start unlink target [%x]", target->id);
-
-  if (!gst_pad_unlink (ghost_srcpad, target->sinkpad)) {
-    g_error ("failed to unlink");
-  }
-
-  gst_ghost_pad_set_target (GST_GHOST_PAD (ghost_srcpad), NULL);
-  gst_element_remove_pad (GST_PAD_PARENT (ghost_srcpad), ghost_srcpad);
-  gst_element_release_request_pad (GST_PAD_PARENT (target->tee_srcpad),
-      target->tee_srcpad);
-
-  topmost_pipeline =
-      GST_ELEMENT (gst_object_get_parent (GST_OBJECT (target->pipeline)));
-  gst_bin_remove (GST_BIN (topmost_pipeline), target->pipeline);
-
-  /* This probe may get called from the target's streaming thread, so let the
-   * state change happen in the main thread. */
-  g_idle_add_full (G_PRIORITY_DEFAULT_IDLE, (GSourceFunc) _set_state_null,
-      gst_object_ref (target->pipeline), gst_object_unref);
-
-  gst_element_post_message (topmost_pipeline,
-      gst_message_new_application (NULL,
-          gst_structure_new ("gaeguli-pipeline-stream-stopped",
-              "target-id", G_TYPE_UINT, target->id, NULL)));
-
-  return GST_PAD_PROBE_REMOVE;
-}
-
-guint
+GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, GaeguliVideoResolution resolution,
     guint framerate, guint bitrate, const gchar * uri, const gchar * username,
     GError ** error)
 {
   guint target_id = 0;
+  GaeguliTarget *target = NULL;
+  g_autoptr (GstPad) tee_srcpad = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
   g_return_val_if_fail (uri != NULL, 0);
@@ -919,17 +564,19 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
   target_id = g_str_hash (uri);
 
-  if (!g_hash_table_contains (self->targets, GINT_TO_POINTER (target_id))) {
-    GaeguliTarget *target = NULL;
+  target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
+
+  if (!target) {
     GstPadTemplate *templ = NULL;
 
     g_autoptr (GstElement) tee = NULL;
+    g_autoptr (GstPad) tee_srcpad = NULL;
     g_autoptr (GError) internal_err = NULL;
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    target = _build_target (self->encoding_method, codec, bitrate, self->fps,
-        uri, username, self->adaptor_type, &internal_err);
+    target = gaeguli_target_new (self, target_id, codec, bitrate, self->fps,
+        uri, username, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target == NULL) {
@@ -938,8 +585,10 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
       goto failed;
     }
 
-    target->id = target_id;
-    g_weak_ref_init (&target->gaeguli_pipeline, self);
+    g_signal_connect_swapped (target, "stream-started",
+        G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
+    g_signal_connect_swapped (target, "stream-stopped",
+        G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
 
     gst_bin_add (GST_BIN (self->pipeline), target->pipeline);
 
@@ -949,10 +598,9 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     templ =
         gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
         "src_%u");
-    target->tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
 
-    target->pending_pad_probe = gst_pad_add_probe (target->tee_srcpad,
-        GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb, target, NULL);
+    tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
+    gaeguli_target_link_with_pad (target, tee_srcpad);
   }
 
   g_mutex_unlock (&self->lock);
@@ -969,16 +617,16 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
   }
   gst_element_set_state (self->vsrc, GST_STATE_PLAYING);
 
-  return target_id;
+  return target;
 
 failed:
   g_mutex_unlock (&self->lock);
 
   g_debug ("failed to add target");
-  return 0;
+  return NULL;
 }
 
-guint
+GaeguliTarget *
 gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
     const gchar * uri, const gchar * username, GError ** error)
 {
@@ -987,73 +635,23 @@ gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
       uri, username, error);
 }
 
-guint64
-gaeguli_pipeline_target_get_bytes_sent (GaeguliPipeline * self, guint target_id)
-{
-  guint64 result = 0;
-  GaeguliTarget *target;
-  GstStructure *s;
-
-  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), GAEGULI_RETURN_FAIL);
-  g_return_val_if_fail (target_id != 0, GAEGULI_RETURN_FAIL);
-
-  g_mutex_lock (&self->lock);
-
-  target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
-  if (target == NULL) {
-    g_warning ("Unknown target %u", target_id);
-    goto out;
-  }
-
-  if (target->srtsink == NULL) {
-    g_warning ("SRT sink for target %d not found", target_id);
-    goto out;
-  }
-
-  g_object_get (target->srtsink, "stats", &s, NULL);
-  if (!gst_structure_get_uint64 (s, "bytes-sent", &result)) {
-    goto out;
-  }
-
-out:
-  g_mutex_unlock (&self->lock);
-
-  return result;
-}
-
 GaeguliReturn
-gaeguli_pipeline_remove_target (GaeguliPipeline * self, guint target_id,
+gaeguli_pipeline_remove_target (GaeguliPipeline * self, GaeguliTarget * target,
     GError ** error)
 {
-  g_autoptr (GaeguliTarget) target = NULL;
-
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), GAEGULI_RETURN_FAIL);
-  g_return_val_if_fail (target_id != 0, GAEGULI_RETURN_FAIL);
+  g_return_val_if_fail (target != NULL, GAEGULI_RETURN_FAIL);
   g_return_val_if_fail (error == NULL || *error == NULL, GAEGULI_RETURN_FAIL);
 
   g_mutex_lock (&self->lock);
 
-  if (!g_hash_table_steal_extended (self->targets, GINT_TO_POINTER (target_id),
-          NULL, (gpointer *) & target)) {
-    g_debug ("no target pipeline mapped with [%x]", target_id);
+  if (!g_hash_table_steal (self->targets, GINT_TO_POINTER (target->id))) {
+    g_debug ("no target pipeline mapped with [%x]", target->id);
     goto out;
   }
 
-  if (target->pending_pad_probe != 0) {
-    /* Target removed before its link pad probe got called. */
-    gst_pad_remove_probe (target->tee_srcpad, target->pending_pad_probe);
-    target->pending_pad_probe = 0;
-  } else {
-    GstPad *tee_srcpad = target->tee_srcpad;
-
-    gst_element_set_state (target->srtsink, GST_STATE_NULL);
-
-    gst_pad_add_probe (tee_srcpad, GST_PAD_PROBE_TYPE_BLOCK, _unlink_probe_cb,
-        g_steal_pointer (&target), (GDestroyNotify) gaeguli_target_free);
-
-    ++self->pending_target_removals;
-  }
-
+  gaeguli_target_unlink (target);
+  g_object_unref (target);
 
 out:
   g_mutex_unlock (&self->lock);
