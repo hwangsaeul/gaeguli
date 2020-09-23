@@ -33,13 +33,12 @@ G_DEFINE_TYPE (GaeguliBandwidthStreamAdaptor, gaeguli_bandwidth_stream_adaptor,
 
 GaeguliStreamAdaptor *
 gaeguli_bandwidth_stream_adaptor_new (GstElement * srtsink,
-    GstStructure * initial_encoding_params)
+    GstStructure * baseline_parameters)
 {
   g_return_val_if_fail (srtsink != NULL, NULL);
 
   return g_object_new (GAEGULI_TYPE_BANDWIDTH_STREAM_ADAPTOR,
-      "srtsink", srtsink,
-      "initial-encoding-parameters", initial_encoding_params, NULL);
+      "srtsink", srtsink, "baseline-parameters", baseline_parameters, NULL);
 }
 
 static void
@@ -86,7 +85,7 @@ gaeguli_bandwidth_stream_adaptor_constructed (GObject * object)
       GAEGULI_BANDWIDTH_STREAM_ADAPTOR (object);
 
   const GstStructure *initial_params =
-      gaeguli_stream_adaptor_get_initial_encoding_parameters
+      gaeguli_stream_adaptor_get_baseline_parameters
       (GAEGULI_STREAM_ADAPTOR (object));
 
   if (!gst_structure_get_uint (initial_params,

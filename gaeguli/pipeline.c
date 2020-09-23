@@ -523,7 +523,7 @@ _build_target (GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
   encoder = gst_bin_get_by_name (GST_BIN (target->pipeline), "enc");
 
   target->adaptor = g_object_new (adaptor_type, "srtsink", target->srtsink,
-      "initial-encoding-parameters", _get_encoding_parameters (encoder), NULL);
+      "baseline-parameters", _get_encoding_parameters (encoder), NULL);
 
   g_signal_connect_swapped (target->adaptor, "encoding-parameters",
       (GCallback) _set_encoding_parameters, encoder);
