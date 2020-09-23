@@ -22,7 +22,6 @@ struct _GaeguliBandwidthStreamAdaptor
 {
   GaeguliStreamAdaptor parent;
 
-  guint initial_bitrate;
   guint current_bitrate;
 };
 
@@ -56,7 +55,15 @@ gaeguli_bandwidth_adaptor_on_stats (GaeguliStreamAdaptor * adaptor,
     if (srt_bandwidth < self->current_bitrate) {
       new_bitrate = srt_bandwidth;
     } else if (srt_bandwidth > self->current_bitrate) {
-      new_bitrate = MIN (srt_bandwidth, self->initial_bitrate);
+      guint baseline_bitrate = G_MAXUINT;
+
+      if (!gaeguli_stream_adaptor_get_baseline_parameter_uint
+          (GAEGULI_STREAM_ADAPTOR (self), GAEGULI_ENCODING_PARAMETER_BITRATE,
+              &baseline_bitrate)) {
+        g_warning ("Couldn't read baseline bitrate");
+      }
+
+      new_bitrate = MIN (srt_bandwidth, baseline_bitrate);
     }
 
     if (ABS (new_bitrate - (gint) self->current_bitrate) >
@@ -84,15 +91,10 @@ gaeguli_bandwidth_stream_adaptor_constructed (GObject * object)
   GaeguliBandwidthStreamAdaptor *self =
       GAEGULI_BANDWIDTH_STREAM_ADAPTOR (object);
 
-  const GstStructure *initial_params =
-      gaeguli_stream_adaptor_get_baseline_parameters
-      (GAEGULI_STREAM_ADAPTOR (object));
-
-  if (!gst_structure_get_uint (initial_params,
-          GAEGULI_ENCODING_PARAMETER_BITRATE, &self->initial_bitrate)) {
+  if (!gaeguli_stream_adaptor_get_baseline_parameter_uint
+      (GAEGULI_STREAM_ADAPTOR (self), GAEGULI_ENCODING_PARAMETER_BITRATE,
+          &self->current_bitrate)) {
     g_warning ("Couldn't read initial bitrate");
-  } else {
-    self->current_bitrate = self->initial_bitrate;
   }
 }
 

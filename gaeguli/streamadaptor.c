@@ -234,7 +234,7 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
       g_param_spec_boxed ("baseline-parameters",
           "Baseline encoding parameters", "Baseline encoding parameters the "
           "adaptor derives its proposed modifications from", GST_TYPE_STRUCTURE,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_STATS_INTERVAL,
       g_param_spec_uint ("stats-interval", "Statistics collection interval",
