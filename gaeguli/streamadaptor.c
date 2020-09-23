@@ -38,7 +38,7 @@ enum
   PROP_SRTSINK = 1,
   PROP_BASELINE_PARAMETERS,
   PROP_STATS_INTERVAL,
-  PROP_LAST
+  PROP_ENABLED,
 };
 
 enum
@@ -79,23 +79,26 @@ gaeguli_stream_adaptor_start_timer (GaeguliStreamAdaptor * self)
   GaeguliStreamAdaptorPrivate *priv =
       gaeguli_stream_adaptor_get_instance_private (self);
 
-  priv->stats_timeout_id =
-      g_timeout_add (priv->stats_interval, _stats_collection_timeout, self);
+  if (GAEGULI_STREAM_ADAPTOR_GET_CLASS (self)->on_stats) {
+    priv->stats_timeout_id =
+        g_timeout_add (priv->stats_interval, _stats_collection_timeout, self);
+  }
 }
 
 static void
-gaeguli_stream_adaptor_set_srtsink (GaeguliStreamAdaptor * self,
-    GstElement * srtsink)
+gaeguli_stream_adaptor_stop_timer (GaeguliStreamAdaptor * self)
 {
   GaeguliStreamAdaptorPrivate *priv =
       gaeguli_stream_adaptor_get_instance_private (self);
-  GaeguliStreamAdaptorClass *klass = GAEGULI_STREAM_ADAPTOR_GET_CLASS (self);
 
-  priv->srtsink = gst_object_ref (srtsink);
+  g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
+}
 
-  if (klass->on_stats) {
-    gaeguli_stream_adaptor_start_timer (self);
-  }
+static void
+gaeguli_stream_adaptor_signal_encoding_parameters_internal (GaeguliStreamAdaptor
+    * self, const GstStructure * params)
+{
+  g_signal_emit (self, signals[SIG_ENCODING_PARAMETERS], 0, params);
 }
 
 static void
@@ -108,7 +111,7 @@ gaeguli_stream_adaptor_set_stats_interval (GaeguliStreamAdaptor * self,
   priv->stats_interval = ms;
 
   if (priv->stats_timeout_id != 0) {
-    g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
+    gaeguli_stream_adaptor_stop_timer (self);
     gaeguli_stream_adaptor_start_timer (self);
   }
 }
@@ -147,7 +150,7 @@ gaeguli_stream_adaptor_signal_encoding_parameters (GaeguliStreamAdaptor * self,
       param, varargs);
   va_end (varargs);
 
-  g_signal_emit (self, signals[SIG_ENCODING_PARAMETERS], 0, s);
+  gaeguli_stream_adaptor_signal_encoding_parameters_internal (self, s);
 }
 
 static void
@@ -165,7 +168,7 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
 
   switch (property_id) {
     case PROP_SRTSINK:
-      gaeguli_stream_adaptor_set_srtsink (self, g_value_get_object (value));
+      priv->srtsink = g_value_dup_object (value);
       break;
     case PROP_BASELINE_PARAMETERS:
       priv->baseline_parameters = g_value_dup_boxed (value);
@@ -173,6 +176,17 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
     case PROP_STATS_INTERVAL:
       gaeguli_stream_adaptor_set_stats_interval (self,
           g_value_get_uint (value));
+      break;
+    case PROP_ENABLED:
+      if (g_value_get_boolean (value)) {
+        gaeguli_stream_adaptor_start_timer (self);
+      } else if (priv->stats_timeout_id) {
+        gaeguli_stream_adaptor_stop_timer (self);
+
+        /* Revert encoder settings into their initial state. */
+        gaeguli_stream_adaptor_signal_encoding_parameters_internal (self,
+            priv->baseline_parameters);
+      }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -197,6 +211,9 @@ gaeguli_stream_adaptor_get_property (GObject * object, guint property_id,
     case PROP_STATS_INTERVAL:
       g_value_set_uint (value, priv->stats_interval);
       break;
+    case PROP_ENABLED:
+      g_value_set_boolean (value, priv->stats_timeout_id != 0);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
   }
@@ -209,9 +226,9 @@ gaeguli_stream_adaptor_dispose (GObject * object)
   GaeguliStreamAdaptorPrivate *priv =
       gaeguli_stream_adaptor_get_instance_private (self);
 
+  gaeguli_stream_adaptor_stop_timer (self);
   gst_clear_object (&priv->srtsink);
   gst_clear_structure (&priv->baseline_parameters);
-  g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
 
   G_OBJECT_CLASS (gaeguli_stream_adaptor_parent_class)->dispose (object);
 }
@@ -239,6 +256,11 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
   g_object_class_install_property (gobject_class, PROP_STATS_INTERVAL,
       g_param_spec_uint ("stats-interval", "Statistics collection interval",
           "Statistics collection interval in milliseconds", 1, G_MAXUINT, 10,
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_ENABLED,
+      g_param_spec_boolean ("enabled", "Turns stream adaptor on or off",
+          "Turns stream adaptor on or off", TRUE,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   signals[SIG_ENCODING_PARAMETERS] =
