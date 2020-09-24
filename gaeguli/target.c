@@ -44,6 +44,7 @@ typedef struct
   guint idr_period;
   gchar *uri;
   gchar *username;
+  gboolean adaptive_streaming;
 } GaeguliTargetPrivate;
 
 enum
@@ -55,6 +56,7 @@ enum
   PROP_IDR_PERIOD,
   PROP_URI,
   PROP_USERNAME,
+  PROP_ADAPTIVE_STREAMING,
 };
 
 enum
@@ -301,7 +303,8 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
 
   priv->adaptor = g_object_new (adaptor_type, "srtsink", priv->srtsink,
-      "baseline-parameters", _get_encoding_parameters (encoder), NULL);
+      "baseline-parameters", _get_encoding_parameters (encoder), "enabled",
+      priv->adaptive_streaming, NULL);
 
   g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
       (GCallback) _set_encoding_parameters, encoder);
@@ -348,6 +351,9 @@ gaeguli_target_get_property (GObject * object,
     case PROP_BITRATE:
       g_value_set_uint (value, priv->bitrate);
       break;
+    case PROP_ADAPTIVE_STREAMING:
+      g_value_set_boolean (value, priv->adaptive_streaming);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -382,6 +388,12 @@ gaeguli_target_set_property (GObject * object,
       break;
     case PROP_USERNAME:
       priv->username = g_value_dup_string (value);
+      break;
+    case PROP_ADAPTIVE_STREAMING:
+      priv->adaptive_streaming = g_value_get_boolean (value);
+      if (priv->adaptor) {
+        g_object_set (priv->adaptor, "enabled", priv->adaptive_streaming, NULL);
+      }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -453,6 +465,11 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_param_spec_string ("username", "username", "username",
           NULL,
           G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_ADAPTIVE_STREAMING,
+      g_param_spec_boolean ("adaptive-streaming", "Use adaptive streaming",
+          "Use adaptive streaming", TRUE,
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   signals[SIG_STREAM_STARTED] =
       g_signal_new ("stream-started", G_TYPE_FROM_CLASS (klass),
