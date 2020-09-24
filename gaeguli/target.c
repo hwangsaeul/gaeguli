@@ -32,6 +32,7 @@ typedef struct
 {
   GObject parent;
 
+  GstElement *encoder;
   GstElement *srtsink;
   GstPad *peer_pad;
   GstPad *sinkpad;
@@ -235,6 +236,32 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
   }
 }
 
+static void
+gaeguli_target_update_baseline_parameters (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  g_autoptr (GstStructure) params = NULL;
+
+  if (!priv->encoder) {
+    /* We're not initialized yet. */
+    return;
+  }
+
+  params = gst_structure_new ("application/x-gaeguli-encoding-parameters",
+      GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, priv->bitrate,
+      GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, priv->quantizer, NULL);
+
+  if (priv->adaptor) {
+    g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
+  }
+
+  if (priv->adaptive_streaming) {
+    /* Apply directly on the encoder */
+    _set_encoding_parameters (priv->encoder, params);
+  }
+}
+
 static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
@@ -243,7 +270,6 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   g_autoptr (GaeguliPipeline) owner = NULL;
-  g_autoptr (GstElement) encoder = NULL;
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
   g_autoptr (GstBus) bus = NULL;
@@ -302,14 +328,14 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
       NULL);
 
-  encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
+  priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
 
   priv->adaptor = g_object_new (adaptor_type, "srtsink", priv->srtsink,
-      "baseline-parameters", _get_encoding_parameters (encoder), "enabled",
-      priv->adaptive_streaming, NULL);
+      "baseline-parameters", _get_encoding_parameters (priv->encoder),
+      "enabled", priv->adaptive_streaming, NULL);
 
   g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
-      (GCallback) _set_encoding_parameters, encoder);
+      (GCallback) _set_encoding_parameters, priv->encoder);
 
   /* Setting READY state on srtsink check that we can bind to address and port
    * specified in srt_uri. On failure, bus handler should set internal_err. */
@@ -384,9 +410,11 @@ gaeguli_target_set_property (GObject * object,
       break;
     case PROP_BITRATE:
       priv->bitrate = g_value_get_uint (value);
+      gaeguli_target_update_baseline_parameters (self);
       break;
     case PROP_QUANTIZER:
       priv->quantizer = g_value_get_uint (value);
+      gaeguli_target_update_baseline_parameters (self);
       break;
     case PROP_IDR_PERIOD:
       priv->idr_period = g_value_get_uint (value);
@@ -416,6 +444,7 @@ gaeguli_target_dispose (GObject * object)
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   gst_clear_object (&self->pipeline);
+  gst_clear_object (&priv->encoder);
   gst_clear_object (&priv->srtsink);
   gst_clear_object (&priv->peer_pad);
   gst_clear_object (&priv->sinkpad);
