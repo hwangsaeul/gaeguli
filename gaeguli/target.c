@@ -41,6 +41,7 @@ typedef struct
 
   GaeguliVideoCodec codec;
   guint bitrate;
+  guint quantizer;
   guint idr_period;
   gchar *uri;
   gchar *username;
@@ -53,6 +54,7 @@ enum
   PROP_PIPELINE,
   PROP_CODEC,
   PROP_BITRATE,
+  PROP_QUANTIZER,
   PROP_IDR_PERIOD,
   PROP_URI,
   PROP_USERNAME,
@@ -351,6 +353,9 @@ gaeguli_target_get_property (GObject * object,
     case PROP_BITRATE:
       g_value_set_uint (value, priv->bitrate);
       break;
+    case PROP_QUANTIZER:
+      g_value_set_uint (value, priv->quantizer);
+      break;
     case PROP_ADAPTIVE_STREAMING:
       g_value_set_boolean (value, priv->adaptive_streaming);
       break;
@@ -379,6 +384,9 @@ gaeguli_target_set_property (GObject * object,
       break;
     case PROP_BITRATE:
       priv->bitrate = g_value_get_uint (value);
+      break;
+    case PROP_QUANTIZER:
+      priv->quantizer = g_value_get_uint (value);
       break;
     case PROP_IDR_PERIOD:
       priv->idr_period = g_value_get_uint (value);
@@ -448,6 +456,12 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
   g_object_class_install_property (gobject_class, PROP_BITRATE,
       g_param_spec_uint ("bitrate", "video bitrate", "video bitrate",
           1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_QUANTIZER,
+      g_param_spec_uint ("quantizer", "Constant quantizer or quality to apply",
+          "Constant quantizer or quality to apply",
+          1, G_MAXUINT, 21,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_IDR_PERIOD,
