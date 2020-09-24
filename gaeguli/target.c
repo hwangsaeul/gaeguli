@@ -86,7 +86,7 @@ gaeguli_target_init (GaeguliTarget * self)
 }
 
 typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
-    guint bitrate, guint idr_period);
+    guint idr_period);
 
 struct encoding_method_params
 {
@@ -97,18 +97,15 @@ struct encoding_method_params
 };
 
 static gchar *
-_format_general_pipeline (const gchar * pipeline_str, guint bitrate,
-    guint idr_period)
+_format_general_pipeline (const gchar * pipeline_str, guint idr_period)
 {
-  /* x26[4,5]enc take bitrate in kbps. */
-  return g_strdup_printf (pipeline_str, bitrate / 1000, idr_period);
+  return g_strdup_printf (pipeline_str, idr_period);
 }
 
 static gchar *
-_format_tx1_pipeline (const gchar * pipeline_str, guint bitrate,
-    guint idr_period)
+_format_tx1_pipeline (const gchar * pipeline_str, guint idr_period)
 {
-  return g_strdup_printf (pipeline_str, bitrate, idr_period);
+  return g_strdup_printf (pipeline_str, idr_period);
 }
 
 static struct encoding_method_params enc_params[] = {
@@ -125,13 +122,13 @@ static struct encoding_method_params enc_params[] = {
 
 static gchar *
 _get_enc_string (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate, guint idr_period)
+    GaeguliVideoCodec codec, guint idr_period)
 {
   struct encoding_method_params *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
     if (params->encoding_method == encoding_method && params->codec == codec)
-      return params->format_func (params->pipeline_str, bitrate, idr_period);
+      return params->format_func (params->pipeline_str, idr_period);
   }
 
   return NULL;
@@ -231,13 +228,19 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
             &val)) {
       g_object_set (encoder, "bitrate", val / 1000, NULL);
     }
+  } else if (g_str_equal (encoder_type, "omxh264enc")) {
+    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
+            &val)) {
+      g_object_set (encoder, "bitrate", val, NULL);
+    }
   } else {
     g_warning ("Unsupported encoder '%s'", encoder_type);
   }
 }
 
 static void
-gaeguli_target_update_baseline_parameters (GaeguliTarget * self)
+gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
+    gboolean force_on_encoder)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
@@ -256,7 +259,7 @@ gaeguli_target_update_baseline_parameters (GaeguliTarget * self)
     g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
   }
 
-  if (priv->adaptive_streaming) {
+  if (priv->adaptive_streaming || force_on_encoder) {
     /* Apply directly on the encoder */
     _set_encoding_parameters (priv->encoder, params);
   }
@@ -291,7 +294,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_object_get (owner, "encoding-method", &encoding_method,
       "stream-adaptor", &adaptor_type, NULL);
 
-  pipeline_str = _get_enc_string (encoding_method, priv->codec, priv->bitrate,
+  pipeline_str = _get_enc_string (encoding_method, priv->codec,
       priv->idr_period);
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
@@ -331,8 +334,9 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
 
   priv->adaptor = g_object_new (adaptor_type, "srtsink", priv->srtsink,
-      "baseline-parameters", _get_encoding_parameters (priv->encoder),
       "enabled", priv->adaptive_streaming, NULL);
+
+  gaeguli_target_update_baseline_parameters (self, TRUE);
 
   g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
       (GCallback) _set_encoding_parameters, priv->encoder);
@@ -410,11 +414,11 @@ gaeguli_target_set_property (GObject * object,
       break;
     case PROP_BITRATE:
       priv->bitrate = g_value_get_uint (value);
-      gaeguli_target_update_baseline_parameters (self);
+      gaeguli_target_update_baseline_parameters (self, FALSE);
       break;
     case PROP_QUANTIZER:
       priv->quantizer = g_value_get_uint (value);
-      gaeguli_target_update_baseline_parameters (self);
+      gaeguli_target_update_baseline_parameters (self, FALSE);
       break;
     case PROP_IDR_PERIOD:
       priv->idr_period = g_value_get_uint (value);

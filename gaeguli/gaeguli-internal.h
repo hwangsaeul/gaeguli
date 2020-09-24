@@ -32,11 +32,11 @@
         tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
-        queue name=enc_first ! videoconvert ! x264enc name=enc tune=zerolatency bitrate=%d key-int-max=%d ! \
+        queue name=enc_first ! videoconvert ! x264enc name=enc tune=zerolatency key-int-max=%d ! \
         h264parse ! queue "
 
 #define GAEGULI_PIPELINE_GENERAL_H265ENC_STR    "\
-        queue name=enc_first ! videoconvert ! x265enc name=enc tune=zerolatency bitrate=%d key-int-max=%d ! \
+        queue name=enc_first ! videoconvert ! x265enc name=enc tune=zerolatency key-int-max=%d ! \
         h265parse ! queue "
 
 /* nvidia tx1 pipeline (for v4l2src) */
@@ -46,11 +46,11 @@
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
-        omxh264enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 bitrate=%d periodicity-idr=%d ! queue "
+        omxh264enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 periodicity-idr=%d ! queue "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
-        omxh264enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 bitrate=%d periodicity-idr=%d ! queue "
+        omxh264enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 periodicity-idr=%d ! queue "
 
 #define GAEGULI_PIPELINE_MUXSINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
