@@ -3,6 +3,7 @@ subdir('common')
 tests = [
   'test-pipeline',
   'test-adaptor',
+  'test-target',
 ]
 
 foreach t: tests
