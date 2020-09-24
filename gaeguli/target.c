@@ -219,15 +219,21 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
 
     if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
             &val)) {
-      GstState cur_state;
+      guint cur_quantizer;
 
-      gst_element_get_state (encoder, &cur_state, NULL, 0);
-      if (cur_state == GST_STATE_PLAYING) {
-        gst_element_set_state (encoder, GST_STATE_READY);
-      }
-      g_object_set (encoder, "quantizer", val, NULL);
-      if (cur_state == GST_STATE_PLAYING) {
-        gst_element_set_state (encoder, GST_STATE_PLAYING);
+      g_object_get (encoder, "quantizer", &cur_quantizer, NULL);
+
+      if (val != cur_quantizer) {
+        GstState cur_state;
+
+        gst_element_get_state (encoder, &cur_state, NULL, 0);
+        if (cur_state == GST_STATE_PLAYING) {
+          gst_element_set_state (encoder, GST_STATE_READY);
+        }
+        g_object_set (encoder, "quantizer", val, NULL);
+        if (cur_state == GST_STATE_PLAYING) {
+          gst_element_set_state (encoder, GST_STATE_PLAYING);
+        }
       }
     }
   } else if (g_str_equal (encoder_type, "x265enc")) {
