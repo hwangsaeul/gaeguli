@@ -52,6 +52,9 @@ void                    gaeguli_stream_adaptor_signal_encoding_parameters
                                                  const gchar                *param,
                                                  ...) G_GNUC_NULL_TERMINATED;
 
+GstStructure *          gaeguli_stream_adaptor_get_stats
+                                                (GaeguliStreamAdaptor       *self);
+
 G_END_DECLS
 
 #endif // __GAEGULI_STREAM_ADAPTOR_H__

@@ -49,16 +49,24 @@ enum
 
 static guint signals[LAST_SIGNAL] = { 0 };
 
-static void
-gaeguli_stream_adaptor_collect_stats (GaeguliStreamAdaptor * self)
+GstStructure *
+gaeguli_stream_adaptor_get_stats (GaeguliStreamAdaptor * self)
 {
   GaeguliStreamAdaptorPrivate *priv =
       gaeguli_stream_adaptor_get_instance_private (self);
-  GaeguliStreamAdaptorClass *klass = GAEGULI_STREAM_ADAPTOR_GET_CLASS (self);
 
   g_autoptr (GstStructure) s = NULL;
 
   g_object_get (priv->srtsink, "stats", &s, NULL);
+
+  return g_steal_pointer (&s);
+}
+
+static void
+gaeguli_stream_adaptor_collect_stats (GaeguliStreamAdaptor * self)
+{
+  GaeguliStreamAdaptorClass *klass = GAEGULI_STREAM_ADAPTOR_GET_CLASS (self);
+  g_autoptr (GstStructure) s = gaeguli_stream_adaptor_get_stats (self);
 
   if (gst_structure_n_fields (s) != 0) {
     klass->on_stats (self, s);
