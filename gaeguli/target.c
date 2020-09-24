@@ -55,7 +55,9 @@ enum
   PROP_PIPELINE,
   PROP_CODEC,
   PROP_BITRATE,
+  PROP_BITRATE_ACTUAL,
   PROP_QUANTIZER,
+  PROP_QUANTIZER_ACTUAL,
   PROP_IDR_PERIOD,
   PROP_URI,
   PROP_USERNAME,
@@ -167,36 +169,30 @@ _bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
   return GST_BUS_PASS;
 }
 
-static GstStructure *
-_get_encoding_parameters (GstElement * encoder)
+static guint
+_get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
 {
-  g_autoptr (GstStructure) params =
-      gst_structure_new_empty ("application/x-gaeguli-encoding-parameters");
+  guint result = 0;
 
   const gchar *encoder_type =
       gst_plugin_feature_get_name (gst_element_get_factory (encoder));
 
-  if (g_str_equal (encoder_type, "x264enc")) {
-    guint bitrate = 0;
-    guint quantizer = 0;
+  if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_BITRATE)) {
+    g_object_get (encoder, "bitrate", &result, NULL);
 
-    g_object_get (encoder, "bitrate", &bitrate, "quantizer", &quantizer, NULL);
-
-    gst_structure_set (params,
-        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, bitrate * 1000,
-        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, quantizer, NULL);
-  } else if (g_str_equal (encoder_type, "x265enc")) {
-    guint bitrate = 0;
-
-    g_object_get (encoder, "bitrate", &bitrate, NULL);
-
-    gst_structure_set (params,
-        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, bitrate * 1000, NULL);
+    if (g_str_equal (encoder_type, "x264enc") ||
+        g_str_equal (encoder_type, "x265enc")) {
+      result *= 1000;
+    }
+  } else if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_QUANTIZER)) {
+    if (g_str_equal (encoder_type, "x264enc")) {
+      g_object_get (encoder, "quantizer", &result, NULL);
+    }
   } else {
-    g_warning ("Unsupported encoder '%s'", encoder_type);
+    g_warning ("Unsupported parameter '%s'", param);
   }
 
-  return g_steal_pointer (&params);
+  return result;
 }
 
 static void
@@ -396,8 +392,16 @@ gaeguli_target_get_property (GObject * object,
     case PROP_BITRATE:
       g_value_set_uint (value, priv->bitrate);
       break;
+    case PROP_BITRATE_ACTUAL:
+      g_value_set_uint (value, _get_encoding_parameter_uint (priv->encoder,
+              GAEGULI_ENCODING_PARAMETER_BITRATE));
+      break;
     case PROP_QUANTIZER:
       g_value_set_uint (value, priv->quantizer);
+      break;
+    case PROP_QUANTIZER_ACTUAL:
+      g_value_set_uint (value, _get_encoding_parameter_uint (priv->encoder,
+              GAEGULI_ENCODING_PARAMETER_QUANTIZER));
       break;
     case PROP_ADAPTIVE_STREAMING:
       g_value_set_boolean (value, priv->adaptive_streaming);
@@ -500,15 +504,26 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
           G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_BITRATE,
-      g_param_spec_uint ("bitrate", "video bitrate", "video bitrate",
-          1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
+      g_param_spec_uint ("bitrate", "requested video bitrate",
+          "requested video bitrate", 1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_BITRATE_ACTUAL,
+      g_param_spec_uint ("bitrate-actual", "actual video bitrate",
+          "actual video bitrate", 1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_QUANTIZER,
       g_param_spec_uint ("quantizer", "Constant quantizer or quality to apply",
           "Constant quantizer or quality to apply",
           1, G_MAXUINT, 21,
           G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_QUANTIZER_ACTUAL,
+      g_param_spec_uint ("quantizer-actual",
+          "Actual constant quantizer or quality used",
+          "Actual constant quantizer or quality used", 0, G_MAXUINT, 0,
+          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_IDR_PERIOD,
       g_param_spec_uint ("idr-period", "keyframe interval",
