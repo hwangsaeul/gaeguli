@@ -58,7 +58,9 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
     GstStructure * stats)
 {
   GaeguliTestAdaptor *test_adaptor = GAEGULI_TEST_ADAPTOR (self);
+  const GstStructure *baseline_params = NULL;
   guint64 now = g_get_monotonic_time ();
+  guint val = 0;
   g_autofree gchar *stats_str = gst_structure_to_string (stats);
 
   g_debug ("Stats callback invoked with stats structure: %s", stats_str);
@@ -73,6 +75,21 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
     g_debug ("Socket not connected yet; keep on waiting.");
     return;
   }
+
+  baseline_params = gaeguli_stream_adaptor_get_baseline_parameters
+      (GAEGULI_STREAM_ADAPTOR (self));
+
+  g_assert_cmpstr (gst_structure_get_name (baseline_params), ==,
+      "application/x-gaeguli-encoding-parameters");
+
+  g_assert_true (gst_structure_has_field (baseline_params,
+          GAEGULI_ENCODING_PARAMETER_BITRATE));
+  g_assert_true (gst_structure_get_uint (baseline_params,
+          GAEGULI_ENCODING_PARAMETER_BITRATE, &val));
+  g_assert_cmpint (val, ==, TEST_BITRATE2);
+
+  g_assert_true (gst_structure_has_field (baseline_params,
+          GAEGULI_ENCODING_PARAMETER_QUANTIZER));
 
   g_assert_true (gst_structure_has_field (stats, "packets-sent-lost"));
   g_assert_true (gst_structure_has_field (stats, "packets-retransmitted"));
@@ -153,25 +170,7 @@ gaeguli_test_adaptor_init (GaeguliTestAdaptor * self)
 static void
 gaeguli_test_adaptor_constructed (GObject * self)
 {
-  const GstStructure *baseline_params = NULL;
-  guint val;
-
   g_object_set (self, "stats-interval", STATS_INTERVAL_MS, NULL);
-
-  baseline_params = gaeguli_stream_adaptor_get_baseline_parameters
-      (GAEGULI_STREAM_ADAPTOR (self));
-
-  g_assert_cmpstr (gst_structure_get_name (baseline_params), ==,
-      "application/x-gaeguli-encoding-parameters");
-
-  g_assert_true (gst_structure_has_field (baseline_params,
-          GAEGULI_ENCODING_PARAMETER_BITRATE));
-  g_assert_true (gst_structure_get_uint (baseline_params,
-          GAEGULI_ENCODING_PARAMETER_BITRATE, &val));
-  g_assert_cmpint (val, ==, TEST_BITRATE2 - (TEST_BITRATE2 % 1000));
-
-  g_assert_true (gst_structure_has_field (baseline_params,
-          GAEGULI_ENCODING_PARAMETER_QUANTIZER));
 }
 
 static void
