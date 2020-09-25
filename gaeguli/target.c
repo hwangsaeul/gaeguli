@@ -62,7 +62,10 @@ enum
   PROP_URI,
   PROP_USERNAME,
   PROP_ADAPTIVE_STREAMING,
+  PROP_LAST
 };
+
+static GParamSpec *properties[PROP_LAST] = { 0 };
 
 enum
 {
@@ -498,65 +501,66 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
   gobject_class->set_property = gaeguli_target_set_property;
   gobject_class->dispose = gaeguli_target_dispose;
 
-  g_object_class_install_property (gobject_class, PROP_ID,
+  properties[PROP_ID] =
       g_param_spec_uint ("id", "target ID", "target ID",
-          0, G_MAXUINT, 0,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+      0, G_MAXUINT, 0,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_PIPELINE,
+  properties[PROP_PIPELINE] =
       g_param_spec_object ("pipeline", "owning GaeguliPipeline instance",
-          "owning GaeguliPipeline instance", GAEGULI_TYPE_PIPELINE,
-          G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+      "owning GaeguliPipeline instance", GAEGULI_TYPE_PIPELINE,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_CODEC,
+  properties[PROP_CODEC] =
       g_param_spec_enum ("codec", "video codec", "video codec",
-          GAEGULI_TYPE_VIDEO_CODEC, DEFAULT_VIDEO_CODEC,
-          G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+      GAEGULI_TYPE_VIDEO_CODEC, DEFAULT_VIDEO_CODEC,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_BITRATE,
+  properties[PROP_BITRATE] =
       g_param_spec_uint ("bitrate", "requested video bitrate",
-          "requested video bitrate", 1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
-          G_PARAM_STATIC_STRINGS));
+      "requested video bitrate", 1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
+      G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_BITRATE_ACTUAL,
+  properties[PROP_BITRATE_ACTUAL] =
       g_param_spec_uint ("bitrate-actual", "actual video bitrate",
-          "actual video bitrate", 1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
-          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+      "actual video bitrate", 1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
+      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_QUANTIZER,
+  properties[PROP_QUANTIZER] =
       g_param_spec_uint ("quantizer", "Constant quantizer or quality to apply",
-          "Constant quantizer or quality to apply",
-          1, G_MAXUINT, 21,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
-          G_PARAM_STATIC_STRINGS));
+      "Constant quantizer or quality to apply",
+      1, G_MAXUINT, 21,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
+      G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_QUANTIZER_ACTUAL,
+  properties[PROP_QUANTIZER_ACTUAL] =
       g_param_spec_uint ("quantizer-actual",
-          "Actual constant quantizer or quality used",
-          "Actual constant quantizer or quality used", 0, G_MAXUINT, 0,
-          G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+      "Actual constant quantizer or quality used",
+      "Actual constant quantizer or quality used", 0, G_MAXUINT, 0,
+      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_IDR_PERIOD,
+  properties[PROP_IDR_PERIOD] =
       g_param_spec_uint ("idr-period", "keyframe interval",
-          "Maximal distance between two key-frames (0 for automatic)",
-          0, G_MAXUINT, 0,
-          G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+      "Maximal distance between two key-frames (0 for automatic)",
+      0, G_MAXUINT, 0,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_URI,
+  properties[PROP_URI] =
       g_param_spec_string ("uri", "SRT URI", "SRT URI",
-          NULL,
-          G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+      NULL, G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_USERNAME,
+  properties[PROP_USERNAME] =
       g_param_spec_string ("username", "username", "username",
-          NULL,
-          G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
+      NULL, G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  g_object_class_install_property (gobject_class, PROP_ADAPTIVE_STREAMING,
+  properties[PROP_ADAPTIVE_STREAMING] =
       g_param_spec_boolean ("adaptive-streaming", "Use adaptive streaming",
-          "Use adaptive streaming", TRUE,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+      "Use adaptive streaming", TRUE,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
+  g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
+      properties);
 
   signals[SIG_STREAM_STARTED] =
       g_signal_new ("stream-started", G_TYPE_FROM_CLASS (klass),
