@@ -271,7 +271,7 @@ gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
     g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
   }
 
-  if (priv->adaptive_streaming == FALSE || force_on_encoder) {
+  if (!gaeguli_stream_adaptor_is_enabled (priv->adaptor) || force_on_encoder) {
     /* Apply directly on the encoder */
     _set_encoding_parameters (priv->encoder, params);
   }
@@ -434,6 +434,10 @@ gaeguli_target_get_property (GObject * object,
               GAEGULI_ENCODING_PARAMETER_QUANTIZER));
       break;
     case PROP_ADAPTIVE_STREAMING:
+      if (priv->adaptor) {
+        priv->adaptive_streaming =
+            gaeguli_stream_adaptor_is_enabled (priv->adaptor);
+      }
       g_value_set_boolean (value, priv->adaptive_streaming);
       break;
     default:

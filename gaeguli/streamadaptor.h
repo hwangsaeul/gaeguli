@@ -44,6 +44,9 @@ struct _GaeguliStreamAdaptorClass
                                           GstStructure * stats);
 };
 
+gboolean                gaeguli_stream_adaptor_is_enabled
+                                                (GaeguliStreamAdaptor       *self);
+
 const GstStructure *    gaeguli_stream_adaptor_get_baseline_parameters
                                                 (GaeguliStreamAdaptor       *self);
 
