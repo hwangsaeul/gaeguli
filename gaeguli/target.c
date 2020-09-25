@@ -429,14 +429,24 @@ gaeguli_target_set_property (GObject * object,
     case PROP_CODEC:
       priv->codec = g_value_get_enum (value);
       break;
-    case PROP_BITRATE:
-      priv->bitrate = g_value_get_uint (value);
-      gaeguli_target_update_baseline_parameters (self, FALSE);
+    case PROP_BITRATE:{
+      guint new_bitrate = g_value_get_uint (value);
+      if (priv->bitrate != new_bitrate) {
+        priv->bitrate = new_bitrate;
+        gaeguli_target_update_baseline_parameters (self, FALSE);
+        g_object_notify_by_pspec (object, pspec);
+      }
       break;
-    case PROP_QUANTIZER:
-      priv->quantizer = g_value_get_uint (value);
-      gaeguli_target_update_baseline_parameters (self, FALSE);
+    }
+    case PROP_QUANTIZER:{
+      guint new_quantizer = g_value_get_uint (value);
+      if (priv->quantizer != new_quantizer) {
+        priv->quantizer = new_quantizer;
+        gaeguli_target_update_baseline_parameters (self, FALSE);
+        g_object_notify_by_pspec (object, pspec);
+      }
       break;
+    }
     case PROP_IDR_PERIOD:
       priv->idr_period = g_value_get_uint (value);
       break;
@@ -506,7 +516,8 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
   g_object_class_install_property (gobject_class, PROP_BITRATE,
       g_param_spec_uint ("bitrate", "requested video bitrate",
           "requested video bitrate", 1, G_MAXUINT, DEFAULT_VIDEO_BITRATE,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
+          G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_BITRATE_ACTUAL,
       g_param_spec_uint ("bitrate-actual", "actual video bitrate",
@@ -517,7 +528,8 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_param_spec_uint ("quantizer", "Constant quantizer or quality to apply",
           "Constant quantizer or quality to apply",
           1, G_MAXUINT, 21,
-          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS));
+          G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
+          G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_QUANTIZER_ACTUAL,
       g_param_spec_uint ("quantizer-actual",
