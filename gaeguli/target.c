@@ -624,3 +624,66 @@ gaeguli_target_unlink (GaeguliTarget * self)
         _unlink_probe_cb, g_object_ref (self), (GDestroyNotify) g_object_unref);
   }
 }
+
+
+static GVariant *
+_convert_gst_structure_to (GstStructure * s)
+{
+  g_autoptr (GVariantDict) dict = g_variant_dict_new (NULL);
+  gint i = 0;
+
+  for (i = 0; i < gst_structure_n_fields (s); i++) {
+    const gchar *fname = gst_structure_nth_field_name (s, i);
+    const GValue *v = NULL;
+    g_autoptr (GVariant) variant = NULL;
+
+    const GVariantType *variant_type = NULL;
+
+    v = gst_structure_get_value (s, fname);
+
+    switch (G_VALUE_TYPE (v)) {
+      case G_TYPE_INT:
+        variant_type = G_VARIANT_TYPE_INT32;
+        break;
+      case G_TYPE_UINT:
+        variant_type = G_VARIANT_TYPE_UINT32;
+        break;
+      case G_TYPE_UINT64:
+        variant_type = G_VARIANT_TYPE_UINT64;
+        break;
+      case G_TYPE_INT64:
+        variant_type = G_VARIANT_TYPE_INT64;
+        break;
+      case G_TYPE_DOUBLE:
+        variant_type = G_VARIANT_TYPE_DOUBLE;
+        break;
+      default:
+        g_warning ("unsupported type was detected (%s)", G_VALUE_TYPE_NAME (v));
+        goto out;
+    }
+
+    variant = g_dbus_gvalue_to_gvariant (v, variant_type);
+    g_variant_dict_insert_value (dict, fname, variant);
+
+  }
+
+out:
+  return g_variant_dict_end (dict);
+}
+
+GVariant *
+gaeguli_target_get_stats (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  g_autoptr (GstStructure) s = NULL;
+
+  g_return_val_if_fail (GAEGULI_IS_TARGET (self), NULL);
+
+  if (priv->srtsink) {
+    g_object_get (priv->srtsink, "stats", &s, NULL);
+    return _convert_gst_structure_to (s);
+  }
+
+  return NULL;
+}

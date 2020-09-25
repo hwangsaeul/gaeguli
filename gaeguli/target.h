@@ -75,6 +75,9 @@ void                    gaeguli_target_unlink        (GaeguliTarget        *self
  */
 guint64                 gaeguli_target_get_bytes_sent (GaeguliTarget       *self);
 
+
+GVariant               *gaeguli_target_get_stats      (GaeguliTarget       *self);
+
 G_END_DECLS
 
 #endif // __GAEGULI_TARGET_H__
