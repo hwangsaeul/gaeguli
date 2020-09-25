@@ -271,7 +271,7 @@ gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
     g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
   }
 
-  if (priv->adaptive_streaming || force_on_encoder) {
+  if (priv->adaptive_streaming == FALSE || force_on_encoder) {
     /* Apply directly on the encoder */
     _set_encoding_parameters (priv->encoder, params);
   }
