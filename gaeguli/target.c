@@ -277,6 +277,18 @@ gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
   }
 }
 
+typedef struct
+{
+  GObject *target;
+  GParamSpec *pspec;
+} NotifyData;
+
+static void
+_notify_encoder_change (NotifyData * data)
+{
+  g_object_notify_by_pspec (data->target, data->pspec);
+}
+
 static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
@@ -294,6 +306,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   GaeguliEncodingMethod encoding_method;
   GType adaptor_type;
   GstStateChangeReturn res;
+  NotifyData *notify_data;
 
   owner = g_weak_ref_get (&priv->gaeguli_pipeline);
   if (!owner) {
@@ -344,6 +357,20 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
       NULL);
 
   priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
+
+  notify_data = g_new (NotifyData, 1);
+  notify_data->target = G_OBJECT (self);
+  notify_data->pspec = properties[PROP_BITRATE_ACTUAL];
+  g_signal_connect_closure (priv->encoder, "notify::bitrate",
+      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+          (GClosureNotify) g_free), FALSE);
+
+  notify_data = g_new (NotifyData, 1);
+  notify_data->target = G_OBJECT (self);
+  notify_data->pspec = properties[PROP_QUANTIZER_ACTUAL];
+  g_signal_connect_closure (priv->encoder, "notify::quantizer",
+      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+          (GClosureNotify) g_free), FALSE);
 
   priv->adaptor = g_object_new (adaptor_type, "srtsink", priv->srtsink,
       "enabled", priv->adaptive_streaming, NULL);
