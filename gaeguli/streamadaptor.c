@@ -116,6 +116,15 @@ gaeguli_stream_adaptor_set_stats_interval (GaeguliStreamAdaptor * self,
   }
 }
 
+gboolean
+gaeguli_stream_adaptor_is_enabled (GaeguliStreamAdaptor * self)
+{
+  GaeguliStreamAdaptorPrivate *priv =
+      gaeguli_stream_adaptor_get_instance_private (self);
+
+  return priv->stats_timeout_id != 0;
+}
+
 const GstStructure *
 gaeguli_stream_adaptor_get_baseline_parameters (GaeguliStreamAdaptor * self)
 {
@@ -212,7 +221,7 @@ gaeguli_stream_adaptor_get_property (GObject * object, guint property_id,
       g_value_set_uint (value, priv->stats_interval);
       break;
     case PROP_ENABLED:
-      g_value_set_boolean (value, priv->stats_timeout_id != 0);
+      g_value_set_boolean (value, gaeguli_stream_adaptor_is_enabled (self));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
