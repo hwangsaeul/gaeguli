@@ -490,12 +490,18 @@ gaeguli_target_set_property (GObject * object,
     case PROP_USERNAME:
       priv->username = g_value_dup_string (value);
       break;
-    case PROP_ADAPTIVE_STREAMING:
-      priv->adaptive_streaming = g_value_get_boolean (value);
-      if (priv->adaptor) {
-        g_object_set (priv->adaptor, "enabled", priv->adaptive_streaming, NULL);
+    case PROP_ADAPTIVE_STREAMING:{
+      gboolean new_adaptive_streaming = g_value_get_boolean (value);
+      if (priv->adaptive_streaming != new_adaptive_streaming) {
+        priv->adaptive_streaming = new_adaptive_streaming;
+        if (priv->adaptor) {
+          g_object_set (priv->adaptor, "enabled", priv->adaptive_streaming,
+              NULL);
+        }
+        g_object_notify_by_pspec (object, pspec);
       }
       break;
+    }
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -588,7 +594,8 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
   properties[PROP_ADAPTIVE_STREAMING] =
       g_param_spec_boolean ("adaptive-streaming", "Use adaptive streaming",
       "Use adaptive streaming", TRUE,
-      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
+      G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
       properties);
