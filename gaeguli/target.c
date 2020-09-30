@@ -198,6 +198,25 @@ _get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
   return result;
 }
 
+static GstPadProbeReturn
+_change_quantizer (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+{
+  GstElement *encoder = GST_PAD_PARENT (GST_PAD_PEER (pad));
+  GstState cur_state;
+
+  gst_element_get_state (encoder, &cur_state, NULL, 0);
+  if (cur_state == GST_STATE_PLAYING) {
+    gst_element_set_state (encoder, GST_STATE_READY);
+  }
+  g_object_set (encoder, "quantizer", GPOINTER_TO_UINT (user_data), NULL);
+
+  if (cur_state == GST_STATE_PLAYING) {
+    gst_element_set_state (encoder, GST_STATE_PLAYING);
+  }
+
+  return GST_PAD_PROBE_REMOVE;
+}
+
 static void
 _set_encoding_parameters (GstElement * encoder, GstStructure * params)
 {
@@ -223,16 +242,11 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
       g_object_get (encoder, "quantizer", &cur_quantizer, NULL);
 
       if (val != cur_quantizer) {
-        GstState cur_state;
+        g_autoptr (GstPad) sinkpad =
+            gst_element_get_static_pad (encoder, "sink");
 
-        gst_element_get_state (encoder, &cur_state, NULL, 0);
-        if (cur_state == GST_STATE_PLAYING) {
-          gst_element_set_state (encoder, GST_STATE_READY);
-        }
-        g_object_set (encoder, "quantizer", val, NULL);
-        if (cur_state == GST_STATE_PLAYING) {
-          gst_element_set_state (encoder, GST_STATE_PLAYING);
-        }
+        gst_pad_add_probe (GST_PAD_PEER (sinkpad), GST_PAD_PROBE_TYPE_BLOCK,
+            _change_quantizer, GUINT_TO_POINTER (val), NULL);
       }
     }
   } else if (g_str_equal (encoder_type, "x265enc")) {
