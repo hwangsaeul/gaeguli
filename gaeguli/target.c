@@ -567,7 +567,7 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
   properties[PROP_QUANTIZER] =
       g_param_spec_uint ("quantizer", "Constant quantizer or quality to apply",
       "Constant quantizer or quality to apply",
-      1, G_MAXUINT, 21,
+      0, 50, 21,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
       G_PARAM_STATIC_STRINGS);
 
