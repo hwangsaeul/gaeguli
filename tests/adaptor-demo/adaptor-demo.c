@@ -114,6 +114,19 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
 }
 
 static void
+gaeguli_adaptor_demo_on_msg_property (GaeguliAdaptorDemo * self,
+    JsonObject * msg)
+{
+  const gchar *name = json_object_get_string_member (msg, "name");
+  g_autoptr (GError) error = NULL;
+
+  if (g_str_equal (name, "bitrate") || g_str_equal (name, "quantizer")) {
+    g_object_set (self->target, name, json_object_get_int_member (msg, "value"),
+        NULL);
+  }
+}
+
+static void
 gaeguli_adaptor_demo_init (GaeguliAdaptorDemo * self)
 {
   g_autoptr (GResolver) resolver = g_resolver_get_default ();
@@ -135,6 +148,8 @@ gaeguli_adaptor_demo_init (GaeguliAdaptorDemo * self)
 
   g_signal_connect_swapped (self->http_server, "message::stream",
       G_CALLBACK (gaeguli_adaptor_demo_on_msg_stream), self);
+  g_signal_connect_swapped (self->http_server, "message::property",
+      G_CALLBACK (gaeguli_adaptor_demo_on_msg_property), self);
 }
 
 static void

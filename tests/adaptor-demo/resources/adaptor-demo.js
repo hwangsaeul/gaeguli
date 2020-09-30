@@ -43,12 +43,8 @@ class Client {
     this.__sendRequest('stream', { state: state })
   }
 
-  answer(sdp) {
-    this.__sendRequest('answer', { sdp: sdp })
-  }
-
-  candidate(candidate) {
-    this.__sendRequest('candidate', {candidate: candidate.toJSON()})
+  property(name, value) {
+    this.__sendRequest('property', { name: name, value: value })
   }
 
   __sendRequest(type, args) {
@@ -67,8 +63,14 @@ export class AdaptorDemo {
 
     this.__signaling = new Client()
     this.__signaling.onproperty = msg => {
-      document.getElementById(msg.name).innerText = msg.value
+      var element = document.getElementById(msg.name)
+      element.value = msg.value
+      element.dispatchEvent(new Event ('change'))
     }
     this.__signaling.connect()
+  }
+
+  property(name, value) {
+    this.__signaling.property(name, value)
   }
 }
