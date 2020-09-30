@@ -54,6 +54,20 @@ G_DEFINE_TYPE (GaeguliTestAdaptor, gaeguli_test_adaptor,
 /* *INDENT-ON* */
 
 static void
+_on_encoder_property_change (GObject * encoder, GParamSpec * pspec,
+    gpointer user_data)
+{
+  guint bitrate, quantizer;
+
+  g_object_get (encoder, "bitrate", &bitrate, "quantizer", &quantizer, NULL);
+  /* x264enc takes bitrate in kbps */
+  if (bitrate == TEST_BITRATE1 / 1000 && quantizer == TEST_QUANTIZATION) {
+    g_debug ("Stopping the main loop");
+    g_main_loop_quit (loop);
+  }
+}
+
+static void
 gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
     GstStructure * stats)
 {
@@ -109,14 +123,8 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
   if (--test_adaptor->callbacks_left == 0) {
     g_autoptr (GstElement) srtsink = NULL;
     g_autoptr (GstElement) encoder = NULL;
-    guint bitrate, quantizer;
 
     g_debug ("Invoking change of encoding parameters");
-
-    gaeguli_stream_adaptor_signal_encoding_parameters (self,
-        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, TEST_BITRATE1,
-        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, TEST_QUANTIZATION,
-        NULL);
 
     g_object_get (self, "srtsink", &srtsink, NULL);
 
@@ -124,10 +132,13 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
         "enc");
     g_assert_nonnull (encoder);
 
-    g_object_get (encoder, "bitrate", &bitrate, "quantizer", &quantizer, NULL);
-    /* x264enc takes bitrate in kbps */
-    g_assert_cmpint (bitrate, ==, TEST_BITRATE1 / 1000);
-    g_assert_cmpint (quantizer, ==, TEST_QUANTIZATION);
+    g_signal_connect (encoder, "notify",
+        G_CALLBACK (_on_encoder_property_change), NULL);
+
+    gaeguli_stream_adaptor_signal_encoding_parameters (self,
+        GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, TEST_BITRATE1,
+        GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, TEST_QUANTIZATION,
+        NULL);
   }
 }
 
@@ -153,9 +164,6 @@ _on_encoding_parameters (GaeguliTestAdaptor * adaptor, GstStructure * params,
   g_assert_true (gst_structure_get_uint (params,
           GAEGULI_ENCODING_PARAMETER_QUANTIZER, &val));
   g_assert_cmpint (val, ==, TEST_QUANTIZATION);
-
-  g_debug ("Stopping the main loop");
-  g_main_loop_quit (loop);
 }
 
 static void
