@@ -4,35 +4,45 @@
     <meta charset="utf-8">
     <link rel="stylesheet" href="style.css">
   </head>
-  <body>
+  <body onload="document.getElementById('demo_form').reset();">
     <header>
     </header>
-    <div id="demo_form">
+    <form id="demo_form">
       <input type="checkbox" id="stream_toggle"/>
       <label for="toggle_stream">Stream</label>
       <table>
         <tr>
           <td><b>SRT URI:</b></td>
-          <td id="srt-uri"></td>
+          <td><input type="text" id="srt-uri" disabled/></td>
         </tr>
         <tr>
           <td><b>Bitrate:</b></td>
-          <td id="bitrate"></td>
+          <td><input type="text" id="bitrate-text" disabled/> kbps</td>
+          <td>
+            <input type="range" id="bitrate-range" min="1" max="20000"/>
+            <input type="hidden" id="bitrate"/>
+          </td>
+          <td><button type="button" id="bitrate-submit">Submit</button></td>
         </tr>
         <tr>
           <td><b>Actual bitrate:</b></td>
-          <td id="bitrate-actual"></td>
+          <td>
+            <input type="text" id="bitrate-actual-text" disabled/> kbps
+            <input type="hidden" id="bitrate-actual"/>
+          </td>
         </tr>
         <tr>
           <td><b>Quantizer:</b></td>
-          <td id="quantizer"></td>
+          <td><input type="text" id="quantizer-text" disabled/></td>
+          <td><input type="range" id="quantizer" min="0" max="50"/></td>
+          <td><button type="button" id="quantizer-submit">Submit</button></td>
         </tr>
         <tr>
           <td><b>Actual quantizer:</b></td>
-          <td id="quantizer-actual"></td>
+          <td><input type="text" id="quantizer-actual" disabled></td>
         </tr>
       </table>
-    </div>
+    </form>
     <footer>
     </footer>
 
@@ -42,6 +52,26 @@
       import * as gaeguli from './adaptor-demo.js'
 
       var demo = new gaeguli.AdaptorDemo(document.getElementById("demo_form"))
+
+      document.getElementById("bitrate").onchange = (event) => {
+        document.getElementById("bitrate-range").value = event.target.value / 1000
+        document.getElementById("bitrate-text").value = event.target.value / 1000
+      }
+      document.getElementById("bitrate-range").onchange = (event) => {
+        document.getElementById("bitrate-text").value = event.target.value
+      }
+      document.getElementById("bitrate-submit").onclick = () => {
+        demo.property("bitrate", document.getElementById("bitrate-range").value * 1000)
+      }
+      document.getElementById("bitrate-actual").onchange = (event) => {
+        document.getElementById("bitrate-actual-text").value = event.target.value / 1000
+      }
+      document.getElementById("quantizer").onchange = (event) => {
+        document.getElementById("quantizer-text").value = event.target.value
+      }
+      document.getElementById("quantizer-submit").onclick = () => {
+        demo.property("quantizer", parseInt(document.getElementById("quantizer").value))
+      }
     </script>
   </body>
 </html>

@@ -3,5 +3,6 @@
   <gresource prefix="/">
     <file>adaptor-demo.js</file>
     <file>index.html</file>
+    <file>style.css</file>
   </gresource>
 </gresources>
