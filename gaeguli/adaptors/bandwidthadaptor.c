@@ -49,6 +49,13 @@ gaeguli_bandwidth_adaptor_on_stats (GaeguliStreamAdaptor * adaptor,
 
   gdouble srt_bandwidth;
 
+  if (gst_structure_has_field (stats, "callers")) {
+    GValueArray *array;
+
+    array = g_value_get_boxed (gst_structure_get_value (stats, "callers"));
+    stats = g_value_get_boxed (&array->values[array->n_values - 1]);
+  }
+
   if (gst_structure_get_double (stats, "bandwidth-mbps", &srt_bandwidth)) {
     gint new_bitrate = self->current_bitrate;
 
