@@ -19,6 +19,10 @@
 
 #include "config.h"
 
+/* GValueArray is deprecated since GLib 2.32 but srtsink returns it in "stats"
+ * structure. */
+#define GLIB_DISABLE_DEPRECATION_WARNINGS
+
 #include "target.h"
 
 #include "enumtypes.h"
@@ -785,6 +789,22 @@ gaeguli_target_unlink (GaeguliTarget * self)
   }
 }
 
+static GVariant *_convert_gst_structure_to (GstStructure * s);
+
+static GVariant *
+_convert_value_array_to (GValueArray * a)
+{
+  g_autofree GVariant **children = g_new0 (GVariant *, a->n_values);
+  guint i;
+
+  for (i = 0; i != a->n_values; ++i) {
+    children[i] = _convert_gst_structure_to
+        (g_value_get_boxed (g_value_array_get_nth (a, i)));
+  }
+
+  return g_variant_ref_sink
+      (g_variant_new_array (G_VARIANT_TYPE_VARDICT, children, a->n_values));
+}
 
 static GVariant *
 _convert_gst_structure_to (GstStructure * s)
@@ -797,34 +817,40 @@ _convert_gst_structure_to (GstStructure * s)
     const GValue *v = NULL;
     g_autoptr (GVariant) variant = NULL;
 
-    const GVariantType *variant_type = NULL;
-
     v = gst_structure_get_value (s, fname);
 
-    switch (G_VALUE_TYPE (v)) {
-      case G_TYPE_INT:
-        variant_type = G_VARIANT_TYPE_INT32;
-        break;
-      case G_TYPE_UINT:
-        variant_type = G_VARIANT_TYPE_UINT32;
-        break;
-      case G_TYPE_UINT64:
-        variant_type = G_VARIANT_TYPE_UINT64;
-        break;
-      case G_TYPE_INT64:
-        variant_type = G_VARIANT_TYPE_INT64;
-        break;
-      case G_TYPE_DOUBLE:
-        variant_type = G_VARIANT_TYPE_DOUBLE;
-        break;
-      default:
-        g_warning ("unsupported type was detected (%s)", G_VALUE_TYPE_NAME (v));
-        goto out;
+    if (G_TYPE_IS_FUNDAMENTAL (G_VALUE_TYPE (v))) {
+      const GVariantType *variant_type = NULL;
+
+      switch (G_VALUE_TYPE (v)) {
+        case G_TYPE_INT:
+          variant_type = G_VARIANT_TYPE_INT32;
+          break;
+        case G_TYPE_UINT:
+          variant_type = G_VARIANT_TYPE_UINT32;
+          break;
+        case G_TYPE_UINT64:
+          variant_type = G_VARIANT_TYPE_UINT64;
+          break;
+        case G_TYPE_INT64:
+          variant_type = G_VARIANT_TYPE_INT64;
+          break;
+        case G_TYPE_DOUBLE:
+          variant_type = G_VARIANT_TYPE_DOUBLE;
+          break;
+      }
+
+      variant = g_dbus_gvalue_to_gvariant (v, variant_type);
+    } else if (G_VALUE_HOLDS (v, G_TYPE_VALUE_ARRAY)) {
+      variant = _convert_value_array_to (g_value_get_boxed (v));
     }
 
-    variant = g_dbus_gvalue_to_gvariant (v, variant_type);
-    g_variant_dict_insert_value (dict, fname, variant);
+    if (!variant) {
+      g_warning ("unsupported type was detected (%s)", G_VALUE_TYPE_NAME (v));
+      goto out;
+    }
 
+    g_variant_dict_insert_value (dict, fname, variant);
   }
 
 out:
