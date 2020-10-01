@@ -360,7 +360,7 @@ test_gaeguli_adaptor_bandwidth ()
   dummysrt = gaeguli_dummy_srtsink_new ();
   initial_params =
       gst_structure_new ("application/x-gaeguli-encoding-parameters",
-      GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, 1000, NULL);
+      GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, 1000000, NULL);
 
   adaptor = gaeguli_bandwidth_stream_adaptor_new (GST_ELEMENT (dummysrt),
       initial_params);
@@ -371,7 +371,7 @@ test_gaeguli_adaptor_bandwidth ()
   /* Bandwidth equals default - parameter change should not trigger. */
 
   gaeguli_dummy_srtsink_set_stats (dummysrt, "bandwidth-mbps", G_TYPE_DOUBLE,
-      1000.0, NULL);
+      1.0, NULL);
 
   g_timeout_add (3 * STATS_INTERVAL_MS, (GSourceFunc) _quit_main_loop, loop);
 
@@ -382,7 +382,7 @@ test_gaeguli_adaptor_bandwidth ()
   /* Bandwidth higher than default - parameter change should not trigger. */
 
   gaeguli_dummy_srtsink_set_stats (dummysrt, "bandwidth-mbps", G_TYPE_DOUBLE,
-      5000.0, NULL);
+      5.0, NULL);
 
   g_timeout_add (3 * STATS_INTERVAL_MS, (GSourceFunc) _quit_main_loop, loop);
 
@@ -394,7 +394,7 @@ test_gaeguli_adaptor_bandwidth ()
    * not trigger. */
 
   gaeguli_dummy_srtsink_set_stats (dummysrt, "bandwidth-mbps", G_TYPE_DOUBLE,
-      950.0, NULL);
+      0.95, NULL);
 
   g_timeout_add (3 * STATS_INTERVAL_MS, (GSourceFunc) _quit_main_loop, loop);
 
@@ -403,11 +403,11 @@ test_gaeguli_adaptor_bandwidth ()
   g_assert_false (data.params_change_triggered);
 
   /* Bandwidth lower than default by more than 10% - bitrate should change to
-   * 800 Mpbs. */
+   * 800 kbps. */
 
   gaeguli_dummy_srtsink_set_stats (dummysrt, "bandwidth-mbps", G_TYPE_DOUBLE,
-      800.0, NULL);
-  data.expected_bitrate = 800;
+      0.8, NULL);
+  data.expected_bitrate = 800000;
 
   g_main_loop_run (loop);
 
@@ -417,8 +417,8 @@ test_gaeguli_adaptor_bandwidth ()
    * default. */
 
   gaeguli_dummy_srtsink_set_stats (dummysrt, "bandwidth-mbps", G_TYPE_DOUBLE,
-      2000.0, NULL);
-  data.expected_bitrate = 1000;
+      2.0, NULL);
+  data.expected_bitrate = 1000000;
 
   g_main_loop_run (loop);
 
