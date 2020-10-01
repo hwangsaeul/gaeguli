@@ -673,12 +673,18 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   gst_element_add_pad (GST_ELEMENT_PARENT (GST_PAD_PARENT (priv->peer_pad)),
       ghost_pad);
 
+  g_debug ("created ghost pad for [%x]", self->id);
+
   gst_element_sync_state_with_parent (self->pipeline);
   if (gst_pad_link (ghost_pad, priv->sinkpad) != GST_PAD_LINK_OK) {
     g_error ("failed to link target to Gaeguli pipeline");
   }
 
+  g_debug ("finished link target [%x]", self->id);
+
   g_signal_emit (self, signals[SIG_STREAM_STARTED], 0);
+
+  g_debug ("emitted \"stream-started\" for [%x]", self->id);
 
   return GST_PAD_PROBE_REMOVE;
 }
