@@ -16,6 +16,7 @@
  */
 
 #include <gaeguli/gaeguli.h>
+#include <gaeguli/adaptors/bandwidthadaptor.h>
 #include <json-glib/json-glib.h>
 
 #include "adaptor-demo.h"
@@ -188,6 +189,9 @@ gaeguli_adaptor_demo_init (GaeguliAdaptorDemo * self)
   self->pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_V4L2SRC,
       "/dev/video4", GAEGULI_ENCODING_METHOD_GENERAL);
   self->http_server = gaeguli_http_server_new ();
+
+  g_object_set (self->pipeline, "stream-adaptor",
+      GAEGULI_TYPE_BANDWIDTH_STREAM_ADAPTOR, NULL);
 
   addresses = g_resolver_lookup_by_name (resolver, g_get_host_name (), NULL,
       &error);
