@@ -179,9 +179,17 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
     case PROP_SRTSINK:
       priv->srtsink = g_value_dup_object (value);
       break;
-    case PROP_BASELINE_PARAMETERS:
+    case PROP_BASELINE_PARAMETERS:{
+      GaeguliStreamAdaptorClass *klass =
+          GAEGULI_STREAM_ADAPTOR_GET_CLASS (self);
+
       priv->baseline_parameters = g_value_dup_boxed (value);
+
+      if (klass->on_baseline_update) {
+        klass->on_baseline_update (self, priv->baseline_parameters);
+      }
       break;
+    }
     case PROP_STATS_INTERVAL:
       gaeguli_stream_adaptor_set_stats_interval (self,
           g_value_get_uint (value));
