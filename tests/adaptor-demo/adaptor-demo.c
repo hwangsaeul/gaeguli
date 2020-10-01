@@ -29,6 +29,7 @@ struct _GaeguliAdaptorDemo
   GaeguliTarget *target;
   GaeguliHttpServer *http_server;
   gchar *srt_uri;
+  guint stats_timeout_id;
 };
 
 /* *INDENT-OFF* */
@@ -58,6 +59,53 @@ gaeguli_adaptor_demo_on_property_changed (GaeguliAdaptorDemo * self,
   gaeguli_http_server_send_property (self->http_server, pspec->name, &value);
 
   g_value_unset (&value);
+}
+
+gboolean
+gaeguli_adaptor_demo_process_stats (GaeguliAdaptorDemo * self)
+{
+  g_autoptr (GVariant) variant = NULL;
+  GVariantDict d;
+
+  gint64 packets_sent = 0;
+  gint packets_sent_lost = 0;
+  gdouble bandwidth_mbps = 0;
+  gdouble send_rate_mbps = 0;
+
+  variant = gaeguli_target_get_stats (self->target);
+
+  g_variant_dict_init (&d, variant);
+
+  if (g_variant_dict_contains (&d, "callers")) {
+    GVariant *array;
+    GVariant *caller_variant;
+
+    array = g_variant_dict_lookup_value (&d, "callers", G_VARIANT_TYPE_ARRAY);
+    /* Use the last caller in the array for display. */
+    caller_variant = g_variant_get_child_value (array,
+        g_variant_n_children (array) - 1);
+
+    g_variant_dict_clear (&d);
+    g_variant_dict_init (&d, caller_variant);
+  }
+
+  g_variant_dict_lookup (&d, "packets-sent", "x", &packets_sent);
+  g_variant_dict_lookup (&d, "packets-sent-lost", "i", &packets_sent_lost);
+  g_variant_dict_lookup (&d, "send-rate-mbps", "d", &send_rate_mbps);
+  g_variant_dict_lookup (&d, "bandwidth-mbps", "d", &bandwidth_mbps);
+
+  g_variant_dict_clear (&d);
+
+  gaeguli_http_server_send_property_uint (self->http_server,
+      "srt-packets-sent", packets_sent);
+  gaeguli_http_server_send_property_uint (self->http_server,
+      "srt-packets-sent-lost", packets_sent_lost);
+  gaeguli_http_server_send_property_uint (self->http_server,
+      "srt-send-rate", send_rate_mbps * 1e6);
+  gaeguli_http_server_send_property_uint (self->http_server,
+      "srt-bandwidth", bandwidth_mbps * 1e6);
+
+  return G_SOURCE_CONTINUE;
 }
 
 static void
@@ -98,9 +146,13 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
             (G_CALLBACK (gaeguli_adaptor_demo_on_property_changed), self,
                 NULL), FALSE);
       }
+
+      self->stats_timeout_id = g_timeout_add (500,
+          (GSourceFunc) gaeguli_adaptor_demo_process_stats, self);
     }
   } else {
     if (self->target) {
+      g_clear_handle_id (&self->stats_timeout_id, g_source_remove);
       gaeguli_pipeline_remove_target (self->pipeline, self->target, &error);
       if (error) {
         g_printerr ("Unable to remove SRT target: %s\n", error->message);
@@ -157,6 +209,7 @@ gaeguli_adaptor_demo_dispose (GObject * object)
 {
   GaeguliAdaptorDemo *self = GAEGULI_ADAPTOR_DEMO (object);
 
+  g_clear_handle_id (&self->stats_timeout_id, g_source_remove);
   g_clear_object (&self->http_server);
 
   gaeguli_pipeline_stop (self->pipeline);
