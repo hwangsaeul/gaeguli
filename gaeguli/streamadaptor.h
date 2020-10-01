@@ -42,6 +42,8 @@ struct _GaeguliStreamAdaptorClass
 
   void      (* on_stats)                 (GaeguliStreamAdaptor * self,
                                           GstStructure * stats);
+  void      (* on_baseline_update)       (GaeguliStreamAdaptor * self,
+                                          GstStructure * baseline_parameters);
 };
 
 gboolean                gaeguli_stream_adaptor_is_enabled
