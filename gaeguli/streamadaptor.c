@@ -144,7 +144,7 @@ gaeguli_stream_adaptor_get_baseline_parameter_uint (GaeguliStreamAdaptor * self,
 {
   const GstStructure *s = gaeguli_stream_adaptor_get_baseline_parameters (self);
 
-  return gst_structure_get_uint (s, name, value);
+  return s ? gst_structure_get_uint (s, name, value) : FALSE;
 }
 
 void
