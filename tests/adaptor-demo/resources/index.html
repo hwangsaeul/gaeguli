@@ -41,6 +41,28 @@
           <td><b>Actual quantizer:</b></td>
           <td><input type="text" id="quantizer-actual" disabled></td>
         </tr>
+        <tr>
+          <td><b>SRT packets sent:</b></td>
+          <td><input type="text" id="srt-packets-sent" disabled/></td>
+        </tr>
+        <tr>
+          <td><b>SRT lost packets:</b></td>
+          <td><input type="text" id="srt-packets-sent-lost" disabled/></td>
+        </tr>
+        <tr>
+          <td><b>SRT send rate:</b></td>
+          <td>
+            <input type="text" id="srt-send-rate-text" disabled/> kbps
+            <input type="hidden" id="srt-send-rate"/>
+          </td>
+        </tr>
+        <tr>
+          <td><b>SRT measured bandwidth:</b></td>
+          <td>
+            <input type="text" id="srt-bandwidth-text" disabled/> kbps
+            <input type="hidden" id="srt-bandwidth"/>
+          </td>
+        </tr>
       </table>
     </form>
     <footer>
@@ -71,6 +93,12 @@
       }
       document.getElementById("quantizer-submit").onclick = () => {
         demo.property("quantizer", parseInt(document.getElementById("quantizer").value))
+      }
+      document.getElementById("srt-send-rate").onchange = (event) => {
+        document.getElementById("srt-send-rate-text").value = event.target.value / 1000
+      }
+      document.getElementById("srt-bandwidth").onchange = (event) => {
+        document.getElementById("srt-bandwidth-text").value = event.target.value / 1000
       }
     </script>
   </body>
