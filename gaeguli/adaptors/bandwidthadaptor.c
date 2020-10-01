@@ -91,6 +91,29 @@ gaeguli_bandwidth_adaptor_on_stats (GaeguliStreamAdaptor * adaptor,
 }
 
 static void
+gaeguli_bandwidth_adaptor_on_baseline_update (GaeguliStreamAdaptor * adaptor,
+    GstStructure * baseline_params)
+{
+  GaeguliBandwidthStreamAdaptor *self =
+      GAEGULI_BANDWIDTH_STREAM_ADAPTOR (adaptor);
+
+  guint new_bitrate;
+
+  gst_structure_get_uint (baseline_params, GAEGULI_ENCODING_PARAMETER_BITRATE,
+      &new_bitrate);
+
+  if (new_bitrate < self->current_bitrate) {
+    self->current_bitrate = new_bitrate;
+
+    if (gaeguli_stream_adaptor_is_enabled (adaptor)) {
+      gaeguli_stream_adaptor_signal_encoding_parameters (adaptor,
+          GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT,
+          self->current_bitrate, NULL);
+    }
+  }
+}
+
+static void
 gaeguli_bandwidth_stream_adaptor_init (GaeguliBandwidthStreamAdaptor * self)
 {
 }
@@ -118,4 +141,6 @@ gaeguli_bandwidth_stream_adaptor_class_init (GaeguliBandwidthStreamAdaptorClass
 
   gobject_class->constructed = gaeguli_bandwidth_stream_adaptor_constructed;
   streamadaptor_class->on_stats = gaeguli_bandwidth_adaptor_on_stats;
+  streamadaptor_class->on_baseline_update =
+      gaeguli_bandwidth_adaptor_on_baseline_update;
 }
