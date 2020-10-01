@@ -59,6 +59,9 @@ gaeguli_bandwidth_adaptor_on_stats (GaeguliStreamAdaptor * adaptor,
   if (gst_structure_get_double (stats, "bandwidth-mbps", &srt_bandwidth)) {
     gint new_bitrate = self->current_bitrate;
 
+    /* Convert to bits per second */
+    srt_bandwidth *= 1e6;
+
     if (srt_bandwidth < self->current_bitrate) {
       new_bitrate = srt_bandwidth;
     } else if (srt_bandwidth > self->current_bitrate) {
