@@ -21,6 +21,7 @@
 
 #include "adaptor-demo.h"
 #include "http-server.h"
+#include "traffic-control.h"
 
 struct _GaeguliAdaptorDemo
 {
@@ -28,6 +29,7 @@ struct _GaeguliAdaptorDemo
 
   GaeguliPipeline *pipeline;
   GaeguliTarget *target;
+  GaeguliTrafficControl *traffic_control;
   GaeguliHttpServer *http_server;
   gchar *srt_uri;
   guint stats_timeout_id;
@@ -113,6 +115,7 @@ static void
 gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
 {
   g_autoptr (GError) error = NULL;
+  GValue val = G_VALUE_INIT;
 
   if (json_object_get_boolean_member (msg, "state")) {
     if (!self->target) {
@@ -151,6 +154,18 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
 
       self->stats_timeout_id = g_timeout_add (500,
           (GSourceFunc) gaeguli_adaptor_demo_process_stats, self);
+
+      // TODO: select the right network interface
+      self->traffic_control = gaeguli_traffic_control_new ("lo");
+
+      g_object_get_property (G_OBJECT (self->traffic_control), "enabled", &val);
+      gaeguli_http_server_send_property (self->http_server, "tc-enabled", &val);
+      g_value_unset (&val);
+      g_object_get_property (G_OBJECT (self->traffic_control), "bandwidth",
+          &val);
+      gaeguli_http_server_send_property (self->http_server,
+          "tc-bandwidth", &val);
+      g_value_unset (&val);
     }
   } else {
     if (self->target) {
@@ -172,13 +187,22 @@ gaeguli_adaptor_demo_on_msg_property (GaeguliAdaptorDemo * self,
     JsonObject * msg)
 {
   const gchar *name = json_object_get_string_member (msg, "name");
+  GObject *receiver = NULL;
   g_autoptr (GError) error = NULL;
 
   if (g_str_equal (name, "bitrate") || g_str_equal (name, "quantizer") ||
       g_str_equal (name, "adaptive-streaming")) {
+    receiver = G_OBJECT (self->target);
+  } else if (g_str_equal (name, "tc-enabled") ||
+      g_str_equal (name, "tc-bandwidth")) {
+    receiver = G_OBJECT (self->traffic_control);
+    name += 3;
+  }
+
+  if (receiver) {
     GValue value = G_VALUE_INIT;
     json_node_get_value (json_object_get_member (msg, "value"), &value);
-    g_object_set_property (G_OBJECT (self->target), name, &value);
+    g_object_set_property (receiver, name, &value);
     g_value_unset (&value);
   }
 }

@@ -66,6 +66,21 @@
           </td>
         </tr>
       </table>
+      <table>
+        <tr>
+          <td><b>Traffic control:</b></td>
+          <td><input type="checkbox" id="tc-enabled"/></td>
+        </tr>
+        <tr>
+          <td><b>Bandwidth limit:</b></td>
+          <td><input type="text" id="tc-bandwidth-text" disabled/> kbps</td>
+          <td>
+            <input type="range" id="tc-bandwidth-range" min="256" max="20000"/>
+            <input type="hidden" id="tc-bandwidth"/>
+          </td>
+          <td><button type="button" id="tc-bandwidth-submit">Submit</button></td>
+        </tr>
+      </table>
     </form>
     <footer>
     </footer>
@@ -104,6 +119,19 @@
       }
       document.getElementById("srt-bandwidth").onchange = (event) => {
         document.getElementById("srt-bandwidth-text").value = event.target.value / 1000
+      }
+      document.getElementById("tc-enabled").onchange = (event) => {
+        demo.property("tc-enabled", document.getElementById("tc-enabled").checked)
+      }
+      document.getElementById("tc-bandwidth").onchange = (event) => {
+        document.getElementById("tc-bandwidth-range").value = event.target.value / 1000
+        document.getElementById("tc-bandwidth-text").value = event.target.value / 1000
+      }
+      document.getElementById("tc-bandwidth-range").onchange = (event) => {
+        document.getElementById("tc-bandwidth-text").value = event.target.value
+      }
+      document.getElementById("tc-bandwidth-submit").onclick = () => {
+        demo.property("tc-bandwidth", parseInt(document.getElementById("tc-bandwidth-range").value * 1000))
       }
     </script>
   </body>
