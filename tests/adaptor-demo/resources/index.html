@@ -10,6 +10,8 @@
     <form id="demo_form">
       <input type="checkbox" id="stream_toggle"/>
       <label for="toggle_stream">Stream</label>
+      <input type="checkbox" id="adaptive-streaming"/>
+      <label for="adaptive-streaming">Adaptive streaming</label>
       <table>
         <tr>
           <td><b>SRT URI:</b></td>
@@ -75,6 +77,9 @@
 
       var demo = new gaeguli.AdaptorDemo(document.getElementById("demo_form"))
 
+      document.getElementById("adaptive-streaming").onchange = (event) => {
+        demo.property("adaptive-streaming", document.getElementById("adaptive-streaming").checked)
+      }
       document.getElementById("bitrate").onchange = (event) => {
         document.getElementById("bitrate-range").value = event.target.value / 1000
         document.getElementById("bitrate-text").value = event.target.value / 1000
