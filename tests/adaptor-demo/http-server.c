@@ -234,6 +234,8 @@ gaeguli_http_server_send_property (GaeguliHttpServer * self, const gchar * name,
     json_builder_add_string_value (builder, g_value_get_string (value));
   } else if (G_VALUE_HOLDS_UINT (value)) {
     json_builder_add_int_value (builder, g_value_get_uint (value));
+  } else if (G_VALUE_HOLDS_BOOLEAN (value)) {
+    json_builder_add_boolean_value (builder, g_value_get_boolean (value));
   }
 
   json_builder_end_object (builder);

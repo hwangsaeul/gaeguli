@@ -64,7 +64,11 @@ export class AdaptorDemo {
     this.__signaling = new Client()
     this.__signaling.onproperty = msg => {
       var element = document.getElementById(msg.name)
-      element.value = msg.value
+      if (element.type == "checkbox") {
+        element.checked = msg.value
+      } else {
+        element.value = msg.value
+      }
       element.dispatchEvent(new Event ('change'))
     }
     this.__signaling.connect()

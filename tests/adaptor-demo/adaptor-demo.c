@@ -117,7 +117,8 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
   if (json_object_get_boolean_member (msg, "state")) {
     if (!self->target) {
       static const char *property_names[] = {
-        "bitrate", "bitrate-actual", "quantizer", "quantizer-actual"
+        "bitrate", "bitrate-actual", "quantizer", "quantizer-actual",
+        "adaptive-streaming"
       };
       GValue property_values[G_N_ELEMENTS (property_names)] = { 0 };
       guint notify_signal_id = g_signal_lookup ("notify", GAEGULI_TYPE_TARGET);
@@ -173,9 +174,12 @@ gaeguli_adaptor_demo_on_msg_property (GaeguliAdaptorDemo * self,
   const gchar *name = json_object_get_string_member (msg, "name");
   g_autoptr (GError) error = NULL;
 
-  if (g_str_equal (name, "bitrate") || g_str_equal (name, "quantizer")) {
-    g_object_set (self->target, name, json_object_get_int_member (msg, "value"),
-        NULL);
+  if (g_str_equal (name, "bitrate") || g_str_equal (name, "quantizer") ||
+      g_str_equal (name, "adaptive-streaming")) {
+    GValue value = G_VALUE_INIT;
+    json_node_get_value (json_object_get_member (msg, "value"), &value);
+    g_object_set_property (G_OBJECT (self->target), name, &value);
+    g_value_unset (&value);
   }
 }
 
