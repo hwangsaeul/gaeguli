@@ -99,6 +99,10 @@ gaeguli_bandwidth_adaptor_on_baseline_update (GaeguliStreamAdaptor * adaptor,
 
   guint new_bitrate;
 
+  if (!baseline_params) {
+    return;
+  }
+
   gst_structure_get_uint (baseline_params, GAEGULI_ENCODING_PARAMETER_BITRATE,
       &new_bitrate);
 
