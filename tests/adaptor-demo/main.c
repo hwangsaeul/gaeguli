@@ -17,6 +17,8 @@
 
 #include <glib-unix.h>
 
+#include "config.h"
+
 #include "adaptor-demo.h"
 
 static gboolean
@@ -30,9 +32,31 @@ int
 main (int argc, char *argv[])
 {
   g_autoptr (GMainLoop) loop = g_main_loop_new (NULL, FALSE);
-  g_autoptr (GaeguliAdaptorDemo) app = gaeguli_adaptor_demo_new ("/dev/video4");
+  g_autoptr (GaeguliAdaptorDemo) app = NULL;
+  g_autoptr (GError) error = NULL;
+
+  struct
+  {
+    const gchar *device;
+  } options;
+  g_autoptr (GOptionContext) context = NULL;
+  GOptionEntry entries[] = {
+    {"device", 'd', 0, G_OPTION_ARG_FILENAME, &options.device, NULL, NULL},
+    {NULL}
+  };
+
+  options.device = DEFAULT_VIDEO_SOURCE_DEVICE;
+
+  context = g_option_context_new (NULL);
+  g_option_context_add_main_entries (context, entries, NULL);
+  if (!g_option_context_parse (context, &argc, &argv, &error)) {
+    g_printerr ("%s\n", error->message);
+    return -1;
+  }
 
   g_unix_signal_add (SIGINT, sigint_handler, loop);
+
+  app = gaeguli_adaptor_demo_new (options.device);
 
   {
     g_autofree gchar *http_uri = gaeguli_adaptor_demo_get_control_uri (app);
