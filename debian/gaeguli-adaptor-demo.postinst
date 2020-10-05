@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+case "$1" in
+    configure)
+      if ! setcap cap_net_admin+ep /usr/libexec/gaeguli-tc-helper; then
+        echo "WARNING: 'setcap cap_net_admin+ep /usr/libexec/gaeguli-tc-helper' failed." 1>&2
+      fi
+    ;;
+esac
+
+#DEBHELPER#
