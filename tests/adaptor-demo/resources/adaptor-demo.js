@@ -56,11 +56,6 @@ class Client {
 
 export class AdaptorDemo {
   constructor() {
-    var streamToggle = document.getElementById("stream_toggle")
-    streamToggle.onchange = () => {
-      this.__signaling.stream (streamToggle.checked)
-    }
-
     this.__signaling = new Client()
     this.__signaling.onproperty = msg => {
       var element = document.getElementById(msg.name)
@@ -76,5 +71,9 @@ export class AdaptorDemo {
 
   property(name, value) {
     this.__signaling.property(name, value)
+  }
+  
+  stream(state) {
+    this.__signaling.stream(state)
   }
 }

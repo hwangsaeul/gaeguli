@@ -2,6 +2,18 @@ html {
   font-size: 14px;
 }
 
+table {
+  background: lightblue;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+fieldset {
+  border-width: 0px;
+  padding: 0px;
+  margin: 0px;
+}
+
 input {
   border: 0px;
   text-align: right;
@@ -9,5 +21,10 @@ input {
 }
 
 input:disabled {
-  background: transparent
+  color: blue;
+  background: transparent;
+}
+
+.largefont {
+  font-size: 20px;
 }
