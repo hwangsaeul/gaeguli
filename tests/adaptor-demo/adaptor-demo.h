@@ -26,7 +26,7 @@ G_DECLARE_FINAL_TYPE (GaeguliAdaptorDemo, gaeguli_adaptor_demo, GAEGULI,
     ADAPTOR_DEMO, GObject)
 
 GaeguliAdaptorDemo *
-gaeguli_adaptor_demo_new ();
+gaeguli_adaptor_demo_new (const gchar *v4l2_device);
 
 gchar *
 gaeguli_adaptor_demo_get_control_uri (GaeguliAdaptorDemo *self);
