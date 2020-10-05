@@ -31,6 +31,7 @@ struct _GaeguliAdaptorDemo
   GaeguliTarget *target;
   GaeguliTrafficControl *traffic_control;
   GaeguliHttpServer *http_server;
+  gchar *device;
   gchar *srt_uri;
   guint stats_timeout_id;
 };
@@ -39,10 +40,16 @@ struct _GaeguliAdaptorDemo
 G_DEFINE_TYPE (GaeguliAdaptorDemo, gaeguli_adaptor_demo, G_TYPE_OBJECT)
 /* *INDENT-ON* */
 
-GaeguliAdaptorDemo *
-gaeguli_adaptor_demo_new ()
+enum
 {
-  return GAEGULI_ADAPTOR_DEMO (g_object_new (GAEGULI_TYPE_ADAPTOR_DEMO, NULL));
+  PROP_DEVICE = 1,
+};
+
+GaeguliAdaptorDemo *
+gaeguli_adaptor_demo_new (const gchar * v4l2_device)
+{
+  return GAEGULI_ADAPTOR_DEMO (g_object_new (GAEGULI_TYPE_ADAPTOR_DEMO,
+          "device", v4l2_device, NULL));
 }
 
 gchar *
@@ -210,12 +217,19 @@ gaeguli_adaptor_demo_on_msg_property (GaeguliAdaptorDemo * self,
 static void
 gaeguli_adaptor_demo_init (GaeguliAdaptorDemo * self)
 {
+}
+
+static void
+gaeguli_adaptor_demo_constructed (GObject * object)
+{
+  GaeguliAdaptorDemo *self = GAEGULI_ADAPTOR_DEMO (object);
+
   g_autoptr (GResolver) resolver = g_resolver_get_default ();
   g_autolist (GInetAddress) addresses = NULL;
   g_autoptr (GError) error = NULL;
 
   self->pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_V4L2SRC,
-      "/dev/video4", GAEGULI_ENCODING_METHOD_GENERAL);
+      self->device, GAEGULI_ENCODING_METHOD_GENERAL);
   self->http_server = gaeguli_http_server_new ();
 
   g_object_set (self->pipeline, "stream-adaptor",
@@ -237,6 +251,22 @@ gaeguli_adaptor_demo_init (GaeguliAdaptorDemo * self)
 }
 
 static void
+gaeguli_adaptor_demo_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GaeguliAdaptorDemo *self = GAEGULI_ADAPTOR_DEMO (object);
+
+  switch (prop_id) {
+    case PROP_DEVICE:
+      self->device = g_value_dup_string (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
 gaeguli_adaptor_demo_dispose (GObject * object)
 {
   GaeguliAdaptorDemo *self = GAEGULI_ADAPTOR_DEMO (object);
@@ -246,6 +276,7 @@ gaeguli_adaptor_demo_dispose (GObject * object)
 
   gaeguli_pipeline_stop (self->pipeline);
   g_clear_object (&self->pipeline);
+  g_clear_pointer (&self->device, g_free);
   g_clear_pointer (&self->srt_uri, g_free);
 }
 
@@ -254,5 +285,12 @@ gaeguli_adaptor_demo_class_init (GaeguliAdaptorDemoClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
+  gobject_class->constructed = gaeguli_adaptor_demo_constructed;
+  gobject_class->set_property = gaeguli_adaptor_demo_set_property;
   gobject_class->dispose = gaeguli_adaptor_demo_dispose;
+
+  g_object_class_install_property (gobject_class, PROP_DEVICE,
+      g_param_spec_string ("device", "V4L2 device", "V4L2 device",
+          "/dev/video0",
+          G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 }

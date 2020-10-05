@@ -30,7 +30,7 @@ int
 main (int argc, char *argv[])
 {
   g_autoptr (GMainLoop) loop = g_main_loop_new (NULL, FALSE);
-  g_autoptr (GaeguliAdaptorDemo) app = gaeguli_adaptor_demo_new ();
+  g_autoptr (GaeguliAdaptorDemo) app = gaeguli_adaptor_demo_new ("/dev/video4");
 
   g_unix_signal_add (SIGINT, sigint_handler, loop);
 
