@@ -27,6 +27,15 @@ Description: Ultra-low latency SRT streamer
  Gæguli is an SRT streamer designed for edge devices that require
  strong security and ultra-low latency.
 
+Package: gaeguli-adaptor-demo
+Architecture: any
+Depends:
+ libgaeguli2 (= ${binary:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends},
+Description: Network adaptive streaming demo
+ An application demonstrating network adaptive streaming capabilities of Gæguli.
+
 Package: libgaeguli-dev
 Section: libdevel
 Architecture: any
