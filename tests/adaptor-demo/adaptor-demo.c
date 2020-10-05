@@ -135,7 +135,7 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
       gint i;
 
       self->target = gaeguli_pipeline_add_srt_target_full (self->pipeline,
-          GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_1920X1080, 30,
+          GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_1920X1080, 24,
           2048000, "srt://:7001?mode=listener", NULL, &error);
 
       if (error) {
