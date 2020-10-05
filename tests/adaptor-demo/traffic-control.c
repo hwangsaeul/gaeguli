@@ -17,7 +17,7 @@
 
 #include "traffic-control.h"
 
-#include <netlink/route/qdisc/tbf.h>
+#include <gst/gst.h>
 
 struct _GaeguliTrafficControl
 {
@@ -26,9 +26,6 @@ struct _GaeguliTrafficControl
   gchar *interface;
   guint bandwidth;
   gboolean enabled;
-
-  struct nl_sock *sock;
-  struct rtnl_qdisc *qdisc;
 };
 
 /* *INDENT-OFF* */
@@ -42,6 +39,8 @@ enum
   PROP_ENABLED,
 };
 
+const gchar *TC_HELPER = "gaeguli-tc-helper";
+
 GaeguliTrafficControl *
 gaeguli_traffic_control_new (const gchar * interface)
 {
@@ -52,53 +51,38 @@ gaeguli_traffic_control_new (const gchar * interface)
 static void
 gaeguli_traffic_control_update_bandwidth (GaeguliTrafficControl * self)
 {
-  int res;
+  gchar **argv;
+  gint exit_status;
+  g_autoptr (GError) error = NULL;
+  g_autofree gchar *dirname = NULL;
+  g_autofree gchar *tc_helper_path = NULL;
 
-  if (self->enabled) {
-    rtnl_qdisc_tbf_set_rate (self->qdisc, self->bandwidth / 8, 1500, 1);
-    rtnl_qdisc_tbf_set_limit_by_latency (self->qdisc, 50000);
+  dirname = g_path_get_dirname (gst_get_main_executable_path ());
+  tc_helper_path = g_build_filename (dirname, TC_HELPER, NULL);
 
-    res = rtnl_qdisc_add (self->sock, self->qdisc, NLM_F_CREATE);
-    if (res != 0) {
-      g_printerr ("rtnl_qdisc_add failed: %s\n", nl_geterror (res));
-    }
-  } else if (self->qdisc) {
-    rtnl_qdisc_delete (self->sock, self->qdisc);
+  if (!g_file_test (tc_helper_path, G_FILE_TEST_IS_EXECUTABLE)) {
+    g_free (tc_helper_path);
+    tc_helper_path = g_build_filename ("/usr/libexec", TC_HELPER, NULL);
   }
+  argv = g_new0 (gchar *, 4);
+  argv[0] = g_steal_pointer (&tc_helper_path);
+  argv[1] = g_strdup (self->interface);
+  argv[2] = g_strdup_printf ("%u", self->enabled ? self->bandwidth : 0);
+
+  g_spawn_sync (NULL, argv, NULL, G_SPAWN_DEFAULT, NULL, NULL, NULL, NULL,
+      &exit_status, &error);
+  if (error) {
+    g_printerr ("Unable to spawn tc-helper: %s\n", error->message);
+  } else if (exit_status != 0) {
+    g_printerr ("tc-helper exited with %d\n", exit_status);
+  }
+
+  g_strfreev (argv);
 }
 
 static void
 gaeguli_traffic_control_init (GaeguliTrafficControl * self)
 {
-}
-
-static void
-gaeguli_traffic_control_constructed (GObject * object)
-{
-  GaeguliTrafficControl *self = GAEGULI_TRAFFIC_CONTROL (object);
-
-  struct nl_cache *cache;
-  struct rtnl_link *link;
-  int res;
-
-  self->sock = nl_socket_alloc ();
-
-  res = nl_connect (self->sock, NETLINK_ROUTE);
-  if (res != 0) {
-    g_printerr ("nl_connect failed: %s\n", nl_geterror (res));
-    return;
-  }
-
-  rtnl_link_alloc_cache (self->sock, AF_UNSPEC, &cache);
-  link = rtnl_link_get_by_name (cache, self->interface);
-
-  self->qdisc = rtnl_qdisc_alloc ();
-  rtnl_tc_set_ifindex (TC_CAST (self->qdisc), rtnl_link_get_ifindex (link));
-  rtnl_tc_set_parent (TC_CAST (self->qdisc), TC_H_ROOT);
-  rtnl_tc_set_kind (TC_CAST (self->qdisc), "tbf");
-
-  rtnl_link_put (link);
-  nl_cache_put (cache);
 }
 
 static void
@@ -126,9 +110,10 @@ gaeguli_traffic_control_set_property (GObject * object, guint property_id,
 
       if (self->enabled != new_enabled) {
         self->enabled = new_enabled;
-        gaeguli_traffic_control_update_bandwidth (self);
         g_object_notify_by_pspec (object, pspec);
       }
+
+      gaeguli_traffic_control_update_bandwidth (self);
       break;
     }
     default:
@@ -165,8 +150,6 @@ gaeguli_traffic_control_dispose (GObject * object)
   self->enabled = FALSE;
   gaeguli_traffic_control_update_bandwidth (self);
 
-  g_clear_pointer (&self->qdisc, rtnl_qdisc_put);
-  g_clear_pointer (&self->sock, nl_socket_free);
   g_clear_pointer (&self->interface, g_free);
 }
 
@@ -177,7 +160,6 @@ gaeguli_traffic_control_class_init (GaeguliTrafficControlClass * klass)
 
   gobject_class->set_property = gaeguli_traffic_control_set_property;
   gobject_class->get_property = gaeguli_traffic_control_get_property;
-  gobject_class->constructed = gaeguli_traffic_control_constructed;
   gobject_class->dispose = gaeguli_traffic_control_dispose;
 
   g_object_class_install_property (gobject_class, PROP_INTERFACE,
