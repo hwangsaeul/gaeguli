@@ -8,79 +8,89 @@
     <header>
     </header>
     <form id="demo_form">
-      <input type="checkbox" id="stream_toggle"/>
-      <label for="toggle_stream">Stream</label>
-      <input type="checkbox" id="adaptive-streaming"/>
-      <label for="adaptive-streaming">Adaptive streaming</label>
       <table>
         <tr>
-          <td><b>SRT URI:</b></td>
-          <td><input type="text" id="srt-uri" disabled/></td>
-        </tr>
-        <tr>
-          <td><b>Bitrate:</b></td>
-          <td><input type="text" id="bitrate-text" disabled/> kbps</td>
-          <td>
-            <input type="range" id="bitrate-range" min="1" max="20000"/>
-            <input type="hidden" id="bitrate"/>
-          </td>
-          <td><button type="button" id="bitrate-submit">Submit</button></td>
-        </tr>
-        <tr>
-          <td><b>Actual bitrate:</b></td>
-          <td>
-            <input type="text" id="bitrate-actual-text" disabled/> kbps
-            <input type="hidden" id="bitrate-actual"/>
-          </td>
-        </tr>
-        <tr>
-          <td><b>Quantizer:</b></td>
-          <td><input type="text" id="quantizer-text" disabled/></td>
-          <td><input type="range" id="quantizer" min="0" max="50"/></td>
-          <td><button type="button" id="quantizer-submit">Submit</button></td>
-        </tr>
-        <tr>
-          <td><b>Actual quantizer:</b></td>
-          <td><input type="text" id="quantizer-actual" disabled></td>
-        </tr>
-        <tr>
-          <td><b>SRT packets sent:</b></td>
-          <td><input type="text" id="srt-packets-sent" disabled/></td>
-        </tr>
-        <tr>
-          <td><b>SRT lost packets:</b></td>
-          <td><input type="text" id="srt-packets-sent-lost" disabled/></td>
-        </tr>
-        <tr>
-          <td><b>SRT send rate:</b></td>
-          <td>
-            <input type="text" id="srt-send-rate-text" disabled/> kbps
-            <input type="hidden" id="srt-send-rate"/>
-          </td>
-        </tr>
-        <tr>
-          <td><b>SRT measured bandwidth:</b></td>
-          <td>
-            <input type="text" id="srt-bandwidth-text" disabled/> kbps
-            <input type="hidden" id="srt-bandwidth"/>
-          </td>
+          <td><b>Stream from webcam:</b></td>
+          <td><input type="checkbox" id="stream-toggle"/></td>
         </tr>
       </table>
-      <table>
-        <tr>
-          <td><b>Traffic control:</b></td>
-          <td><input type="checkbox" id="tc-enabled"/></td>
-        </tr>
-        <tr>
-          <td><b>Bandwidth limit:</b></td>
-          <td><input type="text" id="tc-bandwidth-text" disabled/> kbps</td>
-          <td>
-            <input type="range" id="tc-bandwidth-range" min="256" max="20000"/>
-            <input type="hidden" id="tc-bandwidth"/>
-          </td>
-          <td><button type="button" id="tc-bandwidth-submit">Submit</button></td>
-        </tr>
-      </table>
+      <fieldset id="streaming-controls" disabled>
+        <table>
+          <tr class="largefont">
+            <td><b>SRT URI:</b></td>
+            <td><input type="text" id="srt-uri" class="largefont" disabled/></td>
+          </tr>
+          <tr>
+            <td><b>Bitrate:</b></td>
+            <td><input type="text" id="bitrate-text" disabled/> kbps</td>
+            <td>
+              <input type="range" id="bitrate-range" min="1" max="20000"/>
+              <input type="hidden" id="bitrate"/>
+            </td>
+            <td><button type="button" id="bitrate-submit">Submit</button></td>
+          </tr>
+          <tr>
+            <td><b>Actual bitrate:</b></td>
+            <td>
+              <input type="text" id="bitrate-actual-text" disabled/> kbps
+              <input type="hidden" id="bitrate-actual"/>
+            </td>
+          </tr>
+          <tr>
+            <td><b>Quantizer:</b></td>
+            <td><input type="text" id="quantizer-text" disabled/></td>
+            <td><input type="range" id="quantizer" min="0" max="50"/></td>
+            <td><button type="button" id="quantizer-submit">Submit</button></td>
+          </tr>
+          <tr>
+            <td><b>Actual quantizer:</b></td>
+            <td><input type="text" id="quantizer-actual" disabled></td>
+          </tr>
+          <tr>
+            <td><b>SRT packets sent:</b></td>
+            <td><input type="text" id="srt-packets-sent" disabled/></td>
+          </tr>
+          <tr>
+            <td><b>SRT lost packets:</b></td>
+            <td><input type="text" id="srt-packets-sent-lost" disabled/></td>
+          </tr>
+          <tr>
+            <td><b>SRT send rate:</b></td>
+            <td>
+              <input type="text" id="srt-send-rate-text" disabled/> kbps
+              <input type="hidden" id="srt-send-rate"/>
+            </td>
+          </tr>
+          <tr>
+            <td><b>SRT measured bandwidth:</b></td>
+            <td>
+              <input type="text" id="srt-bandwidth-text" disabled/> kbps
+              <input type="hidden" id="srt-bandwidth"/>
+            </td>
+          </tr>
+        </table>
+        <table>
+          <tr>
+            <td><b>Adaptive streaming:</b></td>
+            <td><input type="checkbox" id="adaptive-streaming"/></td>
+          </tr>
+        </table>
+        <table>
+          <tr>
+            <td><b>Traffic control:</b></td>
+            <td><input type="checkbox" id="tc-enabled"/></td>
+          </tr>
+          <tr>
+            <td><b>Bandwidth limit:</b></td>
+            <td><input type="text" id="tc-bandwidth-text" disabled/> kbps</td>
+            <td>
+              <input type="range" id="tc-bandwidth-range" min="256" max="20000"/>
+              <input type="hidden" id="tc-bandwidth"/>
+            </td>
+            <td><button type="button" id="tc-bandwidth-submit">Submit</button></td>
+          </tr>
+        </table>
+      </fieldset>
     </form>
     <footer>
     </footer>
@@ -90,8 +100,13 @@
 
       import * as gaeguli from './adaptor-demo.js'
 
-      var demo = new gaeguli.AdaptorDemo(document.getElementById("demo_form"))
+      var demo = new gaeguli.AdaptorDemo()
 
+      document.getElementById("stream-toggle").onchange = (event) => {
+        var enabled = document.getElementById("stream-toggle").checked
+        demo.stream(enabled)
+        document.getElementById("streaming-controls").disabled = !enabled
+      }
       document.getElementById("adaptive-streaming").onchange = (event) => {
         demo.property("adaptive-streaming", document.getElementById("adaptive-streaming").checked)
       }
