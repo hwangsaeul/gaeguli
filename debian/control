@@ -9,6 +9,7 @@ Build-Depends:
  libgstreamer-plugins-bad1.0-dev,
  libgstreamer1.0-dev,
  libsrt-dev (>= 1.4.1~) | libsrt-gnutls-dev | libsrt-openssl-dev,
+ libsoup2.4-dev,
  meson,
 Standards-Version: 4.2.1
 Section: libs

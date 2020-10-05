@@ -31,6 +31,7 @@ jobs:
                   gstreamer1.0-plugins-ugly \
                   libsrt-dev \
                   libjson-glib-dev \
+                  libsoup2.4-dev \
                   meson ninja-build 
       - name: Meson Build
         run: |
