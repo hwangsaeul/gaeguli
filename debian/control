@@ -8,14 +8,24 @@ Build-Depends:
  gstreamer1.0-plugins-ugly,
  libgstreamer-plugins-bad1.0-dev,
  libgstreamer1.0-dev,
- libsrt-dev (>= 1.4.1~) | libsrt-gnutls-dev | libsrt-openssl-dev,
+ libjson-glib-dev,
  libsoup2.4-dev,
+ libsrt-dev (>= 1.4.1~) | libsrt-gnutls-dev | libsrt-openssl-dev,
  meson,
 Standards-Version: 4.2.1
 Section: libs
 Homepage: https://github.com/hwangsaeul/gaeguli
 Vcs-Browser: https://github.com/hwangsaeul/gaeguli
 Vcs-Git: https://github.com/hwangsaeul/gaeguli.git
+
+Package: gaeguli-adaptor-demo
+Architecture: any
+Depends:
+ libgaeguli2 (= ${binary:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends},
+Description: Network adaptive streaming demo
+ An application demonstrating network adaptive streaming capabilities of Gæguli.
 
 Package: gaeguli-tools
 Architecture: any
@@ -27,15 +37,6 @@ Depends:
 Description: Ultra-low latency SRT streamer
  Gæguli is an SRT streamer designed for edge devices that require
  strong security and ultra-low latency.
-
-Package: gaeguli-adaptor-demo
-Architecture: any
-Depends:
- libgaeguli2 (= ${binary:Version}),
- ${misc:Depends},
- ${shlibs:Depends},
-Description: Network adaptive streaming demo
- An application demonstrating network adaptive streaming capabilities of Gæguli.
 
 Package: libgaeguli-dev
 Section: libdevel
