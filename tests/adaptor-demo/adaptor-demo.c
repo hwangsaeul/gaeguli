@@ -128,7 +128,7 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
     if (!self->target) {
       static const char *property_names[] = {
         "bitrate", "bitrate-actual", "quantizer", "quantizer-actual",
-        "adaptive-streaming"
+        "bitrate-control", "bitrate-control-actual", "adaptive-streaming"
       };
       GValue property_values[G_N_ELEMENTS (property_names)] = { 0 };
       guint notify_signal_id = g_signal_lookup ("notify", GAEGULI_TYPE_TARGET);
@@ -195,10 +195,20 @@ gaeguli_adaptor_demo_on_msg_property (GaeguliAdaptorDemo * self,
 {
   const gchar *name = json_object_get_string_member (msg, "name");
   GObject *receiver = NULL;
+  GValue value = G_VALUE_INIT;
   g_autoptr (GError) error = NULL;
 
   if (g_str_equal (name, "bitrate") || g_str_equal (name, "quantizer") ||
       g_str_equal (name, "adaptive-streaming")) {
+    receiver = G_OBJECT (self->target);
+  } else if (g_str_equal (name, "bitrate-control")) {
+    g_autoptr (GEnumClass) enum_class =
+        g_type_class_ref (GAEGULI_TYPE_VIDEO_BITRATE_CONTROL);
+
+    g_value_init (&value, GAEGULI_TYPE_VIDEO_BITRATE_CONTROL);
+    g_value_set_enum (&value, g_enum_get_value_by_nick (enum_class,
+            json_object_get_string_member (msg, "value"))->value);
+
     receiver = G_OBJECT (self->target);
   } else if (g_str_equal (name, "tc-enabled") ||
       g_str_equal (name, "tc-bandwidth")) {
@@ -207,11 +217,14 @@ gaeguli_adaptor_demo_on_msg_property (GaeguliAdaptorDemo * self,
   }
 
   if (receiver) {
-    GValue value = G_VALUE_INIT;
-    json_node_get_value (json_object_get_member (msg, "value"), &value);
+    if (!G_IS_VALUE (&value)) {
+      json_node_get_value (json_object_get_member (msg, "value"), &value);
+    }
+
     g_object_set_property (receiver, name, &value);
-    g_value_unset (&value);
   }
+
+  g_value_unset (&value);
 }
 
 static void

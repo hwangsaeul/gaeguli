@@ -236,6 +236,13 @@ gaeguli_http_server_send_property (GaeguliHttpServer * self, const gchar * name,
     json_builder_add_int_value (builder, g_value_get_uint (value));
   } else if (G_VALUE_HOLDS_BOOLEAN (value)) {
     json_builder_add_boolean_value (builder, g_value_get_boolean (value));
+  } else if (G_VALUE_HOLDS_ENUM (value)) {
+    g_autoptr (GEnumClass) enum_class = g_type_class_ref (G_VALUE_TYPE (value));
+
+    const gchar *val = g_enum_get_value (enum_class,
+        g_value_get_enum (value))->value_nick;
+
+    json_builder_add_string_value (builder, val);
   }
 
   json_builder_end_object (builder);
