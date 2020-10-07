@@ -25,6 +25,23 @@ input:disabled {
   background: transparent;
 }
 
+th {
+  text-align: left;
+}
+
+td.value {
+  text-align: right;
+}
+
+select.displayonly {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: blue;
+  font-size: 14px;
+  text-align: right;
+}
+
 .largefont {
   font-size: 20px;
 }

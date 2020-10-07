@@ -17,12 +17,14 @@
       <fieldset id="streaming-controls" disabled>
         <table>
           <tr class="largefont">
-            <td><b>SRT URI:</b></td>
-            <td><input type="text" id="srt-uri" class="largefont" disabled/></td>
+            <th>SRT URI:</th>
+            <td class="value">
+              <input type="text" id="srt-uri" class="largefont" disabled/>
+            </td>
           </tr>
           <tr>
-            <td><b>Bitrate control:</b></td>
-            <td>
+            <th>Bitrate control:</th>
+            <td class="value">
               <select id="bitrate-control">
                 <option value="cbr">Constant Bitrate</option>
                 <option value="cqp">Constant Quantizer</option>
@@ -31,12 +33,22 @@
             </td>
           </tr>
           <tr>
-            <td><b>Actual bitrate control:</b></td>
-            <td><input type="text" id="bitrate-control-actual" disabled/></td>
+            <th>Actual bitrate control:</th>
+            <td class="value">
+              <select id="bitrate-control-actual" class="displayonly" disabled>
+                <option value=""></option>
+                <option value="cbr">Constant Bitrate</option>
+                <option value="cqp">Constant Quantizer</option>
+                <option value="vbr">Variable Bitrate</option>
+              </select>
+            </td>
           </tr>
           <tr>
-            <td><b>Bitrate:</b></td>
-            <td><input type="text" id="bitrate-text" disabled/> kbps</td>
+            <th>Bitrate:</th>
+            <td class="value">
+              <input type="text" id="bitrate-text" disabled/>
+            </td>
+            <td>kbps</td>
             <td>
               <input type="range" id="bitrate-range" min="1" max="20000"/>
               <input type="hidden" id="bitrate"/>
@@ -44,59 +56,78 @@
             <td><button type="button" id="bitrate-submit">Submit</button></td>
           </tr>
           <tr>
-            <td><b>Actual bitrate:</b></td>
-            <td>
-              <input type="text" id="bitrate-actual-text" disabled/> kbps
+            <th>Actual bitrate:</th>
+            <td class="value">
+              <input type="text" id="bitrate-actual-text" disabled/>
               <input type="hidden" id="bitrate-actual"/>
             </td>
+            <td>kbps</td>
           </tr>
           <tr>
-            <td><b>Quantizer:</b></td>
-            <td><input type="text" id="quantizer-text" disabled/></td>
+            <th>Quantizer:</th>
+            <td class="value">
+              <input type="text" id="quantizer-text" disabled/>
+            </td>
+            <td></td>
             <td><input type="range" id="quantizer" min="0" max="50"/></td>
             <td><button type="button" id="quantizer-submit">Submit</button></td>
           </tr>
           <tr>
-            <td><b>Actual quantizer:</b></td>
-            <td><input type="text" id="quantizer-actual" disabled></td>
+            <th>Actual quantizer:</th>
+            <td class="value">
+              <input type="text" id="quantizer-actual" disabled>
+            </td>
           </tr>
           <tr>
-            <td><b>SRT packets sent:</b></td>
-            <td><input type="text" id="srt-packets-sent" disabled/></td>
+            <th>SRT packets sent:</th>
+            <td class="value">
+              <input type="text" id="srt-packets-sent" disabled/>
+            </td>
           </tr>
           <tr>
-            <td><b>SRT lost packets:</b></td>
-            <td><input type="text" id="srt-packets-sent-lost" disabled/></td>
+            <th>SRT lost packets:</th>
+            <td class="value">
+              <input type="text" id="srt-packets-sent-lost" disabled/>
+            </td>
           </tr>
           <tr>
-            <td><b>SRT send rate:</b></td>
-            <td>
-              <input type="text" id="srt-send-rate-text" disabled/> kbps
+            <th>SRT send rate:</th>
+            <td class="value">
+              <input type="text" id="srt-send-rate-text" disabled/>
               <input type="hidden" id="srt-send-rate"/>
             </td>
+            <td>kbps</td>
           </tr>
           <tr>
-            <td><b>SRT measured bandwidth:</b></td>
-            <td>
-              <input type="text" id="srt-bandwidth-text" disabled/> kbps
+            <th>SRT measured bandwidth:</th>
+            <td class="value">
+              <input type="text" id="srt-bandwidth-text" disabled/>
               <input type="hidden" id="srt-bandwidth"/>
+            </td>
+            <td>kbps</td>
+          </tr>
+        </table>
+        <table>
+          <tr>
+            <th>Adaptive streaming:</th>
+            <td>
+              <input type="checkbox" id="adaptive-streaming"/>
             </td>
           </tr>
         </table>
         <table>
           <tr>
-            <td><b>Adaptive streaming:</b></td>
-            <td><input type="checkbox" id="adaptive-streaming"/></td>
-          </tr>
-        </table>
-        <table>
-          <tr>
-            <td><b>Traffic control:</b></td>
-            <td><input type="checkbox" id="tc-enabled"/></td>
+            <th>Traffic control:</th>
+            <td>
+              <input type="checkbox" id="tc-enabled"/>
+            </td>
           </tr>
           <tr>
-            <td><b>Bandwidth limit:</b></td>
-            <td><input type="text" id="tc-bandwidth-text" disabled/> kbps</td>
+            <th>Bandwidth limit:</th>
+            <td class="value">
+              <input type="text" id="tc-bandwidth-text" disabled/>
+            </td>
+            <td>kbps</td>
             <td>
               <input type="range" id="tc-bandwidth-range" min="256" max="20000"/>
               <input type="hidden" id="tc-bandwidth"/>
