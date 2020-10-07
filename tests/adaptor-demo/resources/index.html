@@ -21,6 +21,20 @@
             <td><input type="text" id="srt-uri" class="largefont" disabled/></td>
           </tr>
           <tr>
+            <td><b>Bitrate control:</b></td>
+            <td>
+              <select id="bitrate-control">
+                <option value="cbr">Constant Bitrate</option>
+                <option value="cqp">Constant Quantizer</option>
+                <option value="vbr">Variable Bitrate</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td><b>Actual bitrate control:</b></td>
+            <td><input type="text" id="bitrate-control-actual" disabled/></td>
+          </tr>
+          <tr>
             <td><b>Bitrate:</b></td>
             <td><input type="text" id="bitrate-text" disabled/> kbps</td>
             <td>
@@ -109,6 +123,9 @@
       }
       document.getElementById("adaptive-streaming").onchange = (event) => {
         demo.property("adaptive-streaming", document.getElementById("adaptive-streaming").checked)
+      }
+      document.getElementById("bitrate-control").onchange = (event) => {
+        demo.property("bitrate-control", document.getElementById("bitrate-control").value)
       }
       document.getElementById("bitrate").onchange = (event) => {
         document.getElementById("bitrate-range").value = event.target.value / 1000
