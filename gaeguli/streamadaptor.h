@@ -31,6 +31,8 @@ G_BEGIN_DECLS
 #define GAEGULI_ENCODING_PARAMETER_BITRATE "bitrate"
 /* Constant quantizer to apply */
 #define GAEGULI_ENCODING_PARAMETER_QUANTIZER "quantizer"
+/* Rate control mode from GaeguliRateControlMode */
+#define GAEGULI_ENCODING_PARAMETER_RATECTRL "bitrate-control"
 
 #define GAEGULI_TYPE_STREAM_ADAPTOR   (gaeguli_stream_adaptor_get_type ())
 G_DECLARE_DERIVABLE_TYPE (GaeguliStreamAdaptor, gaeguli_stream_adaptor, GAEGULI,

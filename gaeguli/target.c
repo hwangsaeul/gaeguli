@@ -45,6 +45,7 @@ typedef struct
   GaeguliStreamAdaptor *adaptor;
 
   GaeguliVideoCodec codec;
+  GaeguliVideoBitrateControl bitrate_control;
   guint bitrate;
   guint quantizer;
   guint idr_period;
@@ -58,6 +59,8 @@ enum
   PROP_ID = 1,
   PROP_PIPELINE,
   PROP_CODEC,
+  PROP_BITRATE_CONTROL,
+  PROP_BITRATE_CONTROL_ACTUAL,
   PROP_BITRATE,
   PROP_BITRATE_ACTUAL,
   PROP_QUANTIZER,
@@ -202,17 +205,94 @@ _get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
   return result;
 }
 
+static gint
+_get_encoding_parameter_enum (GstElement * encoder, const gchar * param)
+{
+  gint result = 0;
+  const gchar *encoder_type =
+      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
+
+  if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_RATECTRL)) {
+    if (g_str_equal (encoder_type, "x264enc")) {
+      gint pass;
+
+      g_object_get (encoder, "pass", &pass, NULL);
+      switch (pass) {
+        case 0:
+          result = GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
+          break;
+        case 4:
+          result = GAEGULI_VIDEO_BITRATE_CONTROL_CQP;
+          break;
+        case 17:
+        case 18:
+        case 19:
+          result = GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
+          break;
+        default:
+          g_warning ("Unknown x264enc pass %d", pass);
+      }
+    } else if (g_str_equal (encoder_type, "x265enc")) {
+      gint qp;
+
+      g_object_get (encoder, "qp", &qp, NULL);
+      if (qp != -1) {
+        result = GAEGULI_VIDEO_BITRATE_CONTROL_CQP;
+      } else {
+        const gchar *option_string;
+        g_object_get (encoder, "option-string", &option_string, NULL);
+        if (strstr (option_string, "strict-cbr=1")) {
+          return GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
+        } else {
+          return GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
+        }
+      }
+    }
+  } else {
+    g_warning ("Unsupported parameter '%s'", param);
+  }
+
+  return result;
+}
+
+static guint
+_ratectrl_to_pass (GaeguliVideoBitrateControl bitrate_control)
+{
+  switch (bitrate_control) {
+    case GAEGULI_VIDEO_BITRATE_CONTROL_CQP:
+      return 4;
+    case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
+      return 17;
+    case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
+    default:
+      return 0;
+  }
+}
+
 static GstPadProbeReturn
-_change_quantizer (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+_update_in_ready_state (GstPad * pad, GstPadProbeInfo * info,
+    gpointer user_data)
 {
   GstElement *encoder = GST_PAD_PARENT (GST_PAD_PEER (pad));
+  GstStructure *params = user_data;
+
   GstState cur_state;
+  const GValue *val;
+  GaeguliVideoBitrateControl bitrate_control;
 
   gst_element_get_state (encoder, &cur_state, NULL, 0);
   if (cur_state == GST_STATE_PLAYING) {
     gst_element_set_state (encoder, GST_STATE_READY);
   }
-  g_object_set (encoder, "quantizer", GPOINTER_TO_UINT (user_data), NULL);
+
+  val = gst_structure_get_value (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER);
+  if (val) {
+    g_object_set_property (G_OBJECT (encoder), "quantizer", val);
+  }
+  if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
+          GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
+    g_object_set (encoder, "pass", _ratectrl_to_pass (bitrate_control), NULL);
+  }
 
   if (cur_state == GST_STATE_PLAYING) {
     gst_element_set_state (encoder, GST_STATE_PLAYING);
@@ -225,6 +305,7 @@ static void
 _set_encoding_parameters (GstElement * encoder, GstStructure * params)
 {
   guint val;
+  GaeguliVideoBitrateControl bitrate_control;
   g_autofree gchar *params_str = NULL;
 
   const gchar *encoder_type =
@@ -234,6 +315,8 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
   g_debug ("Changing encoding parameters to %s", params_str);
 
   if (g_str_equal (encoder_type, "x264enc")) {
+    gboolean must_go_to_ready_state = FALSE;
+
     if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
             &val)) {
       g_object_set (encoder, "bitrate", val / 1000, NULL);
@@ -246,17 +329,53 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
       g_object_get (encoder, "quantizer", &cur_quantizer, NULL);
 
       if (val != cur_quantizer) {
-        g_autoptr (GstPad) sinkpad =
-            gst_element_get_static_pad (encoder, "sink");
-
-        gst_pad_add_probe (GST_PAD_PEER (sinkpad), GST_PAD_PROBE_TYPE_BLOCK,
-            _change_quantizer, GUINT_TO_POINTER (val), NULL);
+        must_go_to_ready_state = TRUE;
       }
+    }
+
+    if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
+            GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
+      gint cur_pass;
+
+      g_object_get (encoder, "pass", &cur_pass, NULL);
+
+      if (_ratectrl_to_pass (bitrate_control) != cur_pass) {
+        must_go_to_ready_state = TRUE;
+      }
+    }
+
+    if (must_go_to_ready_state) {
+      g_autoptr (GstPad) sinkpad = gst_element_get_static_pad (encoder, "sink");
+
+      gst_pad_add_probe (GST_PAD_PEER (sinkpad), GST_PAD_PROBE_TYPE_BLOCK,
+          _update_in_ready_state, gst_structure_copy (params),
+          (GDestroyNotify) gst_structure_free);
     }
   } else if (g_str_equal (encoder_type, "x265enc")) {
     if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
             &val)) {
       g_object_set (encoder, "bitrate", val / 1000, NULL);
+    }
+    if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
+            GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
+      switch (bitrate_control) {
+        case GAEGULI_VIDEO_BITRATE_CONTROL_CQP:{
+          /* Sensible default in case quantizer isn't specified */
+          guint qp = 23;
+
+          gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
+              &qp);
+          g_object_set (encoder, "qp", qp, NULL);
+          break;
+        }
+        case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
+          g_object_set (encoder, "option-string", "", "qp", -1, NULL);
+          break;
+        case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
+        default:
+          g_object_set (encoder, "option-string", "strict-cbr=1", "qp", -1,
+              NULL);
+      }
     }
   } else if (g_str_equal (encoder_type, "omxh264enc")) {
     if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
@@ -282,6 +401,8 @@ gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
   }
 
   params = gst_structure_new ("application/x-gaeguli-encoding-parameters",
+      GAEGULI_ENCODING_PARAMETER_RATECTRL,
+      GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, priv->bitrate_control,
       GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, priv->bitrate,
       GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, priv->quantizer, NULL);
 
@@ -390,6 +511,19 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
       g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
           (GClosureNotify) g_free), FALSE);
 
+  notify_data = g_new (NotifyData, 1);
+  notify_data->target = G_OBJECT (self);
+  notify_data->pspec = properties[PROP_BITRATE_CONTROL_ACTUAL];
+  g_signal_connect_closure (priv->encoder, "notify::pass",
+      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+          (GClosureNotify) g_free), FALSE);
+  g_signal_connect_closure (priv->encoder, "notify::qp",
+      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+          NULL), FALSE);
+  g_signal_connect_closure (priv->encoder, "notify::option-string",
+      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+          NULL), FALSE);
+
   priv->adaptor = g_object_new (adaptor_type, "srtsink", priv->srtsink,
       "enabled", priv->adaptive_streaming, NULL);
 
@@ -436,6 +570,13 @@ gaeguli_target_get_property (GObject * object,
   switch (prop_id) {
     case PROP_ID:
       g_value_set_uint (value, self->id);
+      break;
+    case PROP_BITRATE_CONTROL:
+      g_value_set_enum (value, priv->bitrate_control);
+      break;
+    case PROP_BITRATE_CONTROL_ACTUAL:
+      g_value_set_enum (value, _get_encoding_parameter_enum (priv->encoder,
+              GAEGULI_ENCODING_PARAMETER_RATECTRL));
       break;
     case PROP_BITRATE:
       g_value_set_uint (value, priv->bitrate);
@@ -485,6 +626,15 @@ gaeguli_target_set_property (GObject * object,
       guint new_bitrate = g_value_get_uint (value);
       if (priv->bitrate != new_bitrate) {
         priv->bitrate = new_bitrate;
+        gaeguli_target_update_baseline_parameters (self, FALSE);
+        g_object_notify_by_pspec (object, pspec);
+      }
+      break;
+    }
+    case PROP_BITRATE_CONTROL:{
+      GaeguliVideoBitrateControl new_rate_control = g_value_get_enum (value);
+      if (priv->bitrate_control != new_rate_control) {
+        priv->bitrate_control = new_rate_control;
         gaeguli_target_update_baseline_parameters (self, FALSE);
         g_object_notify_by_pspec (object, pspec);
       }
@@ -570,6 +720,19 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_param_spec_enum ("codec", "video codec", "video codec",
       GAEGULI_TYPE_VIDEO_CODEC, DEFAULT_VIDEO_CODEC,
       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_BITRATE_CONTROL] =
+      g_param_spec_enum ("bitrate-control", "bitrate control",
+      "bitrate control", GAEGULI_TYPE_VIDEO_BITRATE_CONTROL,
+      GAEGULI_VIDEO_BITRATE_CONTROL_CBR,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
+      G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_BITRATE_CONTROL_ACTUAL] =
+      g_param_spec_enum ("bitrate-control-actual", "actual rate control",
+      "actual encoding type", GAEGULI_TYPE_VIDEO_BITRATE_CONTROL,
+      GAEGULI_VIDEO_BITRATE_CONTROL_CBR,
+      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_BITRATE] =
       g_param_spec_uint ("bitrate", "requested video bitrate",

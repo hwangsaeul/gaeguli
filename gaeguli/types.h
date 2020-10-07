@@ -64,6 +64,7 @@ typedef enum {
 
 typedef enum {
   GAEGULI_VIDEO_BITRATE_CONTROL_CBR = 1,
+  GAEGULI_VIDEO_BITRATE_CONTROL_CQP,
   GAEGULI_VIDEO_BITRATE_CONTROL_VBR,
 } GaeguliVideoBitrateControl;
 
