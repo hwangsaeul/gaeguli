@@ -41,6 +41,16 @@ gaeguli_bandwidth_stream_adaptor_new (GstElement * srtsink,
 }
 
 static void
+gaeguli_bandwidth_adaptor_on_enabled (GaeguliStreamAdaptor * adaptor)
+{
+  /* Bandwidth adaptor operates only in constant bitrate mode. */
+  gaeguli_stream_adaptor_signal_encoding_parameters (adaptor,
+      GAEGULI_ENCODING_PARAMETER_RATECTRL,
+      GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, GAEGULI_VIDEO_BITRATE_CONTROL_CBR,
+      NULL);
+}
+
+static void
 gaeguli_bandwidth_adaptor_on_stats (GaeguliStreamAdaptor * adaptor,
     GstStructure * stats)
 {
@@ -143,6 +153,7 @@ gaeguli_bandwidth_stream_adaptor_class_init (GaeguliBandwidthStreamAdaptorClass
       GAEGULI_STREAM_ADAPTOR_CLASS (klass);
 
   gobject_class->constructed = gaeguli_bandwidth_stream_adaptor_constructed;
+  streamadaptor_class->on_enabled = gaeguli_bandwidth_adaptor_on_enabled;
   streamadaptor_class->on_stats = gaeguli_bandwidth_adaptor_on_stats;
   streamadaptor_class->on_baseline_update =
       gaeguli_bandwidth_adaptor_on_baseline_update;
