@@ -42,6 +42,7 @@ struct _GaeguliStreamAdaptorClass
 {
   GObjectClass parent_class;
 
+  void      (* on_enabled)               (GaeguliStreamAdaptor * self);
   void      (* on_stats)                 (GaeguliStreamAdaptor * self,
                                           GstStructure * stats);
   void      (* on_baseline_update)       (GaeguliStreamAdaptor * self,
