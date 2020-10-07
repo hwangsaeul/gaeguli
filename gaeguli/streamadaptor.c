@@ -196,7 +196,14 @@ gaeguli_stream_adaptor_set_property (GObject * object, guint property_id,
       break;
     case PROP_ENABLED:
       if (g_value_get_boolean (value)) {
+        GaeguliStreamAdaptorClass *klass =
+            GAEGULI_STREAM_ADAPTOR_GET_CLASS (self);
+
         gaeguli_stream_adaptor_start_timer (self);
+
+        if (klass->on_enabled) {
+          klass->on_enabled (self);
+        }
       } else if (priv->stats_timeout_id) {
         gaeguli_stream_adaptor_stop_timer (self);
 
