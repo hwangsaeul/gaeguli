@@ -39,8 +39,8 @@ class Client {
     }
   }
 
-  stream(state) {
-    this.__sendRequest('stream', { state: state })
+  stream(state, codec) {
+    this.__sendRequest('stream', { state: state, codec: codec })
   }
 
   property(name, value) {
@@ -73,7 +73,7 @@ export class AdaptorDemo {
     this.__signaling.property(name, value)
   }
   
-  stream(state) {
-    this.__signaling.stream(state)
+  stream(state, codec) {
+    this.__signaling.stream(state, codec)
   }
 }

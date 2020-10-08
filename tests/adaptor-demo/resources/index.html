@@ -10,8 +10,17 @@
     <form id="demo_form">
       <table>
         <tr>
-          <td><b>Stream from webcam:</b></td>
+          <th>Stream from webcam:</th>
           <td><input type="checkbox" id="stream-toggle"/></td>
+        </tr>
+        <tr>
+          <th>Codec:</th>
+          <td class="value">
+            <select id="codec">
+              <option value="x264enc">H.264 (x264)</option>
+              <option value="x265enc">H.265 (x265)</option>
+            </select>
+          </td>
         </tr>
       </table>
       <fieldset id="streaming-controls" disabled>
@@ -149,8 +158,11 @@
 
       document.getElementById("stream-toggle").onchange = (event) => {
         var enabled = document.getElementById("stream-toggle").checked
-        demo.stream(enabled)
+        var codecOption = document.getElementById("codec")
+
+        demo.stream(enabled, codecOption.value)
         document.getElementById("streaming-controls").disabled = !enabled
+        codecOption.disabled = enabled
       }
       document.getElementById("adaptive-streaming").onchange = (event) => {
         demo.property("adaptive-streaming", document.getElementById("adaptive-streaming").checked)
