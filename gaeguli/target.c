@@ -188,11 +188,13 @@ _get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
       gst_plugin_feature_get_name (gst_element_get_factory (encoder));
 
   if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_BITRATE)) {
-    g_object_get (encoder, "bitrate", &result, NULL);
-
     if (g_str_equal (encoder_type, "x264enc") ||
         g_str_equal (encoder_type, "x265enc")) {
+      g_object_get (encoder, "bitrate", &result, NULL);
       result *= 1000;
+    } else if (g_str_equal (encoder_type, "omxh264enc") ||
+        g_str_equal (encoder_type, "omxh265enc")) {
+      g_object_get (encoder, "target-bitrate", &result, NULL);
     }
   } else if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_QUANTIZER)) {
     if (g_str_equal (encoder_type, "x264enc")) {
@@ -248,6 +250,18 @@ _get_encoding_parameter_enum (GstElement * encoder, const gchar * param)
         } else {
           return GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
         }
+      }
+    } else if (g_str_equal (encoder_type, "omxh264enc") ||
+        g_str_equal (encoder_type, "omxh265enc")) {
+      gint control_rate;
+      g_object_get (encoder, "control-rate", &control_rate, NULL);
+
+      switch (control_rate) {
+        case 1:
+          return GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
+        default:
+        case 2:
+          return GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
       }
     }
   } else {
@@ -321,6 +335,29 @@ _x265_update_in_ready_state (GstElement * encoder, GstStructure * params)
       option_str = g_strdup_printf ("strict-cbr=1:vbv-bufsize=%d", bitrate);
       g_object_set (encoder, "option-string", option_str, "qp", -1, NULL);
     }
+  }
+}
+
+static void
+_omx_update_in_ready_state (GstElement * encoder, GstStructure * params)
+{
+  GaeguliVideoBitrateControl bitrate_control;
+
+  if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
+          GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
+    gint value;
+
+    switch (bitrate_control) {
+      default:
+      case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
+        value = 2;
+        break;
+      case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
+        value = 1;
+        break;
+    }
+
+    g_object_set (encoder, "control-rate", value, NULL);
   }
 }
 
@@ -442,10 +479,25 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
         must_go_to_ready_state = TRUE;
       }
     }
-  } else if (g_str_equal (encoder_type, "omxh264enc")) {
+  } else if (g_str_equal (encoder_type, "omxh264enc") ||
+      g_str_equal (encoder_type, "omxh265enc")) {
+    ready_state_cb = _omx_update_in_ready_state;
+
     if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
             &val)) {
       g_object_set (encoder, "bitrate", val, NULL);
+    }
+
+    if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
+            GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
+      GaeguliVideoBitrateControl cur_bitrate_control;
+
+      cur_bitrate_control = _get_encoding_parameter_enum (encoder,
+          GAEGULI_ENCODING_PARAMETER_RATECTRL);
+
+      if (bitrate_control != cur_bitrate_control) {
+        must_go_to_ready_state = TRUE;
+      }
     }
   } else {
     g_warning ("Unsupported encoder '%s'", encoder_type);
