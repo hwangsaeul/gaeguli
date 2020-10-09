@@ -271,21 +271,11 @@ _ratectrl_to_pass (GaeguliVideoBitrateControl bitrate_control)
   }
 }
 
-static GstPadProbeReturn
-_x264_update_in_ready_state (GstPad * pad, GstPadProbeInfo * info,
-    gpointer user_data)
+static void
+_x264_update_in_ready_state (GstElement * encoder, GstStructure * params)
 {
-  GstElement *encoder = GST_PAD_PARENT (GST_PAD_PEER (pad));
-  GstStructure *params = user_data;
-
-  GstState cur_state;
   const GValue *val;
   GaeguliVideoBitrateControl bitrate_control;
-
-  gst_element_get_state (encoder, &cur_state, NULL, 0);
-  if (cur_state == GST_STATE_PLAYING) {
-    gst_element_set_state (encoder, GST_STATE_READY);
-  }
 
   val = gst_structure_get_value (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER);
   if (val) {
@@ -295,28 +285,12 @@ _x264_update_in_ready_state (GstPad * pad, GstPadProbeInfo * info,
           GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
     g_object_set (encoder, "pass", _ratectrl_to_pass (bitrate_control), NULL);
   }
-
-  if (cur_state == GST_STATE_PLAYING) {
-    gst_element_set_state (encoder, GST_STATE_PLAYING);
-  }
-
-  return GST_PAD_PROBE_REMOVE;
 }
 
-static GstPadProbeReturn
-_x265_update_in_ready_state (GstPad * pad, GstPadProbeInfo * info,
-    gpointer user_data)
+static void
+_x265_update_in_ready_state (GstElement * encoder, GstStructure * params)
 {
-  GstElement *encoder = GST_PAD_PARENT (GST_PAD_PEER (pad));
-  GstStructure *params = user_data;
-
-  GstState cur_state;
   GaeguliVideoBitrateControl bitrate_control;
-
-  gst_element_get_state (encoder, &cur_state, NULL, 0);
-  if (cur_state > GST_STATE_READY) {
-    gst_element_set_state (encoder, GST_STATE_READY);
-  }
 
   bitrate_control = _get_encoding_parameter_enum (encoder,
       GAEGULI_ENCODING_PARAMETER_RATECTRL);
@@ -348,11 +322,37 @@ _x265_update_in_ready_state (GstPad * pad, GstPadProbeInfo * info,
       g_object_set (encoder, "option-string", option_str, "qp", -1, NULL);
     }
   }
+}
+
+typedef void (*ReadyStateCallback) (GstElement * encoder,
+    GstStructure * params);
+
+static GstPadProbeReturn
+_do_in_ready_state (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+{
+  GstElement *encoder = GST_PAD_PARENT (GST_PAD_PEER (pad));
+  GstStructure *params = user_data;
+  ReadyStateCallback probe_cb;
+  GstState cur_state;
+
+  gst_structure_get (params, "probe-cb", G_TYPE_POINTER, &probe_cb, NULL);
+
+  if (!probe_cb) {
+    goto out;
+  }
+
+  gst_element_get_state (encoder, &cur_state, NULL, 0);
+  if (cur_state > GST_STATE_READY) {
+    gst_element_set_state (encoder, GST_STATE_READY);
+  }
+
+  probe_cb (encoder, params);
 
   if (cur_state > GST_STATE_READY) {
     gst_element_set_state (encoder, cur_state);
   }
 
+out:
   return GST_PAD_PROBE_REMOVE;
 }
 
@@ -362,7 +362,7 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
   guint val;
   GaeguliVideoBitrateControl bitrate_control;
   gboolean must_go_to_ready_state = FALSE;
-  GstPadProbeCallback probe_cb = NULL;
+  ReadyStateCallback ready_state_cb = NULL;
   g_autofree gchar *params_str = NULL;
 
   const gchar *encoder_type =
@@ -372,7 +372,7 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
   g_debug ("Changing encoding parameters to %s", params_str);
 
   if (g_str_equal (encoder_type, "x264enc")) {
-    probe_cb = _x264_update_in_ready_state;
+    ready_state_cb = _x264_update_in_ready_state;
 
     if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
             &val)) {
@@ -403,7 +403,7 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
   } else if (g_str_equal (encoder_type, "x265enc")) {
     GaeguliVideoBitrateControl cur_bitrate_control;
 
-    probe_cb = _x265_update_in_ready_state;
+    ready_state_cb = _x265_update_in_ready_state;
 
     cur_bitrate_control = _get_encoding_parameter_enum (encoder,
         GAEGULI_ENCODING_PARAMETER_RATECTRL);
@@ -451,12 +451,16 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
     g_warning ("Unsupported encoder '%s'", encoder_type);
   }
 
-  if (must_go_to_ready_state && probe_cb) {
+  if (must_go_to_ready_state && ready_state_cb) {
     g_autoptr (GstPad) sinkpad = gst_element_get_static_pad (encoder, "sink");
 
+    GstStructure *probe_data = gst_structure_copy (params);
+
+    gst_structure_set (probe_data, "probe-cb", G_TYPE_POINTER, ready_state_cb,
+        NULL);
+
     gst_pad_add_probe (GST_PAD_PEER (sinkpad), GST_PAD_PROBE_TYPE_BLOCK,
-        probe_cb, gst_structure_copy (params),
-        (GDestroyNotify) gst_structure_free);
+        _do_in_ready_state, probe_data, (GDestroyNotify) gst_structure_free);
   }
 }
 
