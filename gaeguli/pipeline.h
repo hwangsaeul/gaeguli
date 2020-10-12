@@ -100,7 +100,6 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
  */
 GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
                                                 (GaeguliPipeline       *self,
-                                                 GaeguliEncodingMethod  encoding_method,
                                                  GaeguliVideoCodec      codec,
                                                  GaeguliVideoResolution resolution,
                                                  guint                  framerate,

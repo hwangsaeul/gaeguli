@@ -501,10 +501,8 @@ gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
 
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
-    GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
-    GaeguliVideoResolution resolution,
-    guint framerate, guint bitrate, const gchar * uri, const gchar * username,
-    GError ** error)
+    GaeguliVideoCodec codec, GaeguliVideoResolution resolution, guint framerate,
+    guint bitrate, const gchar * uri, const gchar * username, GError ** error)
 {
   guint target_id = 0;
   GaeguliTarget *target = NULL;
@@ -540,8 +538,8 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    target = gaeguli_target_new (self, target_id, encoding_method, codec,
-        bitrate, self->fps, uri, username, &internal_err);
+    target = gaeguli_target_new (self, target_id, codec, bitrate, self->fps,
+        uri, username, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target == NULL) {
@@ -595,8 +593,7 @@ GaeguliTarget *
 gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
     const gchar * uri, const gchar * username, GError ** error)
 {
-  return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_ENCODING_METHOD,
-      DEFAULT_VIDEO_CODEC,
+  return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_VIDEO_CODEC,
       DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, DEFAULT_VIDEO_BITRATE,
       uri, username, error);
 }

@@ -54,7 +54,6 @@ struct _GaeguliTarget
 
 GaeguliTarget          *gaeguli_target_new           (GaeguliPipeline       *owner,
                                                       guint                  id,
-                                                      GaeguliEncodingMethod  encoding_method,
                                                       GaeguliVideoCodec      codec,
                                                       guint                  bitrate,
                                                       guint                  idr_period,

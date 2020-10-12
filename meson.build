@@ -49,8 +49,7 @@ endif
 
 cdata.set('DEFAULT_VIDEO_FRAMERATE', 15)
 cdata.set('DEFAULT_VIDEO_BITRATE', 1000000)
-cdata.set('DEFAULT_VIDEO_CODEC', 'GAEGULI_VIDEO_CODEC_H264')
-cdata.set('DEFAULT_ENCODING_METHOD', 'GAEGULI_ENCODING_METHOD_GENERAL')
+cdata.set('DEFAULT_VIDEO_CODEC', 'GAEGULI_VIDEO_CODEC_H264_X264')
 
 cdata.set('_GAEGULI_EXTERN', '__attribute__((visibility("default"))) extern')
 cdata.set('LIBDIR', join_paths(get_option('prefix'), get_option('libdir')))

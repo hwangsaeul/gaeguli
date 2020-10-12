@@ -37,8 +37,7 @@ test_gaeguli_target_encoding_params ()
       gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
-      GAEGULI_ENCODING_METHOD_GENERAL,
-      GAEGULI_VIDEO_CODEC_H264, GAEGULI_VIDEO_RESOLUTION_640X480, 15,
+      GAEGULI_VIDEO_CODEC_H264_X264, GAEGULI_VIDEO_RESOLUTION_640X480, 15,
       DEFAULT_BITRATE, "srt://127.0.0.1:1111", NULL, &error);
   g_assert_no_error (error);
 
