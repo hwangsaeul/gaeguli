@@ -44,7 +44,6 @@ typedef struct
   GWeakRef gaeguli_pipeline;
   GaeguliStreamAdaptor *adaptor;
 
-  GaeguliEncodingMethod encoding_method;
   GaeguliVideoCodec codec;
   GaeguliVideoBitrateControl bitrate_control;
   guint bitrate;
@@ -59,7 +58,6 @@ enum
 {
   PROP_ID = 1,
   PROP_PIPELINE,
-  PROP_ENCODING_METHOD,
   PROP_CODEC,
   PROP_BITRATE_CONTROL,
   PROP_BITRATE_CONTROL_ACTUAL,
@@ -105,7 +103,6 @@ typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
 struct encoding_method_params
 {
   const gchar *pipeline_str;
-  GaeguliEncodingMethod encoding_method;
   GaeguliVideoCodec codec;
   PipelineFormatFunc format_func;
 };
@@ -123,25 +120,24 @@ _format_tx1_pipeline (const gchar * pipeline_str, guint idr_period)
 }
 
 static struct encoding_method_params enc_params[] = {
-  {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
-      GAEGULI_VIDEO_CODEC_H264, _format_general_pipeline},
-  {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_ENCODING_METHOD_GENERAL,
-      GAEGULI_VIDEO_CODEC_H265, _format_general_pipeline},
-  {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
-      GAEGULI_VIDEO_CODEC_H264, _format_tx1_pipeline},
-  {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1,
-      GAEGULI_VIDEO_CODEC_H265, _format_tx1_pipeline},
+  {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
+      _format_general_pipeline},
+  {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_X265,
+      _format_general_pipeline},
+  {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_OMX,
+      _format_tx1_pipeline},
+  {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_OMX,
+      _format_tx1_pipeline},
   {NULL, 0, 0},
 };
 
 static gchar *
-_get_enc_string (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint idr_period)
+_get_enc_string (GaeguliVideoCodec codec, guint idr_period)
 {
   struct encoding_method_params *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
-    if (params->encoding_method == encoding_method && params->codec == codec)
+    if (params->codec == codec)
       return params->format_func (params->pipeline_str, idr_period);
   }
 
@@ -587,8 +583,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   g_object_get (owner, "stream-adaptor", &adaptor_type, NULL);
 
-  pipeline_str = _get_enc_string (priv->encoding_method, priv->codec,
-      priv->idr_period);
+  pipeline_str = _get_enc_string (priv->codec, priv->idr_period);
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
@@ -748,9 +743,6 @@ gaeguli_target_set_property (GObject * object,
     case PROP_PIPELINE:
       g_weak_ref_init (&priv->gaeguli_pipeline, g_value_get_object (value));
       break;
-    case PROP_ENCODING_METHOD:
-      priv->encoding_method = g_value_get_enum (value);
-      break;
     case PROP_CODEC:
       priv->codec = g_value_get_enum (value);
       break;
@@ -848,11 +840,6 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       "owning GaeguliPipeline instance", GAEGULI_TYPE_PIPELINE,
       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
-  properties[PROP_ENCODING_METHOD] =
-      g_param_spec_enum ("encoding-method", "encoding method",
-      "encoding method", GAEGULI_TYPE_ENCODING_METHOD, DEFAULT_ENCODING_METHOD,
-      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
-
   properties[PROP_CODEC] =
       g_param_spec_enum ("codec", "video codec", "video codec",
       GAEGULI_TYPE_VIDEO_CODEC, DEFAULT_VIDEO_CODEC,
@@ -937,12 +924,10 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 
 GaeguliTarget *
 gaeguli_target_new (GaeguliPipeline * pipeline, guint id,
-    GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
-    guint bitrate, guint idr_period, const gchar * srt_uri,
-    const gchar * username, GError ** error)
+    GaeguliVideoCodec codec, guint bitrate, guint idr_period,
+    const gchar * srt_uri, const gchar * username, GError ** error)
 {
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
-      "encoding-method", encoding_method,
       "pipeline", pipeline, "codec", codec, "bitrate", bitrate,
       "idr-period", idr_period, "uri", srt_uri, "username", username, NULL);
 }

@@ -132,17 +132,16 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
       };
       GValue property_values[G_N_ELEMENTS (property_names)] = { 0 };
       guint notify_signal_id = g_signal_lookup ("notify", GAEGULI_TYPE_TARGET);
-      GaeguliVideoCodec codec = GAEGULI_VIDEO_CODEC_H264;
+      GaeguliVideoCodec codec = GAEGULI_VIDEO_CODEC_H264_X264;
       const gchar *codec_str;
       gint i;
 
       codec_str = json_object_get_string_member (msg, "codec");
       if (codec_str && g_str_equal (codec_str, "x265enc")) {
-        codec = GAEGULI_VIDEO_CODEC_H265;
+        codec = GAEGULI_VIDEO_CODEC_H265_X265;
       }
 
       self->target = gaeguli_pipeline_add_srt_target_full (self->pipeline,
-          GAEGULI_ENCODING_METHOD_GENERAL,
           codec, GAEGULI_VIDEO_RESOLUTION_1920X1080, 24, 2048000,
           "srt://:7001?mode=listener", NULL, &error);
 
