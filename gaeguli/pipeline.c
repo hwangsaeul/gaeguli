@@ -38,7 +38,6 @@ struct _GaeguliPipeline
 
   GaeguliVideoSource source;
   gchar *device;
-  GaeguliEncodingMethod encoding_method;
   guint fps;
 
   GHashTable *targets;
@@ -65,7 +64,6 @@ typedef enum
 {
   PROP_SOURCE = 1,
   PROP_DEVICE,
-  PROP_ENCODING_METHOD,
   PROP_CLOCK_OVERLAY,
   PROP_STREAM_ADAPTOR,
   PROP_GST_PIPELINE,
@@ -125,9 +123,6 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_DEVICE:
       g_value_set_string (value, self->device);
       break;
-    case PROP_ENCODING_METHOD:
-      g_value_set_enum (value, self->encoding_method);
-      break;
     case PROP_CLOCK_OVERLAY:
       g_value_set_boolean (value, self->show_overlay);
       break;
@@ -157,9 +152,6 @@ gaeguli_pipeline_set_property (GObject * object,
     case PROP_DEVICE:
       g_assert_null (self->device);     /* construct only */
       self->device = g_value_dup_string (value);
-      break;
-    case PROP_ENCODING_METHOD:
-      self->encoding_method = g_value_get_enum (value);
       break;
     case PROP_CLOCK_OVERLAY:
       self->show_overlay = g_value_get_boolean (value);
@@ -191,11 +183,6 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
 
   properties[PROP_DEVICE] = g_param_spec_string ("device", "device", "device",
       DEFAULT_VIDEO_SOURCE_DEVICE,
-      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
-
-  properties[PROP_ENCODING_METHOD] =
-      g_param_spec_enum ("encoding-method", "encoding method",
-      "encoding method", GAEGULI_TYPE_ENCODING_METHOD, DEFAULT_ENCODING_METHOD,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_CLOCK_OVERLAY] =
@@ -258,8 +245,7 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
 }
 
 GaeguliPipeline *
-gaeguli_pipeline_new_full (GaeguliVideoSource source,
-    const gchar * device, GaeguliEncodingMethod encoding_method)
+gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device)
 {
   g_autoptr (GaeguliPipeline) pipeline = NULL;
 
@@ -271,9 +257,8 @@ gaeguli_pipeline_new_full (GaeguliVideoSource source,
    */
 
   g_debug ("source: [%d / %s]", source, device);
-  pipeline =
-      g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device", device,
-      "encoding-method", encoding_method, NULL);
+  pipeline = g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device",
+      device, NULL);
 
   return g_steal_pointer (&pipeline);
 }
@@ -283,9 +268,8 @@ gaeguli_pipeline_new (void)
 {
   g_autoptr (GaeguliPipeline) pipeline = NULL;
 
-  pipeline =
-      gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE,
-      DEFAULT_VIDEO_SOURCE_DEVICE, DEFAULT_ENCODING_METHOD);
+  pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE,
+      DEFAULT_VIDEO_SOURCE_DEVICE);
 
   return g_steal_pointer (&pipeline);
 }
@@ -327,29 +311,14 @@ _get_source_description (GaeguliPipeline * self)
   return g_string_free (result, FALSE);
 }
 
-struct source_video_params
+static gchar *
+_get_vsrc_pipeline_string (GaeguliPipeline * self)
 {
-  const gchar *pipeline_str;
-  GaeguliEncodingMethod encoding_method;
-};
+  g_autofree gchar *source = _get_source_description (self);
 
-static struct source_video_params vsrc_params[] = {
-  {GAEGULI_PIPELINE_GENERAL_VSRC_STR, GAEGULI_ENCODING_METHOD_GENERAL},
-  {GAEGULI_PIPELINE_NVIDIA_TX1_VSRC_STR, GAEGULI_ENCODING_METHOD_NVIDIA_TX1},
-  {NULL, 0},
-};
-
-static const gchar *
-_get_vsrc_pipeline_string (GaeguliEncodingMethod encoding_method)
-{
-  struct source_video_params *params = vsrc_params;
-
-  for (; params->pipeline_str != NULL; params++) {
-    if (params->encoding_method == encoding_method)
-      return params->pipeline_str;
-  }
-
-  return NULL;
+  return g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, source,
+      self->source == GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC ? "" :
+      GAEGULI_PIPELINE_DECODEBIN_STR);
 }
 
 static void
@@ -406,7 +375,6 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
-  g_autofree gchar *src_description = NULL;
   g_autofree gchar *vsrc_str = NULL;
   g_autoptr (GError) internal_err = NULL;
   g_autoptr (GstBus) bus = NULL;
@@ -414,12 +382,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   g_autoptr (GstElement) tee = NULL;
   g_autoptr (GstPad) tee_sink = NULL;
 
-  src_description = _get_source_description (self);
-
   /* FIXME: what if zero-copy */
-  vsrc_str =
-      g_strdup_printf (_get_vsrc_pipeline_string (self->encoding_method),
-      src_description);
+  vsrc_str = _get_vsrc_pipeline_string (self);
 
   g_debug ("trying to create video source pipeline (%s)", vsrc_str);
   self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
@@ -537,7 +501,8 @@ gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
 
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
-    GaeguliVideoCodec codec, GaeguliVideoResolution resolution,
+    GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
+    GaeguliVideoResolution resolution,
     guint framerate, guint bitrate, const gchar * uri, const gchar * username,
     GError ** error)
 {
@@ -575,8 +540,8 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    target = gaeguli_target_new (self, target_id, codec, bitrate, self->fps,
-        uri, username, &internal_err);
+    target = gaeguli_target_new (self, target_id, encoding_method, codec,
+        bitrate, self->fps, uri, username, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target == NULL) {
@@ -630,7 +595,8 @@ GaeguliTarget *
 gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
     const gchar * uri, const gchar * username, GError ** error)
 {
-  return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_VIDEO_CODEC,
+  return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_ENCODING_METHOD,
+      DEFAULT_VIDEO_CODEC,
       DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, DEFAULT_VIDEO_BITRATE,
       uri, username, error);
 }
