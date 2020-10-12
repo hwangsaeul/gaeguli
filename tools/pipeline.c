@@ -122,8 +122,7 @@ main (int argc, char *argv[])
     return -1;
   }
 
-  pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE, options.device,
-      DEFAULT_ENCODING_METHOD);
+  pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE, options.device);
   g_object_set (pipeline, "clock-overlay", options.overlay, NULL);
 
   signal_watch_intr_id =

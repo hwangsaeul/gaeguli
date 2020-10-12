@@ -26,10 +26,8 @@
    \"mode\": %" G_GINT32_FORMAT " \
 }"
 
-/* generic pipeline */
-#define GAEGULI_PIPELINE_GENERAL_VSRC_STR       "\
-        %s ! capsfilter name=caps ! decodebin name=decodebin ! clockoverlay name=overlay ! \
-        tee name=tee allow-not-linked=1 "
+#define GAEGULI_PIPELINE_VSRC_STR       "\
+        %s ! capsfilter name=caps ! %s ! tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! x264enc name=enc tune=zerolatency key-int-max=%d ! \
@@ -39,10 +37,8 @@
         queue name=enc_first ! videoconvert ! x265enc name=enc tune=zerolatency key-int-max=%d ! \
         h265parse ! queue "
 
-/* nvidia tx1 pipeline (for v4l2src) */
-#define GAEGULI_PIPELINE_NVIDIA_TX1_VSRC_STR    "\
-        %s ! capsfilter name=caps ! \
-        tee name=tee allow-not-linked=1 "
+#define GAEGULI_PIPELINE_DECODEBIN_STR    "\
+        decodebin name=decodebin ! clockoverlay name=overlay "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \

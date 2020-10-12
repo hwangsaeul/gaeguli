@@ -56,7 +56,6 @@ GaeguliPipeline        *gaeguli_pipeline_new    (void);
  * gaeguli_pipeline_new_full:
  * @source: the source of the video
  * @device: the device used as source in case of V4L
- * @encoding_method: the codec use for encoding
  *
  * Creates a new #GaeguliPipeline object using specific parameters.
  *
@@ -64,8 +63,7 @@ GaeguliPipeline        *gaeguli_pipeline_new    (void);
  */
 GaeguliPipeline        *gaeguli_pipeline_new_full
                                                 (GaeguliVideoSource     source,
-                                                 const gchar           *device,
-                                                 GaeguliEncodingMethod  encoding_method);
+                                                 const gchar           *device);
 /**
  * gaeguli_pipeline_add_srt_target:
  * @self: a #GaeguliPipeline object
@@ -102,6 +100,7 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
  */
 GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
                                                 (GaeguliPipeline       *self,
+                                                 GaeguliEncodingMethod  encoding_method,
                                                  GaeguliVideoCodec      codec,
                                                  GaeguliVideoResolution resolution,
                                                  guint                  framerate,

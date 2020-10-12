@@ -44,6 +44,7 @@ typedef struct
   GWeakRef gaeguli_pipeline;
   GaeguliStreamAdaptor *adaptor;
 
+  GaeguliEncodingMethod encoding_method;
   GaeguliVideoCodec codec;
   GaeguliVideoBitrateControl bitrate_control;
   guint bitrate;
@@ -58,6 +59,7 @@ enum
 {
   PROP_ID = 1,
   PROP_PIPELINE,
+  PROP_ENCODING_METHOD,
   PROP_CODEC,
   PROP_BITRATE_CONTROL,
   PROP_BITRATE_CONTROL_ACTUAL,
@@ -571,7 +573,6 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autofree gchar *pipeline_str = NULL;
   g_autofree gchar *uri_str = NULL;
   g_autoptr (GError) internal_err = NULL;
-  GaeguliEncodingMethod encoding_method;
   GType adaptor_type;
   GstStateChangeReturn res;
   NotifyData *notify_data;
@@ -584,10 +585,9 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     return FALSE;
   }
 
-  g_object_get (owner, "encoding-method", &encoding_method,
-      "stream-adaptor", &adaptor_type, NULL);
+  g_object_get (owner, "stream-adaptor", &adaptor_type, NULL);
 
-  pipeline_str = _get_enc_string (encoding_method, priv->codec,
+  pipeline_str = _get_enc_string (priv->encoding_method, priv->codec,
       priv->idr_period);
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
@@ -748,6 +748,9 @@ gaeguli_target_set_property (GObject * object,
     case PROP_PIPELINE:
       g_weak_ref_init (&priv->gaeguli_pipeline, g_value_get_object (value));
       break;
+    case PROP_ENCODING_METHOD:
+      priv->encoding_method = g_value_get_enum (value);
+      break;
     case PROP_CODEC:
       priv->codec = g_value_get_enum (value);
       break;
@@ -845,6 +848,11 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       "owning GaeguliPipeline instance", GAEGULI_TYPE_PIPELINE,
       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_ENCODING_METHOD] =
+      g_param_spec_enum ("encoding-method", "encoding method",
+      "encoding method", GAEGULI_TYPE_ENCODING_METHOD, DEFAULT_ENCODING_METHOD,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
   properties[PROP_CODEC] =
       g_param_spec_enum ("codec", "video codec", "video codec",
       GAEGULI_TYPE_VIDEO_CODEC, DEFAULT_VIDEO_CODEC,
@@ -929,10 +937,12 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 
 GaeguliTarget *
 gaeguli_target_new (GaeguliPipeline * pipeline, guint id,
-    GaeguliVideoCodec codec, guint bitrate, guint idr_period,
-    const gchar * srt_uri, const gchar * username, GError ** error)
+    GaeguliEncodingMethod encoding_method, GaeguliVideoCodec codec,
+    guint bitrate, guint idr_period, const gchar * srt_uri,
+    const gchar * username, GError ** error)
 {
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
+      "encoding-method", encoding_method,
       "pipeline", pipeline, "codec", codec, "bitrate", bitrate,
       "idr-period", idr_period, "uri", srt_uri, "username", username, NULL);
 }
