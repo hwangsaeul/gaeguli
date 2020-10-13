@@ -124,6 +124,10 @@ static struct encoding_method_params enc_params[] = {
       _format_general_pipeline},
   {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_X265,
       _format_general_pipeline},
+  {GAEGULI_PIPELINE_VAAPI_H264_STR, GAEGULI_VIDEO_CODEC_H264_VAAPI,
+      _format_general_pipeline},
+  {GAEGULI_PIPELINE_VAAPI_H265_STR, GAEGULI_VIDEO_CODEC_H265_VAAPI,
+      _format_general_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_OMX,
       _format_tx1_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_OMX,
@@ -187,7 +191,9 @@ _get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
 
   if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_BITRATE)) {
     if (g_str_equal (encoder_type, "x264enc") ||
-        g_str_equal (encoder_type, "x265enc")) {
+        g_str_equal (encoder_type, "x265enc") ||
+        g_str_equal (encoder_type, "vaapih264enc") ||
+        g_str_equal (encoder_type, "vaapih265enc")) {
       g_object_get (encoder, "bitrate", &result, NULL);
       result *= 1000;
     } else if (g_str_equal (encoder_type, "omxh264enc") ||
@@ -199,6 +205,9 @@ _get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
       g_object_get (encoder, "quantizer", &result, NULL);
     } else if (g_str_equal (encoder_type, "x265enc")) {
       g_object_get (encoder, "qp", &result, NULL);
+    } else if (g_str_equal (encoder_type, "vaapih264enc") ||
+        g_str_equal (encoder_type, "vaapih265enc")) {
+      g_object_get (encoder, "init-qp", &result, NULL);
     }
   } else {
     g_warning ("Unsupported parameter '%s'", param);
@@ -248,6 +257,24 @@ _get_encoding_parameter_enum (GstElement * encoder, const gchar * param)
         } else {
           return GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
         }
+      }
+    } else if (g_str_equal (encoder_type, "vaapih264enc") ||
+        g_str_equal (encoder_type, "vaapih265enc")) {
+      gint rate_control;
+
+      g_object_get (encoder, "rate-control", &rate_control, NULL);
+      switch (rate_control) {
+        case 1:
+          result = GAEGULI_VIDEO_BITRATE_CONTROL_CQP;
+          break;
+        case 2:
+          result = GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
+          break;
+        case 4:
+          result = GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
+          break;
+        default:
+          g_warning ("Unsupported vaapienc rate-control %d", rate_control);
       }
     } else if (g_str_equal (encoder_type, "omxh264enc") ||
         g_str_equal (encoder_type, "omxh265enc")) {
@@ -333,6 +360,43 @@ _x265_update_in_ready_state (GstElement * encoder, GstStructure * params)
       option_str = g_strdup_printf ("strict-cbr=1:vbv-bufsize=%d", bitrate);
       g_object_set (encoder, "option-string", option_str, "qp", -1, NULL);
     }
+  }
+}
+
+static void
+_vaapi_update_in_ready_state (GstElement * encoder, GstStructure * params)
+{
+  guint bitrate;
+  const GValue *val;
+  GaeguliVideoBitrateControl bitrate_control;
+
+  if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
+          &bitrate)) {
+    g_object_set (encoder, "bitrate", bitrate / 1000, NULL);
+  }
+
+  val = gst_structure_get_value (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER);
+  if (val) {
+    g_object_set_property (G_OBJECT (encoder), "init-qp", val);
+  }
+
+  if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
+          GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
+    gint value;
+
+    switch (bitrate_control) {
+      default:
+      case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
+        value = 2;
+        break;
+      case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
+        value = 4;
+        break;
+      case GAEGULI_VIDEO_BITRATE_CONTROL_CQP:
+        value = 1;
+    }
+
+    g_object_set (encoder, "rate-control", value, NULL);
   }
 }
 
@@ -477,6 +541,10 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
         must_go_to_ready_state = TRUE;
       }
     }
+  } else if (g_str_equal (encoder_type, "vaapih264enc") ||
+      g_str_equal (encoder_type, "vaapih265enc")) {
+    ready_state_cb = _vaapi_update_in_ready_state;
+    must_go_to_ready_state = TRUE;
   } else if (g_str_equal (encoder_type, "omxh264enc") ||
       g_str_equal (encoder_type, "omxh265enc")) {
     ready_state_cb = _omx_update_in_ready_state;
@@ -634,17 +702,27 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_signal_connect_closure (priv->encoder, "notify::quantizer",
       g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
           (GClosureNotify) g_free), FALSE);
+  /* vaapienc */
+  g_signal_connect_closure (priv->encoder, "notify::init-qp",
+      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+          NULL), FALSE);
 
   notify_data = g_new (NotifyData, 1);
   notify_data->target = G_OBJECT (self);
   notify_data->pspec = properties[PROP_BITRATE_CONTROL_ACTUAL];
+  /* x264enc */
   g_signal_connect_closure (priv->encoder, "notify::pass",
       g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
           (GClosureNotify) g_free), FALSE);
+  /* x265enc */
   g_signal_connect_closure (priv->encoder, "notify::qp",
       g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
           NULL), FALSE);
   g_signal_connect_closure (priv->encoder, "notify::option-string",
+      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+          NULL), FALSE);
+  /* vaapienc */
+  g_signal_connect_closure (priv->encoder, "notify::rate-control",
       g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
           NULL), FALSE);
 

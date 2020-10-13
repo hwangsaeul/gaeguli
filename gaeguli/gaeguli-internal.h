@@ -48,6 +48,14 @@
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
         omxh264enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 periodicity-idr=%d ! queue "
 
+#define GAEGULI_PIPELINE_VAAPI_H264_STR    "\
+        queue name=enc_first ! videoconvert ! vaapih264enc name=enc keyframe-period=%d ! \
+        h264parse ! queue "
+
+#define GAEGULI_PIPELINE_VAAPI_H265_STR    "\
+        queue name=enc_first ! videoconvert ! vaapih265enc name=enc keyframe-period=%d ! \
+        h265parse ! queue "
+
 #define GAEGULI_PIPELINE_MUXSINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
         srtsink name=sink uri=%s"
