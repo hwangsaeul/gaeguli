@@ -137,8 +137,14 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
       gint i;
 
       codec_str = json_object_get_string_member (msg, "codec");
-      if (codec_str && g_str_equal (codec_str, "x265enc")) {
+      if (!codec_str) {
+        codec = GAEGULI_VIDEO_CODEC_H264_X264;
+      } else if (g_str_equal (codec_str, "x265enc")) {
         codec = GAEGULI_VIDEO_CODEC_H265_X265;
+      } else if (g_str_equal (codec_str, "vaapih264enc")) {
+        codec = GAEGULI_VIDEO_CODEC_H264_VAAPI;
+      } else if (g_str_equal (codec_str, "vaapih265enc")) {
+        codec = GAEGULI_VIDEO_CODEC_H265_VAAPI;
       }
 
       self->target = gaeguli_pipeline_add_srt_target_full (self->pipeline,
