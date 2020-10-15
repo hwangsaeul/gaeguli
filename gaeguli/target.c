@@ -58,6 +58,7 @@ enum
 {
   PROP_ID = 1,
   PROP_PIPELINE,
+  PROP_PEER_PAD,
   PROP_CODEC,
   PROP_BITRATE_CONTROL,
   PROP_BITRATE_CONTROL_ACTUAL,
@@ -821,6 +822,9 @@ gaeguli_target_set_property (GObject * object,
     case PROP_PIPELINE:
       g_weak_ref_init (&priv->gaeguli_pipeline, g_value_get_object (value));
       break;
+    case PROP_PEER_PAD:
+      priv->peer_pad = g_value_dup_object (value);
+      break;
     case PROP_CODEC:
       priv->codec = g_value_get_enum (value);
       break;
@@ -918,6 +922,11 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       "owning GaeguliPipeline instance", GAEGULI_TYPE_PIPELINE,
       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_PEER_PAD] =
+      g_param_spec_object ("peer-pad", "the video stream's source pad",
+      "the video stream's source pad", GST_TYPE_PAD,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
   properties[PROP_CODEC] =
       g_param_spec_enum ("codec", "video codec", "video codec",
       GAEGULI_TYPE_VIDEO_CODEC, DEFAULT_VIDEO_CODEC,
@@ -1001,13 +1010,14 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 }
 
 GaeguliTarget *
-gaeguli_target_new (GaeguliPipeline * pipeline, guint id,
+gaeguli_target_new (GaeguliPipeline * pipeline, GstPad * peer_pad, guint id,
     GaeguliVideoCodec codec, guint bitrate, guint idr_period,
     const gchar * srt_uri, const gchar * username, GError ** error)
 {
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
-      "pipeline", pipeline, "codec", codec, "bitrate", bitrate,
-      "idr-period", idr_period, "uri", srt_uri, "username", username, NULL);
+      "pipeline", pipeline, "peer-pad", peer_pad, "codec", codec,
+      "bitrate", bitrate, "idr-period", idr_period, "uri", srt_uri, "username",
+      username, NULL);
 }
 
 static GstPadProbeReturn
@@ -1059,11 +1069,9 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 }
 
 void
-gaeguli_target_link_with_pad (GaeguliTarget * self, GstPad * pad)
+gaeguli_target_link (GaeguliTarget * self)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  priv->peer_pad = gst_object_ref (pad);
 
   priv->pending_pad_probe = gst_pad_add_probe (priv->peer_pad,
       GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb, self, NULL);
