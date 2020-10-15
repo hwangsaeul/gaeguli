@@ -38,6 +38,7 @@ struct _GaeguliPipeline
 
   GaeguliVideoSource source;
   gchar *device;
+  GaeguliVideoResolution resolution;
   guint fps;
 
   GHashTable *targets;
@@ -64,6 +65,8 @@ typedef enum
 {
   PROP_SOURCE = 1,
   PROP_DEVICE,
+  PROP_RESOLUTION,
+  PROP_FRAMERATE,
   PROP_CLOCK_OVERLAY,
   PROP_STREAM_ADAPTOR,
   PROP_GST_PIPELINE,
@@ -87,6 +90,8 @@ static guint signals[LAST_SIGNAL] = { 0 };
 /* *INDENT-OFF* */
 G_DEFINE_TYPE (GaeguliPipeline, gaeguli_pipeline, G_TYPE_OBJECT)
 /* *INDENT-ON* */
+
+static void gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self);
 
 static void
 gaeguli_pipeline_finalize (GObject * object)
@@ -123,6 +128,12 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_DEVICE:
       g_value_set_string (value, self->device);
       break;
+    case PROP_RESOLUTION:
+      g_value_set_enum (value, self->resolution);
+      break;
+    case PROP_FRAMERATE:
+      g_value_set_uint (value, self->fps);
+      break;
     case PROP_CLOCK_OVERLAY:
       g_value_set_boolean (value, self->show_overlay);
       break;
@@ -152,6 +163,14 @@ gaeguli_pipeline_set_property (GObject * object,
     case PROP_DEVICE:
       g_assert_null (self->device);     /* construct only */
       self->device = g_value_dup_string (value);
+      break;
+    case PROP_RESOLUTION:
+      self->resolution = g_value_get_enum (value);
+      gaeguli_pipeline_update_vsrc_caps (self);
+      break;
+    case PROP_FRAMERATE:
+      self->fps = g_value_get_uint (value);
+      gaeguli_pipeline_update_vsrc_caps (self);
       break;
     case PROP_CLOCK_OVERLAY:
       self->show_overlay = g_value_get_boolean (value);
@@ -184,6 +203,14 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
   properties[PROP_DEVICE] = g_param_spec_string ("device", "device", "device",
       DEFAULT_VIDEO_SOURCE_DEVICE,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_RESOLUTION] = g_param_spec_enum ("resolution", "resolution",
+      "resolution", GAEGULI_TYPE_VIDEO_RESOLUTION, DEFAULT_VIDEO_RESOLUTION,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_FRAMERATE] = g_param_spec_uint ("framerate", "framerate",
+      "framerate", 1, G_MAXUINT, DEFAULT_VIDEO_FRAMERATE,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_CLOCK_OVERLAY] =
       g_param_spec_boolean ("clock-overlay", "clock overlay",
@@ -245,7 +272,8 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
 }
 
 GaeguliPipeline *
-gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device)
+gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device,
+    GaeguliVideoResolution resolution, guint framerate)
 {
   g_autoptr (GaeguliPipeline) pipeline = NULL;
 
@@ -258,7 +286,7 @@ gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device)
 
   g_debug ("source: [%d / %s]", source, device);
   pipeline = g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device",
-      device, NULL);
+      device, "resolution", resolution, "framerate", framerate, NULL);
 
   return g_steal_pointer (&pipeline);
 }
@@ -269,7 +297,8 @@ gaeguli_pipeline_new (void)
   g_autoptr (GaeguliPipeline) pipeline = NULL;
 
   pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE,
-      DEFAULT_VIDEO_SOURCE_DEVICE);
+      DEFAULT_VIDEO_SOURCE_DEVICE, DEFAULT_VIDEO_RESOLUTION,
+      DEFAULT_VIDEO_FRAMERATE);
 
   return g_steal_pointer (&pipeline);
 }
@@ -418,6 +447,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
         G_CALLBACK (_decodebin_pad_added), self->overlay);
   }
 
+  gaeguli_pipeline_update_vsrc_caps (self);
+
   gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
 
   return TRUE;
@@ -430,14 +461,17 @@ failed:
 }
 
 static void
-_set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
-    guint framerate)
+gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
 {
   gint width, height, i;
   g_autoptr (GstElement) capsfilter = NULL;
   g_autoptr (GstCaps) caps = NULL;
 
-  switch (resolution) {
+  if (!self->vsrc) {
+    return;
+  }
+
+  switch (self->resolution) {
     case GAEGULI_VIDEO_RESOLUTION_640X480:
       width = 640;
       height = 480;
@@ -465,12 +499,30 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
   for (i = 0; supported_formats[i] != NULL; i++) {
     GstCaps *supported_caps = gst_caps_from_string (supported_formats[i]);
     gst_caps_set_simple (supported_caps, "width", G_TYPE_INT, width, "height",
-        G_TYPE_INT, height, "framerate", GST_TYPE_FRACTION, framerate, 1, NULL);
+        G_TYPE_INT, height, "framerate", GST_TYPE_FRACTION, self->fps, 1, NULL);
     gst_caps_append (caps, supported_caps);
   }
 
   capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
   g_object_set (capsfilter, "caps", caps, NULL);
+
+  /* Cycling vsrc through READY state prods decodebin into re-discovery of input
+   * stream format and rebuilding its decoding pipeline. This is needed when
+   * a switch is made between two resolutions that the connected camera can only
+   * produce in different output formats, e.g. a change from raw 640x480 stream
+   * to MJPEG 1920x1080.
+   *
+   * NVARGUS Camera src doesn't support this.
+   */
+  if (self->source != GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC) {
+    GstState cur_state;
+
+    gst_element_get_state (self->vsrc, &cur_state, NULL, 0);
+    if (cur_state > GST_STATE_READY) {
+      gst_element_set_state (self->vsrc, GST_STATE_READY);
+      gst_element_set_state (self->vsrc, cur_state);
+    }
+  }
 }
 
 static void
@@ -501,8 +553,8 @@ gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
 
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
-    GaeguliVideoCodec codec, GaeguliVideoResolution resolution, guint framerate,
-    guint bitrate, const gchar * uri, const gchar * username, GError ** error)
+    GaeguliVideoCodec codec, guint bitrate, const gchar * uri,
+    const gchar * username, GError ** error)
 {
   guint target_id = 0;
   GaeguliTarget *target = NULL;
@@ -517,12 +569,6 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
   /* assume that it's first target */
   if (self->vsrc == NULL && !_build_vsrc_pipeline (self, error)) {
     goto failed;
-  }
-
-  if (g_hash_table_size (self->targets) == 0) {
-    /* First target to connect sets the video parameters. */
-    _set_stream_caps (self, resolution, framerate);
-    self->fps = framerate;
   }
 
   target_id = g_str_hash (uri);
@@ -568,18 +614,6 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
   g_mutex_unlock (&self->lock);
 
-  /* Doing PLAYING -> READY -> PLAYING cycle on vsrc pipeline prods decodebin
-   * into re-discovery of input stream format and rebuilding its decoding
-   * pipeline. This is needed when a switch is made between two resolutions that
-   * the connected camera can only produce in different output formats, e.g. a
-   * change from raw 640x480 stream to MJPEG 1920x1080.
-   */
-  /* BUT, NVARGUS Camera src doesn't support PLAYING->READY->PLAYING */
-  if (self->source != GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC) {
-    gst_element_set_state (self->vsrc, GST_STATE_READY);
-  }
-  gst_element_set_state (self->vsrc, GST_STATE_PLAYING);
-
   return target;
 
 failed:
@@ -594,8 +628,7 @@ gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
     const gchar * uri, const gchar * username, GError ** error)
 {
   return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_VIDEO_CODEC,
-      DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE, DEFAULT_VIDEO_BITRATE,
-      uri, username, error);
+      DEFAULT_VIDEO_BITRATE, uri, username, error);
 }
 
 GaeguliReturn
