@@ -122,7 +122,8 @@ main (int argc, char *argv[])
     return -1;
   }
 
-  pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE, options.device);
+  pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE, options.device,
+      DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE);
   g_object_set (pipeline, "clock-overlay", options.overlay, NULL);
 
   signal_watch_intr_id =

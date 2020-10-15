@@ -56,6 +56,8 @@ GaeguliPipeline        *gaeguli_pipeline_new    (void);
  * gaeguli_pipeline_new_full:
  * @source: the source of the video
  * @device: the device used as source in case of V4L
+ * @resolution: source stream resolution
+ * @framerate: source stream frame rate
  *
  * Creates a new #GaeguliPipeline object using specific parameters.
  *
@@ -63,7 +65,9 @@ GaeguliPipeline        *gaeguli_pipeline_new    (void);
  */
 GaeguliPipeline        *gaeguli_pipeline_new_full
                                                 (GaeguliVideoSource     source,
-                                                 const gchar           *device);
+                                                 const gchar           *device,
+                                                 GaeguliVideoResolution resolution,
+                                                 guint                  framerate);
 /**
  * gaeguli_pipeline_add_srt_target:
  * @self: a #GaeguliPipeline object
@@ -86,8 +90,6 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
  * gaeguli_pipeline_add_srt_target_full:
  * @self: a #GaeguliPipeline object
  * @codec: codec to use for streaming
- * @resolution: resolution to use for streaming
- * @framerate: framerate to use for streaming
  * @bitrate: bitrate use for streaming
  * @username: SRT Stream ID User Name identifying this target
  * @uri: SRT URI
@@ -101,8 +103,6 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
 GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
                                                 (GaeguliPipeline       *self,
                                                  GaeguliVideoCodec      codec,
-                                                 GaeguliVideoResolution resolution,
-                                                 guint                  framerate,
                                                  guint                  bitrate,
                                                  const gchar           *uri,
                                                  const gchar           *username,

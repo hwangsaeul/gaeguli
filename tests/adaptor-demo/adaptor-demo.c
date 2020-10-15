@@ -148,8 +148,7 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
       }
 
       self->target = gaeguli_pipeline_add_srt_target_full (self->pipeline,
-          codec, GAEGULI_VIDEO_RESOLUTION_1920X1080, 24, 2048000,
-          "srt://:7001?mode=listener", NULL, &error);
+          codec, 2048000, "srt://:7001?mode=listener", NULL, &error);
 
       if (error) {
         g_printerr ("Unable to add SRT target: %s\n", error->message);
@@ -255,7 +254,7 @@ gaeguli_adaptor_demo_constructed (GObject * object)
   g_autoptr (GError) error = NULL;
 
   self->pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_V4L2SRC,
-      self->device);
+      self->device, GAEGULI_VIDEO_RESOLUTION_1920X1080, 24);
   self->http_server = gaeguli_http_server_new ();
 
   g_object_set (self->pipeline, "stream-adaptor",
