@@ -62,7 +62,8 @@ GaeguliTarget          *gaeguli_target_new           (GaeguliPipeline       *own
                                                       const gchar           *username,
                                                       GError               **error);
 
-void                    gaeguli_target_link          (GaeguliTarget        *self);
+void                    gaeguli_target_start         (GaeguliTarget        *self,
+                                                      GError              **error);
 
 void                    gaeguli_target_unlink        (GaeguliTarget        *self);
 

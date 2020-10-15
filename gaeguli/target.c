@@ -634,12 +634,10 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autoptr (GaeguliPipeline) owner = NULL;
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
-  g_autoptr (GstBus) bus = NULL;
   g_autofree gchar *pipeline_str = NULL;
   g_autofree gchar *uri_str = NULL;
   g_autoptr (GError) internal_err = NULL;
   GType adaptor_type;
-  GstStateChangeReturn res;
   NotifyData *notify_data;
 
   owner = g_weak_ref_get (&priv->gaeguli_pipeline);
@@ -683,10 +681,6 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
   g_object_set_data (G_OBJECT (priv->srtsink), "gaeguli-target-id",
       GUINT_TO_POINTER (self->id));
-
-  bus = gst_element_get_bus (self->pipeline);
-  gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
-      NULL);
 
   priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
 
@@ -734,16 +728,6 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
       (GCallback) _set_encoding_parameters, priv->encoder);
-
-  /* Setting READY state on srtsink check that we can bind to address and port
-   * specified in srt_uri. On failure, bus handler should set internal_err. */
-  res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
-
-  gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
-
-  if (res == GST_STATE_CHANGE_FAILURE) {
-    goto failed;
-  }
 
   enc_first = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc_first");
   enc_sinkpad = gst_element_get_static_pad (enc_first, "sink");
@@ -1026,8 +1010,6 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   GaeguliTarget *self = GAEGULI_TARGET (user_data);
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
-  GstPad *ghost_pad = NULL;
-
   /*
    * GST_PAD_PROBE_TYPE_IDLE can cause infinite waiting in filesink.
    * In addition, to prevent events generated in gst_ghost_pad_new()
@@ -1044,18 +1026,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 
   g_debug ("start link target [%x]", self->id);
 
-  ghost_pad = gst_ghost_pad_new (NULL, priv->peer_pad);
-  if (ghost_pad == NULL) {
-    g_error ("ghost pad is null");
-  }
-
-  gst_element_add_pad (GST_ELEMENT_PARENT (GST_PAD_PARENT (priv->peer_pad)),
-      ghost_pad);
-
-  g_debug ("created ghost pad for [%x]", self->id);
-
   gst_element_sync_state_with_parent (self->pipeline);
-  if (gst_pad_link (ghost_pad, priv->sinkpad) != GST_PAD_LINK_OK) {
+  if (gst_pad_link (priv->peer_pad, priv->sinkpad) != GST_PAD_LINK_OK) {
     g_error ("failed to link target to Gaeguli pipeline");
   }
 
@@ -1069,12 +1041,39 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
 }
 
 void
-gaeguli_target_link (GaeguliTarget * self)
+gaeguli_target_start (GaeguliTarget * self, GError ** error)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
+  g_autoptr (GstBus) bus = NULL;
+  g_autoptr (GError) internal_err = NULL;
+  GstStateChangeReturn res;
+
+  bus = gst_element_get_bus (self->pipeline);
+  gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
+      NULL);
+
+  /* Setting READY state on srtsink check that we can bind to address and port
+   * specified in srt_uri. On failure, bus handler should set internal_err. */
+  res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
+
+  gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
+
+  if (res == GST_STATE_CHANGE_FAILURE) {
+    goto failed;
+  }
+
+  gst_bin_add (GST_BIN (GST_ELEMENT_PARENT (GST_PAD_PARENT (priv->peer_pad))),
+      self->pipeline);
+
   priv->pending_pad_probe = gst_pad_add_probe (priv->peer_pad,
       GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb, self, NULL);
+
+failed:
+  if (internal_err) {
+    g_propagate_error (error, internal_err);
+    internal_err = NULL;
+  }
 }
 
 static gboolean
@@ -1096,7 +1095,6 @@ _unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   g_autoptr (GstElement) topmost_pipeline = NULL;
-  g_autoptr (GstPad) ghost_srcpad = NULL;
 
   /* Remove the probe first. See _link_probe_cb() for details. */
   gst_pad_remove_probe (pad, info->id);
@@ -1105,16 +1103,12 @@ _unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     priv->pending_pad_probe = 0;
   }
 
-  ghost_srcpad = gst_pad_get_peer (priv->sinkpad);
-
   g_debug ("start unlink target [%x]", self->id);
 
-  if (!gst_pad_unlink (ghost_srcpad, priv->sinkpad)) {
+  if (!gst_pad_unlink (priv->peer_pad, priv->sinkpad)) {
     g_error ("failed to unlink");
   }
 
-  gst_ghost_pad_set_target (GST_GHOST_PAD (ghost_srcpad), NULL);
-  gst_element_remove_pad (GST_PAD_PARENT (ghost_srcpad), ghost_srcpad);
   gst_element_release_request_pad (GST_PAD_PARENT (priv->peer_pad),
       priv->peer_pad);
 

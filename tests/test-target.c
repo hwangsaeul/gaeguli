@@ -41,6 +41,9 @@ test_gaeguli_target_encoding_params ()
       NULL, &error);
   g_assert_no_error (error);
 
+  gaeguli_target_start (target, &error);
+  g_assert_no_error (error);
+
   g_object_get (target, "bitrate", &val, NULL);
   g_assert_cmpuint (val, ==, DEFAULT_BITRATE);
   g_object_get (target, "bitrate-actual", &val, NULL);
