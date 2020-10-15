@@ -53,6 +53,7 @@ struct _GaeguliTarget
 
 
 GaeguliTarget          *gaeguli_target_new           (GaeguliPipeline       *owner,
+                                                      GstPad                *peer_pad,
                                                       guint                  id,
                                                       GaeguliVideoCodec      codec,
                                                       guint                  bitrate,
@@ -61,8 +62,7 @@ GaeguliTarget          *gaeguli_target_new           (GaeguliPipeline       *own
                                                       const gchar           *username,
                                                       GError               **error);
 
-void                    gaeguli_target_link_with_pad (GaeguliTarget        *self,
-                                                      GstPad               *pad);
+void                    gaeguli_target_link          (GaeguliTarget        *self);
 
 void                    gaeguli_target_unlink        (GaeguliTarget        *self);
 

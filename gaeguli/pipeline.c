@@ -576,18 +576,20 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
   target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
 
   if (!target) {
-    GstPadTemplate *templ = NULL;
-
     g_autoptr (GstElement) tee = NULL;
     g_autoptr (GstPad) tee_srcpad = NULL;
     g_autoptr (GError) internal_err = NULL;
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    target = gaeguli_target_new (self, target_id, codec, bitrate, self->fps,
-        uri, username, &internal_err);
+    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
+    tee_srcpad = gst_element_request_pad (tee,
+        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
+            "src_%u"), NULL, NULL);
 
-    /* linking target pipeline with vsrc */
+    target = gaeguli_target_new (self, tee_srcpad, target_id, codec, bitrate,
+        self->fps, uri, username, &internal_err);
+
     if (target == NULL) {
       g_propagate_error (error, internal_err);
       internal_err = NULL;
@@ -603,13 +605,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
     g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
 
-    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
-    templ =
-        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
-        "src_%u");
-
-    tee_srcpad = gst_element_request_pad (tee, templ, NULL, NULL);
-    gaeguli_target_link_with_pad (target, tee_srcpad);
+    gaeguli_target_link (target);
   }
 
   g_mutex_unlock (&self->lock);
