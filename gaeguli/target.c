@@ -28,7 +28,7 @@
 #include "enumtypes.h"
 #include "gaeguli-internal.h"
 #include "pipeline.h"
-#include "streamadaptor.h"
+#include "adaptors/nulladaptor.h"
 
 #include <gio/gio.h>
 
@@ -41,7 +41,6 @@ typedef struct
   GstPad *peer_pad;
   GstPad *sinkpad;
   gulong pending_pad_probe;
-  GWeakRef gaeguli_pipeline;
   GaeguliStreamAdaptor *adaptor;
 
   GaeguliVideoCodec codec;
@@ -51,13 +50,13 @@ typedef struct
   guint idr_period;
   gchar *uri;
   gchar *username;
+  GType adaptor_type;
   gboolean adaptive_streaming;
 } GaeguliTargetPrivate;
 
 enum
 {
   PROP_ID = 1,
-  PROP_PIPELINE,
   PROP_PEER_PAD,
   PROP_CODEC,
   PROP_BITRATE_CONTROL,
@@ -69,6 +68,7 @@ enum
   PROP_IDR_PERIOD,
   PROP_URI,
   PROP_USERNAME,
+  PROP_ADAPTOR_TYPE,
   PROP_ADAPTIVE_STREAMING,
   PROP_LAST
 };
@@ -96,6 +96,9 @@ G_DEFINE_TYPE_WITH_CODE (GaeguliTarget, gaeguli_target, G_TYPE_OBJECT,
 static void
 gaeguli_target_init (GaeguliTarget * self)
 {
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  priv->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
 
 typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
@@ -637,18 +640,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autofree gchar *pipeline_str = NULL;
   g_autofree gchar *uri_str = NULL;
   g_autoptr (GError) internal_err = NULL;
-  GType adaptor_type;
   NotifyData *notify_data;
-
-  owner = g_weak_ref_get (&priv->gaeguli_pipeline);
-  if (!owner) {
-    g_set_error (error, GAEGULI_RESOURCE_ERROR,
-        GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
-        "Can't create a target without a pipeline");
-    return FALSE;
-  }
-
-  g_object_get (owner, "stream-adaptor", &adaptor_type, NULL);
 
   pipeline_str = _get_enc_string (priv->codec, priv->idr_period);
   if (pipeline_str == NULL) {
@@ -720,14 +712,6 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_signal_connect_closure (priv->encoder, "notify::rate-control",
       g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
           NULL), FALSE);
-
-  priv->adaptor = g_object_new (adaptor_type, "srtsink", priv->srtsink,
-      "enabled", priv->adaptive_streaming, NULL);
-
-  gaeguli_target_update_baseline_parameters (self, TRUE);
-
-  g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
-      (GCallback) _set_encoding_parameters, priv->encoder);
 
   enc_first = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc_first");
   enc_sinkpad = gst_element_get_static_pad (enc_first, "sink");
@@ -803,9 +787,6 @@ gaeguli_target_set_property (GObject * object,
     case PROP_ID:
       self->id = g_value_get_uint (value);
       break;
-    case PROP_PIPELINE:
-      g_weak_ref_init (&priv->gaeguli_pipeline, g_value_get_object (value));
-      break;
     case PROP_PEER_PAD:
       priv->peer_pad = g_value_dup_object (value);
       break;
@@ -848,6 +829,9 @@ gaeguli_target_set_property (GObject * object,
     case PROP_USERNAME:
       priv->username = g_value_dup_string (value);
       break;
+    case PROP_ADAPTOR_TYPE:
+      priv->adaptor_type = g_value_get_gtype (value);
+      break;
     case PROP_ADAPTIVE_STREAMING:{
       gboolean new_adaptive_streaming = g_value_get_boolean (value);
       if (priv->adaptive_streaming != new_adaptive_streaming) {
@@ -878,7 +862,6 @@ gaeguli_target_dispose (GObject * object)
   gst_clear_object (&priv->peer_pad);
   gst_clear_object (&priv->sinkpad);
 
-  g_weak_ref_clear (&priv->gaeguli_pipeline);
   g_clear_object (&priv->adaptor);
 
   g_clear_pointer (&priv->uri, g_free);
@@ -900,11 +883,6 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_param_spec_uint ("id", "target ID", "target ID",
       0, G_MAXUINT, 0,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
-
-  properties[PROP_PIPELINE] =
-      g_param_spec_object ("pipeline", "owning GaeguliPipeline instance",
-      "owning GaeguliPipeline instance", GAEGULI_TYPE_PIPELINE,
-      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_PEER_PAD] =
       g_param_spec_object ("peer-pad", "the video stream's source pad",
@@ -967,6 +945,11 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_param_spec_string ("username", "username", "username",
       NULL, G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_ADAPTOR_TYPE] =
+      g_param_spec_gtype ("adaptor-type", "stream adaptor type",
+      "Type of network stream adoption the target should perform",
+      GAEGULI_TYPE_STREAM_ADAPTOR, G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
+
   properties[PROP_ADAPTIVE_STREAMING] =
       g_param_spec_boolean ("adaptive-streaming", "Use adaptive streaming",
       "Use adaptive streaming", TRUE,
@@ -994,14 +977,13 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 }
 
 GaeguliTarget *
-gaeguli_target_new (GaeguliPipeline * pipeline, GstPad * peer_pad, guint id,
+gaeguli_target_new (GstPad * peer_pad, guint id,
     GaeguliVideoCodec codec, guint bitrate, guint idr_period,
     const gchar * srt_uri, const gchar * username, GError ** error)
 {
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
-      "pipeline", pipeline, "peer-pad", peer_pad, "codec", codec,
-      "bitrate", bitrate, "idr-period", idr_period, "uri", srt_uri, "username",
-      username, NULL);
+      "peer-pad", peer_pad, "codec", codec, "bitrate", bitrate,
+      "idr-period", idr_period, "uri", srt_uri, "username", username, NULL);
 }
 
 static GstPadProbeReturn
@@ -1048,6 +1030,19 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GError) internal_err = NULL;
   GstStateChangeReturn res;
+
+  if (priv->adaptor) {
+    g_warning ("Target %u is already running", self->id);
+    return;
+  }
+
+  priv->adaptor = g_object_new (priv->adaptor_type, "srtsink", priv->srtsink,
+      "enabled", priv->adaptive_streaming, NULL);
+
+  gaeguli_target_update_baseline_parameters (self, TRUE);
+
+  g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
+      (GCallback) _set_encoding_parameters, priv->encoder);
 
   bus = gst_element_get_bus (self->pipeline);
   gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
