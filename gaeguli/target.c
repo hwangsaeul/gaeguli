@@ -1069,26 +1069,6 @@ gaeguli_target_link_with_pad (GaeguliTarget * self, GstPad * pad)
       GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb, self, NULL);
 }
 
-guint64
-gaeguli_target_get_bytes_sent (GaeguliTarget * self)
-{
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  g_autoptr (GstStructure) s = NULL;
-  guint64 result = 0;
-
-  g_return_val_if_fail (GAEGULI_IS_TARGET (self), GAEGULI_RETURN_FAIL);
-
-  if (priv->srtsink) {
-    g_object_get (priv->srtsink, "stats", &s, NULL);
-    gst_structure_get_uint64 (s, "bytes-sent", &result);
-  } else {
-    g_warning ("SRT sink for target %d not found", self->id);
-  }
-
-  return result;
-}
-
 static gboolean
 _unlink_finish_in_main_thread (GaeguliTarget * self)
 {

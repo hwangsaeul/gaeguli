@@ -151,14 +151,22 @@ add_remove_target_cb (AddRemoveTestData * data)
   /* Check that all targets are in NORMAL state and data are being read. */
   for (i = 0; i != G_N_ELEMENTS (data->targets); ++i) {
     TargetTestData *target = &data->targets[i];
-    guint64 bytes_sent;
+    g_autoptr (GVariant) variant = NULL;
+    guint64 bytes_sent = 0;
     g_autoptr (GError) error = NULL;
 
     if (target->target == NULL || target->closing) {
       continue;
     }
 
-    bytes_sent = gaeguli_target_get_bytes_sent (target->target);
+    variant = gaeguli_target_get_stats (target->target);
+    if (variant) {
+      GVariantDict dict;
+
+      g_variant_dict_init (&dict, variant);
+      g_variant_dict_lookup (&dict, "bytes-sent", "t", &bytes_sent);
+      g_variant_dict_clear (&dict);
+    }
 
     g_debug ("Target %u has sent %lu B", target->target->id, bytes_sent);
 

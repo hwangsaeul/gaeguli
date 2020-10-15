@@ -66,16 +66,6 @@ void                    gaeguli_target_link_with_pad (GaeguliTarget        *self
 
 void                    gaeguli_target_unlink        (GaeguliTarget        *self);
 
-/**
- * gaeguli_pipeline_target_get_bytes_sent:
- * @self: a #GaeguliPipeline object
- * @target_id: a SRT target as returned by #gaeguli_pipeline_add_srt_target
- *
- * Returns: the number of bytes sent over the given SRT target
- */
-guint64                 gaeguli_target_get_bytes_sent (GaeguliTarget       *self);
-
-
 GVariant               *gaeguli_target_get_stats      (GaeguliTarget       *self);
 
 G_END_DECLS
