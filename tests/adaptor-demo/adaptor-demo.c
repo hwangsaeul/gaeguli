@@ -152,6 +152,14 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
 
       if (error) {
         g_printerr ("Unable to add SRT target: %s\n", error->message);
+        g_clear_error (&error);
+      }
+
+      gaeguli_target_start (self->target, &error);
+
+      if (error) {
+        g_printerr ("Unable to start SRT target: %s\n", error->message);
+        g_clear_error (&error);
       }
 
       gaeguli_http_server_send_property_string (self->http_server, "srt-uri",

@@ -601,11 +601,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     g_signal_connect_swapped (target, "stream-stopped",
         G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
 
-    gst_bin_add (GST_BIN (self->pipeline), target->pipeline);
-
     g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
-
-    gaeguli_target_link (target);
   }
 
   g_mutex_unlock (&self->lock);
