@@ -52,8 +52,7 @@ struct _GaeguliTarget
 };
 
 
-GaeguliTarget          *gaeguli_target_new           (GaeguliPipeline       *owner,
-                                                      GstPad                *peer_pad,
+GaeguliTarget          *gaeguli_target_new           (GstPad                *peer_pad,
                                                       guint                  id,
                                                       GaeguliVideoCodec      codec,
                                                       guint                  bitrate,

@@ -587,7 +587,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
         gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
             "src_%u"), NULL, NULL);
 
-    target = gaeguli_target_new (self, tee_srcpad, target_id, codec, bitrate,
+    target = gaeguli_target_new (tee_srcpad, target_id, codec, bitrate,
         self->fps, uri, username, &internal_err);
 
     if (target == NULL) {
@@ -595,6 +595,8 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
       internal_err = NULL;
       goto failed;
     }
+
+    g_object_set (target, "adaptor-type", self->adaptor_type, NULL);
 
     g_signal_connect_swapped (target, "stream-started",
         G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
