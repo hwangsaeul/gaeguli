@@ -18,6 +18,9 @@
 #include "gaeguli/gaeguli.h"
 
 GstElement       *gaeguli_tests_create_receiver (GaeguliSRTMode mode,
-                                                 guint port,
+                                                 guint port);
+
+void              gaeguli_tests_receiver_set_handoff_callback
+                                                (GstElement *receiver,
                                                  GCallback handoff_callback,
                                                  gpointer data);

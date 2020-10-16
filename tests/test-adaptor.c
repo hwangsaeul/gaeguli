@@ -309,8 +309,7 @@ test_gaeguli_adaptor_stats ()
   gaeguli_target_start (target, &error);
   g_assert_no_error (error);
 
-  receiver = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER, 1111,
-      NULL, NULL);
+  receiver = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER, 1111);
 
   loop = g_main_loop_new (NULL, FALSE);
   g_main_loop_run (loop);

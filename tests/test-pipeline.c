@@ -135,7 +135,7 @@ add_remove_target_cb (AddRemoveTestData * data)
 
       target->receiver_pipeline =
           gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
-          data->fixture->port_base + i, NULL, NULL);
+          data->fixture->port_base + i);
       g_assert_nonnull (target->receiver_pipeline);
 
       uri = g_strdup_printf ("srt://127.0.0.1:%d",
@@ -357,7 +357,9 @@ receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
     g_assert_no_error (error);
 
     data->receiver2 = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_CALLER,
-        data->fixture->port_base + 1, (GCallback) receiver2_buffer_cb, data);
+        data->fixture->port_base + 1);
+    gaeguli_tests_receiver_set_handoff_callback (data->receiver2,
+        (GCallback) receiver2_buffer_cb, data);
   }
 }
 
@@ -385,7 +387,9 @@ test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
   data.fixture = fixture;
   data.pipeline = pipeline;
   data.receiver1 = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
-      data.fixture->port_base, (GCallback) receiver1_buffer_cb, &data);
+      data.fixture->port_base);
+  gaeguli_tests_receiver_set_handoff_callback (data.receiver1,
+      (GCallback) receiver1_buffer_cb, &data);
 
   g_main_loop_run (fixture->loop);
 
@@ -548,7 +552,9 @@ test_gaeguli_pipeline_connection_error (TestFixture * fixture,
       (GCallback) _on_connection_error_not_reached, NULL);
 
   receiver = gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER,
-      fixture->port_base, (GCallback) _on_buffer_received, fixture->loop);
+      fixture->port_base);
+  gaeguli_tests_receiver_set_handoff_callback (receiver,
+      (GCallback) _on_buffer_received, fixture->loop);
   g_assert_nonnull (receiver);
 
   g_debug ("Running a target with a listener. This should report no errors.");
