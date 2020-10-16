@@ -389,7 +389,7 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
       }
 
       gst_message_parse_warning (message, &error, NULL);
-      if (g_error_matches (error, GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_WRITE)) {
+      if (error && error->domain == GST_RESOURCE_ERROR) {
         g_signal_emit (self, signals[SIG_CONNECTION_ERROR], 0, target, error);
       }
       break;
