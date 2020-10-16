@@ -18,12 +18,10 @@
 #include "receiver.h"
 
 GstElement *
-gaeguli_tests_create_receiver (GaeguliSRTMode mode, guint port,
-    GCallback handoff_callback, gpointer data)
+gaeguli_tests_create_receiver (GaeguliSRTMode mode, guint port)
 {
   g_autoptr (GError) error = NULL;
   g_autoptr (GstElement) receiver = NULL;
-  g_autoptr (GstElement) sink = NULL;
   g_autofree gchar *pipeline_str = NULL;
   gchar *mode_str = mode == GAEGULI_SRT_MODE_CALLER ? "caller" : "listener";
 
@@ -33,12 +31,33 @@ gaeguli_tests_create_receiver (GaeguliSRTMode mode, guint port,
   receiver = gst_parse_launch (pipeline_str, &error);
   g_assert_no_error (error);
 
-  if (handoff_callback) {
-    sink = gst_bin_get_by_name (GST_BIN (receiver), "sink");
-    g_signal_connect (sink, "handoff", handoff_callback, data);
-  }
-
   gst_element_set_state (receiver, GST_STATE_PLAYING);
 
   return g_steal_pointer (&receiver);
+}
+
+void
+gaeguli_tests_receiver_set_handoff_callback (GstElement * receiver,
+    GCallback callback, gpointer data)
+{
+  g_autoptr (GstElement) sink = NULL;
+  gulong handler_id;
+
+  sink = gst_bin_get_by_name (GST_BIN (receiver), "sink");
+
+  /* Disconnect previous handler. */
+  handler_id = GPOINTER_TO_SIZE (g_object_get_data (G_OBJECT (sink),
+          "handoff-id"));
+  if (handler_id) {
+    g_signal_handler_disconnect (sink, handler_id);
+  }
+
+  if (callback) {
+    handler_id = g_signal_connect (sink, "handoff", callback, data);
+  } else {
+    handler_id = 0;
+  }
+
+  g_object_set_data (G_OBJECT (sink), "handoff-id",
+      GSIZE_TO_POINTER (handler_id));
 }
