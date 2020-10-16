@@ -25,7 +25,8 @@ gaeguli_tests_create_receiver (GaeguliSRTMode mode, guint port)
   g_autofree gchar *pipeline_str = NULL;
   gchar *mode_str = mode == GAEGULI_SRT_MODE_CALLER ? "caller" : "listener";
 
-  pipeline_str = g_strdup_printf ("srtsrc uri=srt://127.0.0.1:%d?mode=%s ! "
+  pipeline_str =
+      g_strdup_printf ("srtsrc uri=srt://127.0.0.1:%d?mode=%s name=src ! "
       "fakesink name=sink signal-handoffs=1", port, mode_str);
 
   receiver = gst_parse_launch (pipeline_str, &error);
@@ -60,4 +61,18 @@ gaeguli_tests_receiver_set_handoff_callback (GstElement * receiver,
 
   g_object_set_data (G_OBJECT (sink), "handoff-id",
       GSIZE_TO_POINTER (handler_id));
+}
+
+void
+gaeguli_tests_receiver_set_passphrase (GstElement * receiver,
+    const gchar * passphrase)
+{
+  g_autoptr (GstElement) src = NULL;
+
+  gst_element_set_state (receiver, GST_STATE_READY);
+
+  src = gst_bin_get_by_name (GST_BIN (receiver), "src");
+  g_object_set (src, "passphrase", passphrase, NULL);
+
+  gst_element_set_state (receiver, GST_STATE_PLAYING);
 }
