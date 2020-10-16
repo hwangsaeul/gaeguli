@@ -50,6 +50,7 @@ typedef struct
   guint idr_period;
   gchar *uri;
   gchar *username;
+  gchar *passphrase;
   GType adaptor_type;
   gboolean adaptive_streaming;
 } GaeguliTargetPrivate;
@@ -68,6 +69,7 @@ enum
   PROP_IDR_PERIOD,
   PROP_URI,
   PROP_USERNAME,
+  PROP_PASSPHRASE,
   PROP_ADAPTOR_TYPE,
   PROP_ADAPTIVE_STREAMING,
   PROP_LAST
@@ -827,7 +829,12 @@ gaeguli_target_set_property (GObject * object,
       priv->uri = g_value_dup_string (value);
       break;
     case PROP_USERNAME:
+      g_clear_pointer (&priv->username, g_free);
       priv->username = g_value_dup_string (value);
+      break;
+    case PROP_PASSPHRASE:
+      g_clear_pointer (&priv->username, g_free);
+      priv->passphrase = g_value_dup_string (value);
       break;
     case PROP_ADAPTOR_TYPE:
       priv->adaptor_type = g_value_get_gtype (value);
@@ -866,6 +873,7 @@ gaeguli_target_dispose (GObject * object)
 
   g_clear_pointer (&priv->uri, g_free);
   g_clear_pointer (&priv->username, g_free);
+  g_clear_pointer (&priv->passphrase, g_free);
 
   G_OBJECT_CLASS (gaeguli_target_parent_class)->dispose (object);
 }
@@ -944,6 +952,12 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
   properties[PROP_USERNAME] =
       g_param_spec_string ("username", "username", "username",
       NULL, G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_PASSPHRASE] =
+      g_param_spec_string ("passphrase", "passphrase",
+      "Password for the encrypted transmission. Must be 10 to 80 "
+      "characters long. Pass NULL to unset.",
+      NULL, G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_ADAPTOR_TYPE] =
       g_param_spec_gtype ("adaptor-type", "stream adaptor type",
@@ -1030,6 +1044,8 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GError) internal_err = NULL;
   GstStateChangeReturn res;
+
+  g_object_set (priv->srtsink, "passphrase", priv->passphrase, NULL);
 
   if (priv->adaptor) {
     g_warning ("Target %u is already running", self->id);
