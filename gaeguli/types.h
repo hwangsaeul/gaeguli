@@ -80,6 +80,13 @@ typedef enum {
   GAEGULI_VIDEO_RESOLUTION_3840X2160,
 } GaeguliVideoResolution;
 
+typedef enum {
+  GAEGULI_SRT_KEY_LENGTH_0 = 0,
+  GAEGULI_SRT_KEY_LENGTH_16 = 16,
+  GAEGULI_SRT_KEY_LENGTH_24 = 24,
+  GAEGULI_SRT_KEY_LENGTH_32 = 32
+} GaeguliSRTKeyLength;
+
 #define GAEGULI_RESOURCE_ERROR          (gaeguli_resource_error_quark ())
 GQuark gaeguli_resource_error_quark     (void);
 

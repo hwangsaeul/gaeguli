@@ -51,6 +51,7 @@ typedef struct
   gchar *uri;
   gchar *username;
   gchar *passphrase;
+  GaeguliSRTKeyLength pbkeylen;
   GType adaptor_type;
   gboolean adaptive_streaming;
 } GaeguliTargetPrivate;
@@ -70,6 +71,7 @@ enum
   PROP_URI,
   PROP_USERNAME,
   PROP_PASSPHRASE,
+  PROP_PBKEYLEN,
   PROP_ADAPTOR_TYPE,
   PROP_ADAPTIVE_STREAMING,
   PROP_LAST
@@ -836,6 +838,9 @@ gaeguli_target_set_property (GObject * object,
       g_clear_pointer (&priv->username, g_free);
       priv->passphrase = g_value_dup_string (value);
       break;
+    case PROP_PBKEYLEN:
+      priv->pbkeylen = g_value_get_enum (value);
+      break;
     case PROP_ADAPTOR_TYPE:
       priv->adaptor_type = g_value_get_gtype (value);
       break;
@@ -959,6 +964,12 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       "characters long. Pass NULL to unset.",
       NULL, G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_PBKEYLEN] =
+      g_param_spec_enum ("pbkeylen", "Cryptographic key length in bytes",
+      "Cryptographic key length in bytes",
+      GAEGULI_TYPE_SRT_KEY_LENGTH, GAEGULI_SRT_KEY_LENGTH_0,
+      G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS);
+
   properties[PROP_ADAPTOR_TYPE] =
       g_param_spec_gtype ("adaptor-type", "stream adaptor type",
       "Type of network stream adoption the target should perform",
@@ -1044,8 +1055,26 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GError) internal_err = NULL;
   GstStateChangeReturn res;
+  gint pbkeylen;
 
-  g_object_set (priv->srtsink, "passphrase", priv->passphrase, NULL);
+  switch (priv->pbkeylen) {
+    default:
+    case GAEGULI_SRT_KEY_LENGTH_0:
+      pbkeylen = 0;
+      break;
+    case GAEGULI_SRT_KEY_LENGTH_16:
+      pbkeylen = 16;
+      break;
+    case GAEGULI_SRT_KEY_LENGTH_24:
+      pbkeylen = 24;
+      break;
+    case GAEGULI_SRT_KEY_LENGTH_32:
+      pbkeylen = 32;
+      break;
+  }
+
+  g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
+      pbkeylen, NULL);
 
   if (priv->adaptor) {
     g_warning ("Target %u is already running", self->id);
