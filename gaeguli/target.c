@@ -1175,10 +1175,10 @@ gaeguli_target_unlink (GaeguliTarget * self)
     gst_pad_remove_probe (priv->peer_pad, priv->pending_pad_probe);
     priv->pending_pad_probe = 0;
   } else {
-    gst_element_set_state (priv->srtsink, GST_STATE_NULL);
-
     gst_pad_add_probe (priv->peer_pad, GST_PAD_PROBE_TYPE_BLOCK,
         _unlink_probe_cb, g_object_ref (self), (GDestroyNotify) g_object_unref);
+    /* Immediately closes SRT connection. */
+    gst_element_set_state (priv->srtsink, GST_STATE_NULL);
   }
 }
 
