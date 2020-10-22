@@ -1,7 +1,7 @@
 ![Build Status](https://github.com/hwangsaeul/gaeguli/workflows/CI/badge.svg?branch=master)
 
 # Gaeguli
-*[gæguli]* is a SRT streamer designed for edge devices that require strong security and ultra-low latency.
+*[gæguli]* is a set of library for video streaming over SRT that requires strong security and ultra-low latency.
 
 ## Overview
 *Gaeguli* implements the supporting library for handling SRT streaming. It provides 'pipeline' component
@@ -42,5 +42,5 @@ Experimental versions of Gaeguli are daily generated in [launchpad](https://laun
 ```console
 $ sudo add-apt-repository ppa:hwangsaeul/nightly
 $ sudo apt-get update
-$ sudo apt-get install libgaeguli1 libgaeguli-dev gaeguli-tools
+$ sudo apt-get install libgaeguli2 libgaeguli-dev gaeguli-tools
 ```
