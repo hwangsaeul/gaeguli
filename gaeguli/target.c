@@ -36,6 +36,8 @@ typedef struct
 {
   GObject parent;
 
+  GaeguliTargetState state;
+
   GstElement *encoder;
   GstElement *srtsink;
   GstPad *peer_pad;
@@ -102,6 +104,7 @@ gaeguli_target_init (GaeguliTarget * self)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
+  priv->state = GAEGULI_TARGET_STATE_NEW;
   priv->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
 
@@ -1038,6 +1041,8 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
     g_error ("failed to link target to Gaeguli pipeline");
   }
 
+  priv->state = GAEGULI_TARGET_STATE_RUNNING;
+
   g_debug ("finished link target [%x]", self->id);
 
   g_signal_emit (self, signals[SIG_STREAM_STARTED], 0);
@@ -1076,10 +1081,12 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
       pbkeylen, NULL);
 
-  if (priv->adaptor) {
+  if (priv->state != GAEGULI_TARGET_STATE_NEW) {
     g_warning ("Target %u is already running", self->id);
     return;
   }
+
+  priv->state = GAEGULI_TARGET_STATE_STARTING;
 
   priv->adaptor = g_object_new (priv->adaptor_type, "srtsink", priv->srtsink,
       "enabled", priv->adaptive_streaming, NULL);
@@ -1114,14 +1121,22 @@ failed:
     g_propagate_error (error, internal_err);
     internal_err = NULL;
   }
+
+  priv->state = GAEGULI_TARGET_STATE_ERROR;
 }
 
 static gboolean
 _unlink_finish_in_main_thread (GaeguliTarget * self)
 {
+  GaeguliTargetPrivate *priv;
+
   g_return_val_if_fail (self != NULL, G_SOURCE_REMOVE);
 
+  priv = gaeguli_target_get_instance_private (self);
+
   gst_element_set_state (self->pipeline, GST_STATE_NULL);
+
+  priv->state = GAEGULI_TARGET_STATE_STOPPED;
 
   g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0);
 
@@ -1170,10 +1185,13 @@ gaeguli_target_unlink (GaeguliTarget * self)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
+  priv->state = GAEGULI_TARGET_STATE_STOPPING;
+
   if (priv->pending_pad_probe != 0) {
     /* Target removed before its link pad probe got called. */
     gst_pad_remove_probe (priv->peer_pad, priv->pending_pad_probe);
     priv->pending_pad_probe = 0;
+    priv->state = GAEGULI_TARGET_STATE_STOPPED;
   } else {
     gst_pad_add_probe (priv->peer_pad, GST_PAD_PROBE_TYPE_BLOCK,
         _unlink_probe_cb, g_object_ref (self), (GDestroyNotify) g_object_unref);
@@ -1248,6 +1266,14 @@ _convert_gst_structure_to (GstStructure * s)
 
 out:
   return g_variant_dict_end (dict);
+}
+
+GaeguliTargetState
+gaeguli_target_get_state (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  return priv->state;
 }
 
 GVariant *

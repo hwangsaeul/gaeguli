@@ -87,6 +87,15 @@ typedef enum {
   GAEGULI_SRT_KEY_LENGTH_32 = 32
 } GaeguliSRTKeyLength;
 
+typedef enum {
+  GAEGULI_TARGET_STATE_NEW,
+  GAEGULI_TARGET_STATE_STARTING,
+  GAEGULI_TARGET_STATE_RUNNING,
+  GAEGULI_TARGET_STATE_STOPPING,
+  GAEGULI_TARGET_STATE_STOPPED,
+  GAEGULI_TARGET_STATE_ERROR
+} GaeguliTargetState;
+
 #define GAEGULI_RESOURCE_ERROR          (gaeguli_resource_error_quark ())
 GQuark gaeguli_resource_error_quark     (void);
 
