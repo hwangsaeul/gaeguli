@@ -549,6 +549,9 @@ gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
     g_mutex_lock (&self->lock);
   }
   g_mutex_unlock (&self->lock);
+
+  /* Reference acquired in gaeguli_pipeline_remove_target(). */
+  g_object_unref (self);
 }
 
 GaeguliTarget *
@@ -641,6 +644,11 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, GaeguliTarget * target,
   }
 
   gaeguli_target_unlink (target);
+  if (gaeguli_target_get_state (target) == GAEGULI_TARGET_STATE_STOPPING) {
+    /* Target removal will happen asynchronously. Keep the pipeline alive
+     * until the target fires "stream-stopped". */
+    g_object_ref (self);
+  }
   g_object_unref (target);
 
 out:
