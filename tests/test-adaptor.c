@@ -19,7 +19,7 @@
  *
  */
 
-#include "common/receiver.h"
+#include "gaeguli/test/receiver.h"
 
 #include <adaptors/nulladaptor.h>
 #include <adaptors/bandwidthadaptor.h>

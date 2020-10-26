@@ -21,7 +21,7 @@
 
 #include <gaeguli/gaeguli.h>
 #include "pipeline.h"
-#include "common/receiver.h"
+#include "gaeguli/test/receiver.h"
 
 #define TARGET_BYTES_SENT_LIMIT 10000
 
