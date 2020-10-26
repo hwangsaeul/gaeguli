@@ -14,7 +14,7 @@ foreach t: tests
     t, '@0@.c'.format(t),
     c_args: '-DG_LOG_DOMAIN="gaeguli-tests"',
     dependencies: [ libgaeguli_dep ],
-    link_with: libhwangsae_test_common,
+    link_with: libgaeguli_test_common,
     install: false,
   )
 
