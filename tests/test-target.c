@@ -20,7 +20,7 @@
 
 #include <gaeguli/gaeguli.h>
 
-#include "common/receiver.h"
+#include "gaeguli/test/receiver.h"
 
 #define DEFAULT_BITRATE 1500000
 #define CHANGED_BITRATE 3000000

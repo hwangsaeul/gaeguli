@@ -1,4 +1,4 @@
-subdir('common')
+subdir('common/gaeguli/test')
 subdir('adaptor-demo')
 
 tests = [
@@ -13,8 +13,7 @@ foreach t: tests
   exe = executable(
     t, '@0@.c'.format(t),
     c_args: '-DG_LOG_DOMAIN="gaeguli-tests"',
-    dependencies: [ libgaeguli_dep ],
-    link_with: libgaeguli_test_common,
+    dependencies: [ libgaeguli_dep, libgaeguli_test_common_dep ],
     install: false,
   )
 
