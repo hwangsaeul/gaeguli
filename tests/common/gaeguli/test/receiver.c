@@ -64,6 +64,22 @@ gaeguli_tests_receiver_set_handoff_callback (GstElement * receiver,
 }
 
 void
+gaeguli_tests_receiver_set_username (GstElement * receiver,
+    const gchar * username, const gchar * resource)
+{
+  g_autoptr (GstElement) src = NULL;
+  g_autofree gchar *streamid = NULL;
+
+  gst_element_set_state (receiver, GST_STATE_READY);
+
+  streamid = g_strdup_printf ("#!::u=%s,r=%s", username, resource);
+  src = gst_bin_get_by_name (GST_BIN (receiver), "src");
+  g_object_set (src, "streamid", streamid, NULL);
+
+  gst_element_set_state (receiver, GST_STATE_PLAYING);
+}
+
+void
 gaeguli_tests_receiver_set_passphrase (GstElement * receiver,
     const gchar * passphrase)
 {
