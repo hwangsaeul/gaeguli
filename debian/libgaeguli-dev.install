@@ -1,3 +1,3 @@
-usr/include
-usr/lib/*/libgaeguli-*.so
-usr/lib/*/pkgconfig/*
+usr/include/gaeguli-2.0/gaeguli/*.h
+usr/lib/*/libgaeguli-2.0.so
+usr/lib/*/pkgconfig/gaeguli-2.0.pc

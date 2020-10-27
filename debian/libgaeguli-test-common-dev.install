@@ -1,0 +1,3 @@
+usr/include/*/gaeguli/test
+usr/lib/*/libgaeguli-test-common*.so
+usr/lib/*/pkgconfig/gaeguli-test-common-2.0.pc
