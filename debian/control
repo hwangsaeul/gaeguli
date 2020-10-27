@@ -64,3 +64,24 @@ Depends:
 Description: Ultra-low latency SRT streamer
  Gæguli is an SRT streamer designed for edge devices that require
  strong security and ultra-low latency.
+
+Package: libgaeguli-test-common2
+Architecture: any
+Depends:
+ libgaeguli2 (= ${binary:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends},
+Description: Gaeguli test library
+ A library of ancillary methods for writing tests that involve Gaeguli.
+
+Package: libgaeguli-test-common-dev
+Section: libdevel
+Architecture: any
+Depends:
+ libgaeguli-test-common2 (= ${binary:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends},
+Description: Gaeguli test library (development files)
+ A library of ancillary methods for writing tests that involve Gaeguli.
+ .
+ This package contains development files for the library.
