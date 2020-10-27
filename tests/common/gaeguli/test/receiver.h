@@ -25,6 +25,11 @@ void              gaeguli_tests_receiver_set_handoff_callback
                                                  GCallback handoff_callback,
                                                  gpointer data);
 
+void              gaeguli_tests_receiver_set_username
+                                                (GstElement *receiver,
+                                                 const gchar *username,
+                                                 const gchar *resource);
+
 void              gaeguli_tests_receiver_set_passphrase
                                                 (GstElement *receiver,
                                                  const gchar *passphrase);
