@@ -643,6 +643,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   g_autoptr (GaeguliPipeline) owner = NULL;
   g_autoptr (GstElement) enc_first = NULL;
+  g_autoptr (GstElement) muxsink_first = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
   g_autofree gchar *pipeline_str = NULL;
   g_autofree gchar *uri_str = NULL;
@@ -676,6 +677,14 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   }
 
   gst_object_ref_sink (self->pipeline);
+
+  muxsink_first =
+      gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
+  if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
+          "pcr-interval")) {
+    g_info ("set pcr-interval to 360");
+    g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+  }
 
   priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
   g_object_set_data (G_OBJECT (priv->srtsink), "gaeguli-target-id",
