@@ -49,6 +49,7 @@ struct _GaeguliPipeline
 
   GstElement *overlay;
   gboolean show_overlay;
+  gboolean prefer_hw_decoding;
 
   GType adaptor_type;
 };
@@ -70,6 +71,7 @@ typedef enum
   PROP_CLOCK_OVERLAY,
   PROP_STREAM_ADAPTOR,
   PROP_GST_PIPELINE,
+  PROP_PREFER_HW_DECODING,
 
   /*< private > */
   PROP_LAST
@@ -143,6 +145,9 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_GST_PIPELINE:
       g_value_set_object (value, self->pipeline);
       break;
+    case PROP_PREFER_HW_DECODING:
+      g_value_set_boolean (value, self->prefer_hw_decoding);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -180,6 +185,9 @@ gaeguli_pipeline_set_property (GObject * object,
       break;
     case PROP_STREAM_ADAPTOR:
       self->adaptor_type = g_value_get_gtype (value);
+      break;
+    case PROP_PREFER_HW_DECODING:
+      self->prefer_hw_decoding = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -226,6 +234,11 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       g_param_spec_object ("gst-pipeline", "GStreamer pipeline",
       "The internal GStreamer pipeline", GST_TYPE_PIPELINE,
       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_PREFER_HW_DECODING] =
+      g_param_spec_boolean ("prefer-hw-decoding", "prefer hardware decoding",
+      "prefer hardware decoding on availability", FALSE,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
@@ -410,6 +423,7 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   g_autoptr (GstElement) decodebin = NULL;
   g_autoptr (GstElement) tee = NULL;
   g_autoptr (GstPad) tee_sink = NULL;
+  g_autoptr (GstPluginFeature) feature = NULL;
 
   /* FIXME: what if zero-copy */
   vsrc_str = _get_vsrc_pipeline_string (self);
@@ -445,6 +459,15 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   if (decodebin) {
     g_signal_connect (decodebin, "pad-added",
         G_CALLBACK (_decodebin_pad_added), self->overlay);
+  }
+
+  if (self->prefer_hw_decoding) {
+    /* Verify whether hardware accelearted vaapijpeg decoder is available.
+     * If available, make sure that the decodebin picks it up. */
+    feature = gst_registry_find_feature (gst_registry_get (), "vaapijpegdec",
+        GST_TYPE_ELEMENT_FACTORY);
+    if (feature)
+      gst_plugin_feature_set_rank (feature, GST_RANK_PRIMARY + 100);
   }
 
   gaeguli_pipeline_update_vsrc_caps (self);
