@@ -85,6 +85,8 @@ enum
 {
   SIG_STREAM_STARTED,
   SIG_STREAM_STOPPED,
+  SIG_CALLER_ADDED,
+  SIG_CALLER_REMOVED,
   LAST_SIGNAL
 };
 
@@ -634,6 +636,20 @@ _notify_encoder_change (NotifyData * data)
   g_object_notify_by_pspec (data->target, data->pspec);
 }
 
+static void
+gaeguli_target_on_caller_added (GaeguliTarget * self, gint srtsocket,
+    GSocketAddress * address)
+{
+  g_signal_emit (self, signals[SIG_CALLER_ADDED], 0, srtsocket, address);
+}
+
+static void
+gaeguli_target_on_caller_removed (GaeguliTarget * self, gint srtsocket,
+    GSocketAddress * address)
+{
+  g_signal_emit (self, signals[SIG_CALLER_REMOVED], 0, srtsocket, address);
+}
+
 static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
@@ -689,6 +705,10 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
   g_object_set_data (G_OBJECT (priv->srtsink), "gaeguli-target-id",
       GUINT_TO_POINTER (self->id));
+  g_signal_connect_swapped (priv->srtsink, "caller-added",
+      G_CALLBACK (gaeguli_target_on_caller_added), self);
+  g_signal_connect_swapped (priv->srtsink, "caller-removed",
+      G_CALLBACK (gaeguli_target_on_caller_removed), self);
 
   priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
 
