@@ -1277,6 +1277,18 @@ out:
   return g_variant_dict_end (dict);
 }
 
+GaeguliSRTMode
+gaeguli_target_get_srt_mode (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  GaeguliSRTMode mode;
+
+  g_object_get (priv->srtsink, "mode", &mode, NULL);
+
+  return mode;
+}
+
 GaeguliTargetState
 gaeguli_target_get_state (GaeguliTarget * self)
 {
