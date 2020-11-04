@@ -22,6 +22,8 @@
 #include "gaeguli-internal.h"
 #include "adaptors/nulladaptor.h"
 
+#include <gio/gio.h>
+
 /* *INDENT-OFF* */
 #if !GLIB_CHECK_VERSION(2,57,1)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEnumClass, g_type_class_unref)
@@ -49,6 +51,12 @@ struct _GaeguliPipeline
 
   GstElement *overlay;
   gboolean show_overlay;
+
+  guint benchmark_interval_ms;
+  guint benchmark_timeout_id;
+  GHashTable *srtsocket_to_peer_addr;
+  GHashTable *benchmarks;
+
   gboolean prefer_hw_decoding;
 
   GType adaptor_type;
@@ -72,6 +80,7 @@ typedef enum
   PROP_STREAM_ADAPTOR,
   PROP_GST_PIPELINE,
   PROP_PREFER_HW_DECODING,
+  PROP_BENCHMARK_INTERVAL,
 
   /*< private > */
   PROP_LAST
@@ -95,6 +104,107 @@ G_DEFINE_TYPE (GaeguliPipeline, gaeguli_pipeline, G_TYPE_OBJECT)
 
 static void gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self);
 
+typedef struct
+{
+  double bw_mbps;
+  double rtt_ms;
+} Benchmark;
+
+static void
+gaeguli_pipeline_collect_benchmark_for_socket (GaeguliPipeline * self,
+    GaeguliTarget * target, GVariantDict * d)
+{
+  Benchmark *benchmark;
+  const gchar *peer_address = NULL;
+
+  if (gaeguli_target_get_srt_mode (target) == GAEGULI_SRT_MODE_CALLER) {
+    peer_address = gaeguli_target_get_peer_address (target);
+  } else {
+    int srtsocket = 0;
+
+    g_variant_dict_lookup (d, "socket", "i", &srtsocket);
+
+    if (srtsocket == 0) {
+      return;
+    }
+
+    peer_address = g_hash_table_lookup (self->srtsocket_to_peer_addr,
+        GUINT_TO_POINTER (srtsocket));
+  }
+
+  if (!peer_address) {
+    g_warning ("Couldn't get peer address for target %p", target);
+    return;
+  }
+
+  benchmark = g_hash_table_lookup (self->benchmarks, peer_address);
+  if (!benchmark) {
+    benchmark = g_new0 (Benchmark, 1);
+    g_hash_table_insert (self->benchmarks, g_strdup (peer_address), benchmark);
+  }
+
+  g_variant_dict_lookup (d, "bandwidth-mbps", "d", &benchmark->bw_mbps);
+  g_variant_dict_lookup (d, "rtt-ms", "d", &benchmark->rtt_ms);
+}
+
+static gboolean
+gaeguli_pipeline_collect_benchmark (GaeguliPipeline * self)
+{
+  GHashTableIter it;
+  GaeguliTarget *target;
+
+  g_hash_table_iter_init (&it, self->targets);
+
+  while (g_hash_table_iter_next (&it, NULL, (gpointer *) & target)) {
+    g_autoptr (GVariant) stats = NULL;
+    GVariantDict d;
+
+    stats = gaeguli_target_get_stats (target);
+
+    g_variant_dict_init (&d, stats);
+
+    if (g_variant_dict_contains (&d, "callers")) {
+      /* Target is a listener. */
+      GVariant *array;
+      GVariant *caller;
+      GVariantIter it;
+
+      array = g_variant_dict_lookup_value (&d, "callers", G_VARIANT_TYPE_ARRAY);
+
+      g_variant_iter_init (&it, array);
+
+      while ((caller = g_variant_iter_next_value (&it))) {
+        g_variant_dict_clear (&d);
+        g_variant_dict_init (&d, caller);
+
+        gaeguli_pipeline_collect_benchmark_for_socket (self, target, &d);
+      }
+    } else {
+      /* Target is a caller. */
+      gaeguli_pipeline_collect_benchmark_for_socket (self, target, &d);
+    }
+
+    g_variant_dict_clear (&d);
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static void
+gaeguli_pipeline_set_benchmark_interval (GaeguliPipeline * self, guint ms)
+{
+  if (self->benchmark_interval_ms != ms) {
+    self->benchmark_interval_ms = ms;
+
+    g_clear_handle_id (&self->benchmark_timeout_id, g_source_remove);
+
+    if (self->benchmark_interval_ms > 0) {
+      self->benchmark_timeout_id = g_timeout_add (self->benchmark_interval_ms,
+          G_SOURCE_FUNC (gaeguli_pipeline_collect_benchmark), self);
+    }
+  }
+}
+
 static void
 gaeguli_pipeline_finalize (GObject * object)
 {
@@ -106,7 +216,10 @@ gaeguli_pipeline_finalize (GObject * object)
   }
 
   g_clear_pointer (&self->targets, g_hash_table_unref);
+  g_clear_pointer (&self->srtsocket_to_peer_addr, g_hash_table_unref);
+  g_clear_pointer (&self->benchmarks, g_hash_table_unref);
   g_clear_pointer (&self->device, g_free);
+  g_clear_handle_id (&self->benchmark_timeout_id, g_source_remove);
 
   g_mutex_clear (&self->lock);
 
@@ -148,6 +261,9 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_PREFER_HW_DECODING:
       g_value_set_boolean (value, self->prefer_hw_decoding);
       break;
+    case PROP_BENCHMARK_INTERVAL:
+      g_value_set_uint (value, self->benchmark_interval_ms);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -188,6 +304,9 @@ gaeguli_pipeline_set_property (GObject * object,
       break;
     case PROP_PREFER_HW_DECODING:
       self->prefer_hw_decoding = g_value_get_boolean (value);
+      break;
+    case PROP_BENCHMARK_INTERVAL:
+      gaeguli_pipeline_set_benchmark_interval (self, g_value_get_uint (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -240,6 +359,11 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       "prefer hardware decoding on availability", FALSE,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_BENCHMARK_INTERVAL] =
+      g_param_spec_uint ("benchmark-interval", "network benchmark interval",
+      "period of benchmarking the network connections in ms", 0, G_MAXUINT, 0,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
 
@@ -280,6 +404,11 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
   /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
       NULL, g_object_unref);
+
+  self->srtsocket_to_peer_addr =
+      g_hash_table_new_full (NULL, NULL, NULL, g_free);
+  self->benchmarks =
+      g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 
   self->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
@@ -577,6 +706,29 @@ gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
   g_object_unref (self);
 }
 
+static void
+gaeguli_pipeline_on_caller_added (GaeguliPipeline * self, gint srtsocket,
+    GInetSocketAddress * address)
+{
+  if (g_hash_table_contains (self->srtsocket_to_peer_addr,
+          GINT_TO_POINTER (srtsocket))) {
+    g_warning ("Duplicate socket %d in %s", srtsocket, __FUNCTION__);
+    return;
+  }
+
+  g_hash_table_insert (self->srtsocket_to_peer_addr,
+      GINT_TO_POINTER (srtsocket),
+      g_inet_address_to_string (g_inet_socket_address_get_address (address)));
+}
+
+static void
+gaeguli_pipeline_on_caller_removed (GaeguliPipeline * self, int srtsocket,
+    GInetAddress * address)
+{
+  g_hash_table_remove (self->srtsocket_to_peer_addr,
+      GINT_TO_POINTER (srtsocket));
+}
+
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, guint bitrate, const gchar * uri,
@@ -628,6 +780,10 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
         G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
     g_signal_connect_swapped (target, "stream-stopped",
         G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
+    g_signal_connect_swapped (target, "caller-added",
+        G_CALLBACK (gaeguli_pipeline_on_caller_added), self);
+    g_signal_connect_swapped (target, "caller-removed",
+        G_CALLBACK (gaeguli_pipeline_on_caller_removed), self);
 
     g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
   }
