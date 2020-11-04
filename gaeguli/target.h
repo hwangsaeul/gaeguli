@@ -70,6 +70,9 @@ GaeguliTargetState      gaeguli_target_get_state     (GaeguliTarget        *self
 
 GaeguliSRTMode          gaeguli_target_get_srt_mode  (GaeguliTarget        *self);
 
+const gchar            *gaeguli_target_get_peer_address
+                                                     (GaeguliTarget        *self);
+
 GVariant               *gaeguli_target_get_stats      (GaeguliTarget       *self);
 
 G_END_DECLS
