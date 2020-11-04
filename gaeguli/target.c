@@ -51,6 +51,7 @@ typedef struct
   guint quantizer;
   guint idr_period;
   gchar *uri;
+  gchar *peer_address;
   gchar *username;
   gchar *passphrase;
   GaeguliSRTKeyLength pbkeylen;
@@ -661,6 +662,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstElement) muxsink_first = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
+  g_autoptr (GstUri) uri = NULL;
   g_autofree gchar *pipeline_str = NULL;
   g_autofree gchar *uri_str = NULL;
   g_autoptr (GError) internal_err = NULL;
@@ -675,8 +677,9 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
+  uri = gst_uri_from_string (priv->uri);
+
   if (priv->username) {
-    g_autoptr (GstUri) uri = gst_uri_from_string (priv->uri);
     g_autofree gchar *streamid = g_strdup_printf ("#!::u=%s", priv->username);
 
     gst_uri_set_query_value (uri, "streamid", streamid);
@@ -709,6 +712,10 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
       G_CALLBACK (gaeguli_target_on_caller_added), self);
   g_signal_connect_swapped (priv->srtsink, "caller-removed",
       G_CALLBACK (gaeguli_target_on_caller_removed), self);
+
+  if (gaeguli_target_get_srt_mode (self) == GAEGULI_SRT_MODE_CALLER) {
+    priv->peer_address = g_strdup (gst_uri_get_host (uri));
+  }
 
   priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
 
@@ -909,6 +916,7 @@ gaeguli_target_dispose (GObject * object)
   g_clear_object (&priv->adaptor);
 
   g_clear_pointer (&priv->uri, g_free);
+  g_clear_pointer (&priv->peer_address, g_free);
   g_clear_pointer (&priv->username, g_free);
   g_clear_pointer (&priv->passphrase, g_free);
 
@@ -1025,6 +1033,16 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_signal_new ("stream-stopped", G_TYPE_FROM_CLASS (klass),
       G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
       NULL, NULL, G_TYPE_NONE, 0);
+
+  signals[SIG_CALLER_ADDED] =
+      g_signal_new ("caller-added", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
+      NULL, NULL, G_TYPE_NONE, 2, G_TYPE_INT, G_TYPE_SOCKET_ADDRESS);
+
+  signals[SIG_CALLER_REMOVED] =
+      g_signal_new ("caller-removed", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
+      NULL, NULL, G_TYPE_NONE, 2, G_TYPE_INT, G_TYPE_SOCKET_ADDRESS);
 }
 
 static void
@@ -1307,6 +1325,14 @@ gaeguli_target_get_srt_mode (GaeguliTarget * self)
   g_object_get (priv->srtsink, "mode", &mode, NULL);
 
   return mode;
+}
+
+const gchar *
+gaeguli_target_get_peer_address (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  return priv->peer_address;
 }
 
 GaeguliTargetState
