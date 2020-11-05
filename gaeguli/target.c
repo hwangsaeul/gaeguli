@@ -79,6 +79,7 @@ enum
   PROP_ADAPTOR_TYPE,
   PROP_ADAPTIVE_STREAMING,
   PROP_BUFFER_SIZE,
+  PROP_LATENCY,
   PROP_LAST
 };
 
@@ -818,6 +819,10 @@ gaeguli_target_get_property (GObject * object,
     case PROP_BUFFER_SIZE:
       g_value_set_int (value, priv->buffer_size);
       break;
+    case PROP_LATENCY:{
+      g_object_get_property (G_OBJECT (priv->srtsink), "latency", value);
+      break;
+    }
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1033,6 +1038,11 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_param_spec_int ("buffer-size", "Send buffer size",
       "Send buffer size in bytes (0 = library default)", 0, G_MAXINT32, 0,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_LATENCY] =
+      g_param_spec_int ("latency", "SRT latency",
+      "SRT latency in milliseconds", 0, G_MAXINT32, 0,
+      G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
       properties);
