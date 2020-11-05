@@ -665,9 +665,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstElement) muxsink_first = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
-  g_autoptr (GstUri) uri = NULL;
   g_autofree gchar *pipeline_str = NULL;
-  g_autofree gchar *uri_str = NULL;
   g_autoptr (GError) internal_err = NULL;
   NotifyData *notify_data;
 
@@ -680,17 +678,8 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
-  uri = gst_uri_from_string (priv->uri);
-
-  if (priv->username) {
-    g_autofree gchar *streamid = g_strdup_printf ("#!::u=%s", priv->username);
-
-    gst_uri_set_query_value (uri, "streamid", streamid);
-    uri_str = gst_uri_to_string (uri);
-  }
-
   pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
-      pipeline_str, uri_str ? uri_str : priv->uri);
+      pipeline_str, priv->uri);
 
   self->pipeline = gst_parse_launch (pipeline_str, &internal_err);
   if (internal_err) {
@@ -717,6 +706,8 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
       G_CALLBACK (gaeguli_target_on_caller_removed), self);
 
   if (gaeguli_target_get_srt_mode (self) == GAEGULI_SRT_MODE_CALLER) {
+    g_autoptr (GstUri) uri = gst_uri_from_string (priv->uri);
+
     priv->peer_address = g_strdup (gst_uri_get_host (uri));
   }
 
@@ -1122,6 +1113,24 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   return GST_PAD_PROBE_REMOVE;
 }
 
+static gchar *
+gaeguli_target_create_streamid (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  GString *str = g_string_new (NULL);
+
+  if (priv->username) {
+    g_string_append_printf (str, "u=%s", priv->username);
+  }
+
+  if (str->len > 0) {
+    g_string_prepend (str, "#!::");
+  }
+
+  return g_string_free (str, FALSE);
+}
+
 void
 gaeguli_target_start (GaeguliTarget * self, GError ** error)
 {
@@ -1129,6 +1138,7 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
 
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GError) internal_err = NULL;
+  g_autofree gchar *streamid = NULL;
   GstStateChangeReturn res;
   gint pbkeylen;
 
@@ -1148,8 +1158,10 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
       break;
   }
 
+  streamid = gaeguli_target_create_streamid (self);
+
   g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
-      pbkeylen, "buffer-size", priv->buffer_size, NULL);
+      pbkeylen, "buffer-size", priv->buffer_size, "streamid", streamid, NULL);
 
   if (priv->state != GAEGULI_TARGET_STATE_NEW) {
     g_warning ("Target %u is already running", self->id);
