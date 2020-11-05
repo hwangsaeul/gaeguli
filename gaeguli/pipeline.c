@@ -729,6 +729,27 @@ gaeguli_pipeline_on_caller_removed (GaeguliPipeline * self, int srtsocket,
       GINT_TO_POINTER (srtsocket));
 }
 
+static gint32
+gaeguli_pipeline_suggest_buffer_size_for_target (GaeguliPipeline * self,
+    GaeguliTarget * target)
+{
+  Benchmark *b = g_hash_table_lookup (self->benchmarks,
+      gaeguli_target_get_peer_address (target));
+  guint64 bps;
+  gint latency_ms;
+
+  if (!b) {
+    return 0;
+  }
+
+  g_object_get (target, "latency", &latency_ms, NULL);
+
+  /* Based on buffer sizes calculation from
+   * https://github.com/Haivision/srt/issues/703#issuecomment-495570496 */
+  bps = b->bw_mbps * 1e6;
+  return (latency_ms + b->rtt_ms / 2) * bps / 1000 / 8;
+}
+
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, guint bitrate, const gchar * uri,
@@ -772,6 +793,20 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
       g_propagate_error (error, internal_err);
       internal_err = NULL;
       goto failed;
+    }
+
+    if (self->benchmark_interval_ms != 0 &&
+        gaeguli_target_get_srt_mode (target) == GAEGULI_SRT_MODE_CALLER) {
+      gint32 buffer;
+
+      buffer = gaeguli_pipeline_suggest_buffer_size_for_target (self, target);
+      if (buffer > 0) {
+        g_debug ("Setting buffer sizes for [%x] to %d", target_id, buffer);
+
+        g_object_set (target, "buffer-size", buffer, NULL);
+      } else {
+        g_debug ("No buffer suggestion for [%x]", target_id);
+      }
     }
 
     g_object_set (target, "adaptor-type", self->adaptor_type, NULL);
