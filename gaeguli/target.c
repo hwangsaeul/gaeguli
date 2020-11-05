@@ -57,6 +57,7 @@ typedef struct
   GaeguliSRTKeyLength pbkeylen;
   GType adaptor_type;
   gboolean adaptive_streaming;
+  gint32 buffer_size;
 } GaeguliTargetPrivate;
 
 enum
@@ -77,6 +78,7 @@ enum
   PROP_PBKEYLEN,
   PROP_ADAPTOR_TYPE,
   PROP_ADAPTIVE_STREAMING,
+  PROP_BUFFER_SIZE,
   PROP_LAST
 };
 
@@ -813,6 +815,9 @@ gaeguli_target_get_property (GObject * object,
       }
       g_value_set_boolean (value, priv->adaptive_streaming);
       break;
+    case PROP_BUFFER_SIZE:
+      g_value_set_int (value, priv->buffer_size);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -895,6 +900,9 @@ gaeguli_target_set_property (GObject * object,
       }
       break;
     }
+    case PROP_BUFFER_SIZE:
+      priv->buffer_size = g_value_get_int (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1021,6 +1029,11 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
       G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_BUFFER_SIZE] =
+      g_param_spec_int ("buffer-size", "Send buffer size",
+      "Send buffer size in bytes (0 = library default)", 0, G_MAXINT32, 0,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
       properties);
 
@@ -1126,7 +1139,7 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   }
 
   g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
-      pbkeylen, NULL);
+      pbkeylen, "buffer-size", priv->buffer_size, NULL);
 
   if (priv->state != GAEGULI_TARGET_STATE_NEW) {
     g_warning ("Target %u is already running", self->id);
