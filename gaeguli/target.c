@@ -1124,6 +1124,11 @@ gaeguli_target_create_streamid (GaeguliTarget * self)
     g_string_append_printf (str, "u=%s", priv->username);
   }
 
+  if (priv->buffer_size > 0) {
+    g_string_append_printf (str, "%sh8l_bufsize=%d",
+        (str->len > 0) ? "," : "", priv->buffer_size);
+  }
+
   if (str->len > 0) {
     g_string_prepend (str, "#!::");
   }
