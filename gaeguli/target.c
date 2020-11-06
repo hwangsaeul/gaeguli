@@ -874,7 +874,7 @@ gaeguli_target_set_property (GObject * object,
       priv->username = g_value_dup_string (value);
       break;
     case PROP_PASSPHRASE:
-      g_clear_pointer (&priv->username, g_free);
+      g_clear_pointer (&priv->passphrase, g_free);
       priv->passphrase = g_value_dup_string (value);
       break;
     case PROP_PBKEYLEN:
