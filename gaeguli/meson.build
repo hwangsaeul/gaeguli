@@ -10,6 +10,7 @@ source_h = [
   'types.h',
   'pipeline.h',
   'streamadaptor.h',
+  'adaptors/bandwidthadaptor.h',
 ]
 
 source_c = [

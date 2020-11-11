@@ -109,6 +109,42 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
                                                  GError               **error);
 
 /**
+ * gaeguli_pipeline_add_recording_target:
+ * @self: a #GaeguliPipeline object
+ * @location: Recording location
+ * @error: a #GError
+ *
+ * Adds a Recording target to the pipeline.
+ *
+ * Returns: A #GageuliTarget. The object is owned by #GaeguliPipeline.
+ * You should g_object_ref() it to keep the reference.
+ */
+GaeguliTarget          *gaeguli_pipeline_add_recording_target
+                                                (GaeguliPipeline       *self,
+                                                 const gchar           *location,
+                                                 GError               **error);
+
+/**
+ * gaeguli_pipeline_add_recording_target_full:
+ * @self: a #GaeguliPipeline object
+ * @codec: codec to use for streaming
+ * @bitrate: bitrate use for streaming
+ * @location: Recording location
+ * @error: a #GError
+ *
+ * Adds a Recording target to the pipeline using specific parameters.
+ *
+ * Returns: A #GageuliTarget. The object is owned by #GaeguliPipeline.
+ * You should g_object_ref() it to keep the reference.
+ */
+GaeguliTarget          *gaeguli_pipeline_add_recording_target_full
+                                                (GaeguliPipeline       *self,
+                                                 GaeguliVideoCodec      codec,
+                                                 guint                  bitrate,
+                                                 const gchar           *location,
+                                                 GError               **error);
+
+/**
  * gaeguli_pipeline_remove_target:
  * @self: a #GaeguliPipeline object
  * @target: the #GaeguliTarget to remove

@@ -901,26 +901,36 @@ gaeguli_pipeline_suggest_buffer_size_for_target (GaeguliPipeline * self,
   return (latency_ms + b->rtt_ms / 2) * bps / 1000 / 8;
 }
 
-GaeguliTarget *
-gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
-    GaeguliVideoCodec codec, guint bitrate, const gchar * uri,
-    const gchar * username, GError ** error)
+static GaeguliTarget *
+gaeguli_pipeline_add_target (GaeguliPipeline * self,
+    GaeguliVideoCodec codec, guint bitrate,
+    const gchar * uri, const gchar * username,
+    const gchar * location, gboolean is_record_target, GError ** error)
 {
   guint target_id = 0;
   GaeguliTarget *target = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
-  g_return_val_if_fail (uri != NULL, 0);
+  if (!is_record_target) {
+    g_return_val_if_fail (uri != NULL, 0);
+  } else {
+    g_return_val_if_fail (location != NULL, 0);
+  }
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
 
   g_mutex_lock (&self->lock);
 
   /* assume that it's first target */
-  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, error)) {
+  if (self->vsrc == NULL && !is_record_target
+      && !_build_vsrc_pipeline (self, error)) {
     goto failed;
   }
 
-  target_id = g_str_hash (uri);
+  if (!is_record_target) {
+    target_id = g_str_hash (uri);
+  } else {
+    target_id = g_str_hash (location);
+  }
 
   target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
 
@@ -937,7 +947,7 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
             "src_%u"), NULL, NULL);
 
     target = gaeguli_target_new (tee_srcpad, target_id, codec, bitrate,
-        self->fps, uri, username, &internal_err);
+        self->fps, uri, username, is_record_target, location, &internal_err);
 
     if (target == NULL) {
       g_propagate_error (error, internal_err);
@@ -961,16 +971,22 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 
     g_object_set (target, "adaptor-type", self->adaptor_type, NULL);
 
-    g_signal_connect_swapped (target, "stream-started",
-        G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
-    g_signal_connect_swapped (target, "stream-stopped",
-        G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
-    g_signal_connect_swapped (target, "caller-added",
-        G_CALLBACK (gaeguli_pipeline_on_caller_added), self);
-    g_signal_connect_swapped (target, "caller-removed",
-        G_CALLBACK (gaeguli_pipeline_on_caller_removed), self);
-
+    if (!is_record_target) {
+      g_signal_connect_swapped (target, "stream-started",
+          G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
+      g_signal_connect_swapped (target, "stream-stopped",
+          G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
+      g_signal_connect_swapped (target, "caller-added",
+          G_CALLBACK (gaeguli_pipeline_on_caller_added), self);
+      g_signal_connect_swapped (target, "caller-removed",
+          G_CALLBACK (gaeguli_pipeline_on_caller_removed), self);
+    }
     g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
+  } else {
+    if (is_record_target) {
+      g_warning ("Record target already exists for given location %s",
+          location);
+    }
   }
 
   g_mutex_unlock (&self->lock);
@@ -982,6 +998,32 @@ failed:
 
   g_debug ("failed to add target");
   return NULL;
+}
+
+GaeguliTarget *
+gaeguli_pipeline_add_recording_target_full (GaeguliPipeline * self,
+    GaeguliVideoCodec codec, guint bitrate,
+    const gchar * location, GError ** error)
+{
+  return gaeguli_pipeline_add_target (self, codec,
+      bitrate, NULL, NULL, location, TRUE, error);
+}
+
+GaeguliTarget *
+gaeguli_pipeline_add_recording_target (GaeguliPipeline * self,
+    const gchar * location, GError ** error)
+{
+  return gaeguli_pipeline_add_recording_target_full (self, DEFAULT_VIDEO_CODEC,
+      DEFAULT_VIDEO_BITRATE, location, error);
+}
+
+GaeguliTarget *
+gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
+    GaeguliVideoCodec codec, guint bitrate, const gchar * uri,
+    const gchar * username, GError ** error)
+{
+  return gaeguli_pipeline_add_target (self, codec,
+      bitrate, uri, username, NULL, FALSE, error);
 }
 
 GaeguliTarget *

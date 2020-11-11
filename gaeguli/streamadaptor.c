@@ -26,6 +26,7 @@ typedef struct
   GstStructure *baseline_parameters;
   guint stats_interval;
   guint stats_timeout_id;
+  gboolean stream_quality_dropped;
 } GaeguliStreamAdaptorPrivate;
 
 /* *INDENT-OFF* */
@@ -44,6 +45,9 @@ enum
 enum
 {
   SIG_ENCODING_PARAMETERS,
+  SIG_STREAM_QUALITY_DROPPED,
+  SIG_STREAM_QUALITY_REGAINED,
+
   LAST_SIGNAL
 };
 
@@ -94,10 +98,82 @@ gaeguli_stream_adaptor_stop_timer (GaeguliStreamAdaptor * self)
   g_clear_handle_id (&priv->stats_timeout_id, g_source_remove);
 }
 
+static gboolean
+_check_bitrate_drop (const GstStructure * base_params,
+    const GstStructure * params)
+{
+  guint base_bitrate;
+  guint cur_bitrate;
+
+  if (gst_structure_has_field (base_params, GAEGULI_ENCODING_PARAMETER_BITRATE)
+      && gst_structure_has_field (params, GAEGULI_ENCODING_PARAMETER_BITRATE)) {
+    if (gst_structure_get_uint (base_params, GAEGULI_ENCODING_PARAMETER_BITRATE,
+            &base_bitrate)
+        && gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
+            &cur_bitrate)) {
+      if (cur_bitrate < base_bitrate) {
+        return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
+
+static gboolean
+_check_quality_drop (const GstStructure * base_params,
+    const GstStructure * params)
+{
+  guint base_quantizer;
+  guint cur_quantizer;
+  /* Higher the quantizer value, higher will be the compression at the expense of quality *
+   * Lower the quantizer value, lower will be the compression with better quality         *
+   */
+  if (gst_structure_has_field (base_params,
+          GAEGULI_ENCODING_PARAMETER_QUANTIZER)
+      && gst_structure_has_field (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER)) {
+    if (gst_structure_get_uint (base_params,
+            GAEGULI_ENCODING_PARAMETER_QUANTIZER, &base_quantizer)
+        && gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
+            &cur_quantizer)) {
+      if (cur_quantizer > base_quantizer) {
+        return TRUE;
+      }
+    }
+  }
+  return FALSE;
+}
+
+static void
+_notify_stream_quality_changes (GaeguliStreamAdaptor
+    * self, const GstStructure * params)
+{
+  GaeguliStreamAdaptorPrivate *priv =
+      gaeguli_stream_adaptor_get_instance_private (self);
+  const GstStructure *base_params =
+      gaeguli_stream_adaptor_get_baseline_parameters (self);
+
+  if (!base_params || !params)
+    return;
+
+  if (_check_bitrate_drop (base_params, params) ||
+      (_check_quality_drop (base_params, params))) {
+    if (!priv->stream_quality_dropped) {
+      priv->stream_quality_dropped = !priv->stream_quality_dropped;
+      g_signal_emit (self, signals[SIG_STREAM_QUALITY_DROPPED], 0, params);
+    }
+  } else {
+    if (priv->stream_quality_dropped) {
+      priv->stream_quality_dropped = !priv->stream_quality_dropped;
+      g_signal_emit (self, signals[SIG_STREAM_QUALITY_REGAINED], 0, params);
+    }
+  }
+}
+
 static void
 gaeguli_stream_adaptor_signal_encoding_parameters_internal (GaeguliStreamAdaptor
     * self, const GstStructure * params)
 {
+  _notify_stream_quality_changes (self, params);
   g_signal_emit (self, signals[SIG_ENCODING_PARAMETERS], 0, params);
 }
 
@@ -291,4 +367,12 @@ gaeguli_stream_adaptor_class_init (GaeguliStreamAdaptorClass * klass)
       g_signal_new ("encoding-parameters", G_TYPE_FROM_CLASS (klass),
       G_SIGNAL_RUN_LAST, 0, NULL,
       NULL, NULL, G_TYPE_NONE, 1, GST_TYPE_STRUCTURE);
+
+  signals[SIG_STREAM_QUALITY_DROPPED] =
+      g_signal_new ("stream-quality-dropped", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
+
+  signals[SIG_STREAM_QUALITY_REGAINED] =
+      g_signal_new ("stream-quality-regained", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
 }

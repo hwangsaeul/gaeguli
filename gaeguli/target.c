@@ -59,7 +59,10 @@ typedef struct
   GaeguliSRTKeyLength pbkeylen;
   GType adaptor_type;
   gboolean adaptive_streaming;
+  gboolean is_recording;
   gint32 buffer_size;
+  GstStructure *video_params;
+  gchar *location;
 } GaeguliTargetPrivate;
 
 enum
@@ -82,6 +85,9 @@ enum
   PROP_ADAPTIVE_STREAMING,
   PROP_BUFFER_SIZE,
   PROP_LATENCY,
+  PROP_VIDEO_PARAMS,
+  PROP_TARGET_IS_RECORDING,
+  PROP_LOCATION,
   PROP_LAST
 };
 
@@ -624,6 +630,8 @@ gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
       GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, priv->bitrate,
       GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, priv->quantizer, NULL);
 
+  g_object_set (self, "video-params", params, NULL);
+
   if (priv->adaptor) {
     g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
   }
@@ -684,8 +692,13 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
-  pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
-      pipeline_str, priv->uri);
+  if (!priv->is_recording) {
+    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
+        pipeline_str, priv->uri);
+  } else {
+    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MUXSINK_STR,
+        pipeline_str, priv->location);
+  }
 
   self->pipeline = gst_parse_launch (pipeline_str, &internal_err);
   if (internal_err) {
@@ -703,18 +716,21 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
   }
 
-  priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
-  g_object_set_data (G_OBJECT (priv->srtsink), "gaeguli-target-id",
-      GUINT_TO_POINTER (self->id));
-  g_signal_connect_swapped (priv->srtsink, "caller-added",
-      G_CALLBACK (gaeguli_target_on_caller_added), self);
-  g_signal_connect_swapped (priv->srtsink, "caller-removed",
-      G_CALLBACK (gaeguli_target_on_caller_removed), self);
+  if (!priv->is_recording) {
+    priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
+    g_object_set_data (G_OBJECT (priv->srtsink), "gaeguli-target-id",
+        GUINT_TO_POINTER (self->id));
+    g_signal_connect_swapped (priv->srtsink, "caller-added",
+        G_CALLBACK (gaeguli_target_on_caller_added), self);
+    g_signal_connect_swapped (priv->srtsink, "caller-removed",
+        G_CALLBACK (gaeguli_target_on_caller_removed), self);
+    if (gaeguli_target_get_srt_mode (self) == GAEGULI_SRT_MODE_CALLER) {
+      g_autoptr (GstUri) uri = gst_uri_from_string (priv->uri);
 
-  if (gaeguli_target_get_srt_mode (self) == GAEGULI_SRT_MODE_CALLER) {
-    g_autoptr (GstUri) uri = gst_uri_from_string (priv->uri);
-
-    priv->peer_address = g_strdup (gst_uri_get_host (uri));
+      priv->peer_address = g_strdup (gst_uri_get_host (uri));
+    }
+  } else {
+    priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "recsink");
   }
 
   priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
@@ -820,6 +836,13 @@ gaeguli_target_get_property (GObject * object,
       g_object_get_property (G_OBJECT (priv->srtsink), "latency", value);
       break;
     }
+    case PROP_VIDEO_PARAMS:{
+      g_value_set_boxed (value, priv->video_params);
+    }
+      break;
+    case PROP_TARGET_IS_RECORDING:
+      g_value_set_boolean (value, priv->is_recording);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -905,6 +928,16 @@ gaeguli_target_set_property (GObject * object,
     case PROP_BUFFER_SIZE:
       priv->buffer_size = g_value_get_int (value);
       break;
+    case PROP_VIDEO_PARAMS:
+      priv->video_params = g_value_dup_boxed (value);
+      break;
+    case PROP_TARGET_IS_RECORDING:
+      priv->is_recording = g_value_get_boolean (value);
+      break;
+    case PROP_LOCATION:
+      g_clear_pointer (&priv->location, g_free);
+      priv->location = g_value_dup_string (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -929,6 +962,8 @@ gaeguli_target_dispose (GObject * object)
   g_clear_pointer (&priv->peer_address, g_free);
   g_clear_pointer (&priv->username, g_free);
   g_clear_pointer (&priv->passphrase, g_free);
+  g_clear_pointer (&priv->location, g_free);
+  gst_clear_structure (&priv->video_params);
   g_mutex_clear (&priv->lock);
 
   G_OBJECT_CLASS (gaeguli_target_parent_class)->dispose (object);
@@ -1042,6 +1077,25 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       "SRT latency in milliseconds", 0, G_MAXINT32, 0,
       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_VIDEO_PARAMS] =
+      g_param_spec_boxed ("video-params",
+      "Video encoding parameters from the original configuration",
+      "Video encoding parameters from the original configuration",
+      GST_TYPE_STRUCTURE,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_TARGET_IS_RECORDING] =
+      g_param_spec_boolean ("is-recording", "Is Recording target",
+      "Is Recording target", FALSE,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
+      G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_LOCATION] =
+      g_param_spec_string ("location",
+      "Location to store the recorded stream",
+      "Location to store the recorded stream", NULL,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
       properties);
 
@@ -1075,11 +1129,13 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 GaeguliTarget *
 gaeguli_target_new (GstPad * peer_pad, guint id,
     GaeguliVideoCodec codec, guint bitrate, guint idr_period,
-    const gchar * srt_uri, const gchar * username, GError ** error)
+    const gchar * srt_uri, const gchar * username, gboolean is_record_target,
+    const gchar * location, GError ** error)
 {
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
       "peer-pad", peer_pad, "codec", codec, "bitrate", bitrate,
-      "idr-period", idr_period, "uri", srt_uri, "username", username, NULL);
+      "idr-period", idr_period, "uri", srt_uri, "username", username,
+      "is-recording", is_record_target, "location", location, NULL);
 }
 
 static GstPadProbeReturn
@@ -1171,63 +1227,69 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
 
   priv->state = GAEGULI_TARGET_STATE_STARTING;
 
-  /* Changing srtsink URI must happen first because it will clear parameters
-   * like streamid. */
-  if (priv->buffer_size > 0) {
-    g_autoptr (GstUri) uri = NULL;
-    g_autofree gchar *uri_str = NULL;
-    g_autofree gchar *buffer_size_str = NULL;
+  if (!priv->is_recording) {
+    /* Changing srtsink URI must happen first because it will clear parameters
+     * like streamid. */
+    if (priv->buffer_size > 0) {
+      g_autoptr (GstUri) uri = NULL;
+      g_autofree gchar *uri_str = NULL;
+      g_autofree gchar *buffer_size_str = NULL;
 
-    buffer_size_str = g_strdup_printf ("%d", priv->buffer_size);
+      buffer_size_str = g_strdup_printf ("%d", priv->buffer_size);
 
-    g_object_get (priv->srtsink, "uri", &uri_str, NULL);
-    uri = gst_uri_from_string (uri_str);
-    g_clear_pointer (&uri_str, g_free);
+      g_object_get (priv->srtsink, "uri", &uri_str, NULL);
+      uri = gst_uri_from_string (uri_str);
+      g_clear_pointer (&uri_str, g_free);
 
-    gst_uri_set_query_value (uri, "sndbuf", buffer_size_str);
+      gst_uri_set_query_value (uri, "sndbuf", buffer_size_str);
 
-    uri_str = gst_uri_to_string (uri);
-    g_object_set (priv->srtsink, "uri", uri_str, NULL);
+      uri_str = gst_uri_to_string (uri);
+      g_object_set (priv->srtsink, "uri", uri_str, NULL);
+    }
+
+    switch (priv->pbkeylen) {
+      default:
+      case GAEGULI_SRT_KEY_LENGTH_0:
+        pbkeylen = 0;
+        break;
+      case GAEGULI_SRT_KEY_LENGTH_16:
+        pbkeylen = 16;
+        break;
+      case GAEGULI_SRT_KEY_LENGTH_24:
+        pbkeylen = 24;
+        break;
+      case GAEGULI_SRT_KEY_LENGTH_32:
+        pbkeylen = 32;
+        break;
+    }
+
+    streamid = gaeguli_target_create_streamid (self);
+
+    g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
+        pbkeylen, "streamid", streamid, NULL);
+
+    priv->adaptor = g_object_new (priv->adaptor_type, "srtsink", priv->srtsink,
+        "enabled", priv->adaptive_streaming, NULL);
+
+    gaeguli_target_update_baseline_parameters (self, TRUE);
+
+    g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
+        (GCallback) _set_encoding_parameters, priv->encoder);
+
+    bus = gst_element_get_bus (self->pipeline);
+    gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler,
+        &internal_err, NULL);
+    /* Setting READY state on srtsink check that we can bind to address and port
+     * specified in srt_uri. On failure, bus handler should set internal_err. */
+    res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
+
+    gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
+  } else {
+    res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
+    if (res == GST_STATE_CHANGE_FAILURE) {
+      goto failed;
+    }
   }
-
-  switch (priv->pbkeylen) {
-    default:
-    case GAEGULI_SRT_KEY_LENGTH_0:
-      pbkeylen = 0;
-      break;
-    case GAEGULI_SRT_KEY_LENGTH_16:
-      pbkeylen = 16;
-      break;
-    case GAEGULI_SRT_KEY_LENGTH_24:
-      pbkeylen = 24;
-      break;
-    case GAEGULI_SRT_KEY_LENGTH_32:
-      pbkeylen = 32;
-      break;
-  }
-
-  streamid = gaeguli_target_create_streamid (self);
-
-  g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
-      pbkeylen, "streamid", streamid, NULL);
-
-  priv->adaptor = g_object_new (priv->adaptor_type, "srtsink", priv->srtsink,
-      "enabled", priv->adaptive_streaming, NULL);
-
-  gaeguli_target_update_baseline_parameters (self, TRUE);
-
-  g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
-      (GCallback) _set_encoding_parameters, priv->encoder);
-
-  bus = gst_element_get_bus (self->pipeline);
-  gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler, &internal_err,
-      NULL);
-
-  /* Setting READY state on srtsink check that we can bind to address and port
-   * specified in srt_uri. On failure, bus handler should set internal_err. */
-  res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
-
-  gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
 
   if (res == GST_STATE_CHANGE_FAILURE) {
     goto failed;
@@ -1455,4 +1517,12 @@ gaeguli_target_get_stats (GaeguliTarget * self)
   }
 
   return NULL;
+}
+
+GaeguliStreamAdaptor *
+gaeguli_target_get_stream_adaptor (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  return priv->adaptor;
 }
