@@ -26,6 +26,7 @@
 
 #include <gst/gst.h>
 #include <gaeguli/types.h>
+#include <gaeguli/streamadaptor.h>
 
 typedef struct _GaeguliPipeline GaeguliPipeline;
 
@@ -59,6 +60,8 @@ GaeguliTarget          *gaeguli_target_new           (GstPad                *pee
                                                       guint                  idr_period,
                                                       const gchar           *srt_uri,
                                                       const gchar           *username,
+                                                      gboolean              is_record_target,
+                                                      const gchar           *location,
                                                       GError               **error);
 
 void                    gaeguli_target_start         (GaeguliTarget        *self,
@@ -74,6 +77,9 @@ const gchar            *gaeguli_target_get_peer_address
                                                      (GaeguliTarget        *self);
 
 GVariant               *gaeguli_target_get_stats      (GaeguliTarget       *self);
+
+GaeguliStreamAdaptor   *gaeguli_target_get_stream_adaptor
+                                                     (GaeguliTarget *self);
 
 G_END_DECLS
 
