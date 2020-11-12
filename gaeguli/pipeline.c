@@ -757,7 +757,6 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
 {
   guint target_id = 0;
   GaeguliTarget *target = NULL;
-  g_autoptr (GstPad) tee_srcpad = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
   g_return_val_if_fail (uri != NULL, 0);
