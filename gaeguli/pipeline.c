@@ -49,6 +49,10 @@ struct _GaeguliPipeline
   GstElement *pipeline;
   GstElement *vsrc;
 
+  GstElement *snapshot_valve;
+  GQueue *snapshot_tasks;
+  guint num_snapshots_to_encode;
+
   GstElement *overlay;
   gboolean show_overlay;
 
@@ -101,6 +105,9 @@ static guint signals[LAST_SIGNAL] = { 0 };
 /* *INDENT-OFF* */
 G_DEFINE_TYPE (GaeguliPipeline, gaeguli_pipeline, G_TYPE_OBJECT)
 /* *INDENT-ON* */
+
+#define LOCK_PIPELINE \
+  g_autoptr (GMutexLocker) locker = g_mutex_locker_new (&self->lock)
 
 static void gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self);
 
@@ -219,6 +226,7 @@ gaeguli_pipeline_finalize (GObject * object)
   g_clear_pointer (&self->srtsocket_to_peer_addr, g_hash_table_unref);
   g_clear_pointer (&self->benchmarks, g_hash_table_unref);
   g_clear_pointer (&self->device, g_free);
+  g_clear_pointer (&self->snapshot_tasks, g_queue_free);
   g_clear_handle_id (&self->benchmark_timeout_id, g_source_remove);
 
   g_mutex_clear (&self->lock);
@@ -411,6 +419,8 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
       g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 
   self->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
+
+  self->snapshot_tasks = g_queue_new ();
 }
 
 GaeguliPipeline *
@@ -443,6 +453,19 @@ gaeguli_pipeline_new (void)
       DEFAULT_VIDEO_FRAMERATE);
 
   return g_steal_pointer (&pipeline);
+}
+
+static GstPadProbeReturn
+_on_value_buffer (GstPad * pad, GstPadProbeInfo * info, GaeguliPipeline * self)
+{
+  LOCK_PIPELINE;
+
+  if (--self->num_snapshots_to_encode == 0) {
+    /* No pending snapshot requests, close the valve. */
+    g_object_set (GST_PAD_PARENT (pad), "drop", TRUE, NULL);
+  }
+
+  return GST_PAD_PROBE_OK;
 }
 
 static GstPadProbeReturn
@@ -487,7 +510,8 @@ _get_vsrc_pipeline_string (GaeguliPipeline * self)
 {
   g_autofree gchar *source = _get_source_description (self);
 
-  return g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, source,
+  return g_strdup_printf
+      (GAEGULI_PIPELINE_VSRC_STR " ! " GAEGULI_PIPELINE_IMAGE_STR, source,
       self->source == GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC ? "" :
       GAEGULI_PIPELINE_DECODEBIN_STR);
 }
@@ -543,6 +567,31 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
   return G_SOURCE_CONTINUE;
 }
 
+static void
+gaeguli_pipeline_create_snapshot (GaeguliPipeline * self, GstBuffer * buffer)
+{
+  g_autoptr (GTask) task = NULL;
+  GstMapInfo info;
+
+  g_return_if_fail (!g_queue_is_empty (self->snapshot_tasks));
+
+  {
+    LOCK_PIPELINE;
+    task = g_queue_pop_head (self->snapshot_tasks);
+  }
+
+  if (g_task_return_error_if_cancelled (task)) {
+    return;
+  }
+
+  gst_buffer_map (buffer, &info, GST_MAP_READ);
+
+  g_task_return_pointer (task, g_bytes_new (info.data, info.size),
+      (GDestroyNotify) g_bytes_unref);
+
+  gst_buffer_unmap (buffer, &info);
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
@@ -551,7 +600,9 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GstElement) decodebin = NULL;
   g_autoptr (GstElement) tee = NULL;
+  g_autoptr (GstElement) fakesink = NULL;
   g_autoptr (GstPad) tee_sink = NULL;
+  g_autoptr (GstPad) valve_src = NULL;
   g_autoptr (GstPluginFeature) feature = NULL;
 
   /* FIXME: what if zero-copy */
@@ -575,6 +626,17 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   self->overlay = gst_bin_get_by_name (GST_BIN (self->pipeline), "overlay");
   if (self->overlay)
     g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
+
+  self->snapshot_valve = gst_bin_get_by_name (GST_BIN (self->pipeline),
+      "valve");
+  valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
+  gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
+      (GstPadProbeCallback) _on_value_buffer, self, NULL);
+
+  fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
+  g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
+  g_signal_connect_swapped (fakesink, "handoff",
+      G_CALLBACK (gaeguli_pipeline_create_snapshot), self);
 
   /* Caps of the video source are determined by the caps filter in vsrc pipeline
    * and don't need to be renegotiated when a new target pipeline links to
@@ -870,6 +932,38 @@ out:
   return GAEGULI_RETURN_OK;
 }
 
+void
+gaeguli_pipeline_create_snapshot_async (GaeguliPipeline * self,
+    GCancellable * cancellable, GAsyncReadyCallback callback,
+    gpointer user_data)
+{
+  g_autoptr (GTask) task = NULL;
+  GError *error = NULL;
+
+  LOCK_PIPELINE;
+
+  task = g_task_new (self, cancellable, callback, user_data);
+
+  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, &error)) {
+    g_task_return_error (task, error);
+    return;
+  }
+
+  g_queue_push_tail (self->snapshot_tasks, g_steal_pointer (&task));
+  if (self->num_snapshots_to_encode++ == 0) {
+    g_object_set (self->snapshot_valve, "drop", FALSE, NULL);
+  }
+}
+
+GBytes *
+gaeguli_pipeline_create_snapshot_finish (GaeguliPipeline * self,
+    GAsyncResult * result, GError ** error)
+{
+  g_return_val_if_fail (g_task_is_valid (result, self), NULL);
+
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
 /* Must be called from the main thread. */
 void
 gaeguli_pipeline_stop (GaeguliPipeline * self)
@@ -884,8 +978,15 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
 
   g_mutex_lock (&self->lock);
 
+  while (!g_queue_is_empty (self->snapshot_tasks)) {
+    g_autoptr (GTask) task = g_queue_pop_head (self->snapshot_tasks);
+    g_task_return_new_error (task, GAEGULI_RESOURCE_ERROR,
+        GAEGULI_RESOURCE_ERROR_STOPPED, "The pipeline has been stopped");
+  }
+
   g_clear_pointer (&self->vsrc, gst_object_unref);
   g_clear_pointer (&self->overlay, gst_object_unref);
+  gst_clear_object (&self->snapshot_valve);
   gst_clear_object (&self->pipeline);
 
   g_mutex_unlock (&self->lock);
