@@ -104,6 +104,7 @@ typedef enum {
   GAEGULI_RESOURCE_ERROR_READ,
   GAEGULI_RESOURCE_ERROR_WRITE,
   GAEGULI_RESOURCE_ERROR_RW,
+  GAEGULI_RESOURCE_ERROR_STOPPED,
 } GaeguliResourceError;
 
 #define GAEGULI_TRANSMIT_ERROR          (gaeguli_transmit_error_quark ())

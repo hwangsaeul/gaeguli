@@ -24,7 +24,7 @@
 #error "Only <gaeguli/gaeguli.h> can be included directly."
 #endif
 
-#include <glib-object.h>
+#include <gio/gio.h>
 #include <gaeguli/types.h>
 
 typedef struct _GaeguliTarget GaeguliTarget;
@@ -121,6 +121,37 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
 GaeguliReturn           gaeguli_pipeline_remove_target
                                                 (GaeguliPipeline       *self,
                                                  GaeguliTarget         *target,
+                                                 GError               **error);
+
+/**
+ * gaeguli_pipeline_create_snapshot_async:
+ * @self: a #GaeguliPipeline object
+ * @cancellable: a #GCancellable object
+ * @callback: a #GAsyncReadyCallback to call when the request is fulfilled
+ * @user_data: arbitrary data passed to @callback
+ *
+ * Asynchronously saves a single video frame as JPEG image and passes it to
+ * @callback.
+ */
+void                    gaeguli_pipeline_create_snapshot_async
+                                                (GaeguliPipeline       *self,
+                                                 GCancellable          *cancellable,
+                                                 GAsyncReadyCallback    callback,
+                                                 gpointer               user_data);
+
+/**
+ * gaeguli_pipeline_create_snapshot_finish:
+ * @self: a #GaeguliPipeline object
+ * @result: a #GAsyncResult obtained from the GAsyncReadyCallback passed to gaeguli_pipeline_create_snapshot_async()
+ * @error: Return location for error or %NULL.
+ *
+ * Finishes an operation started with gaeguli_pipeline_create_snapshot_async().
+ *
+ * Returns: #GBytes with JPEG image data. On error returns %NULL and sets @error.
+ */
+GBytes                 *gaeguli_pipeline_create_snapshot_finish
+                                                (GaeguliPipeline       *self,
+                                                 GAsyncResult          *result,
                                                  GError               **error);
 
 /**
