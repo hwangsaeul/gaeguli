@@ -30,7 +30,7 @@
         %s ! capsfilter name=caps ! %s ! tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_IMAGE_STR    "\
-        valve name=valve drop=1 ! jpegenc name=jpegenc ! fakesink name=fakesink async=0"
+        valve name=valve drop=1 ! jpegenc name=jpegenc ! jifmux name=jifmux ! fakesink name=fakesink async=0"
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! x264enc name=enc tune=zerolatency key-int-max=%d ! \

@@ -51,6 +51,7 @@ struct _GaeguliPipeline
 
   GstElement *snapshot_valve;
   GstElement *snapshot_jpegenc;
+  GstElement *snapshot_jifmux;
   GQueue *snapshot_tasks;
   guint num_snapshots_to_encode;
   guint snapshot_quality;
@@ -493,10 +494,52 @@ gaeguli_pipeline_new (void)
   return g_steal_pointer (&pipeline);
 }
 
-static GstPadProbeReturn
-_on_value_buffer (GstPad * pad, GstPadProbeInfo * info, GaeguliPipeline * self)
+static void
+gaeguli_pipeline_set_snapshot_tags (GaeguliPipeline * self, GVariant * tags)
 {
+  GVariantIter it;
+  gchar *tag_name;
+  GVariant *val_variant;
+  GstTagSetter *tag_setter = GST_TAG_SETTER (self->snapshot_jifmux);
+
+  g_return_if_fail (g_variant_is_of_type (tags, G_VARIANT_TYPE_VARDICT));
+
+  gst_tag_setter_reset_tags (tag_setter);
+
+  g_variant_iter_init (&it, tags);
+  while (g_variant_iter_next (&it, "{sv}", &tag_name, &val_variant)) {
+    GValue val = G_VALUE_INIT;
+
+    if (!gst_tag_exists (tag_name)) {
+      g_warning ("Unknown tag %s", tag_name);
+      goto next;
+    }
+
+    g_dbus_gvariant_to_gvalue (val_variant, &val);
+    gst_tag_setter_add_tag_value (tag_setter, GST_TAG_MERGE_REPLACE, tag_name,
+        &val);
+    g_value_unset (&val);
+
+  next:
+    g_free (tag_name);
+    g_variant_unref (val_variant);
+  }
+}
+
+static GstPadProbeReturn
+_on_valve_buffer (GstPad * pad, GstPadProbeInfo * info, GaeguliPipeline * self)
+{
+  GTask *task;
+
   LOCK_PIPELINE;
+
+  task = g_queue_peek_head (self->snapshot_tasks);
+  if (task) {
+    GVariant *tags = g_task_get_task_data (task);
+    if (tags) {
+      gaeguli_pipeline_set_snapshot_tags (self, tags);
+    }
+  }
 
   if (--self->num_snapshots_to_encode == 0) {
     /* No pending snapshot requests, close the valve. */
@@ -669,12 +712,15 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
       "valve");
   valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
   gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
-      (GstPadProbeCallback) _on_value_buffer, self, NULL);
+      (GstPadProbeCallback) _on_valve_buffer, self, NULL);
 
   self->snapshot_jpegenc = gst_bin_get_by_name (GST_BIN (self->pipeline),
       "jpegenc");
   g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
       "idct-method", self->snapshot_idct_method, NULL);
+
+  self->snapshot_jifmux = gst_bin_get_by_name (GST_BIN (self->pipeline),
+      "jifmux");
 
   fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
   g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
@@ -976,10 +1022,11 @@ out:
 }
 
 void
-gaeguli_pipeline_create_snapshot_async (GaeguliPipeline * self,
+gaeguli_pipeline_create_snapshot_async (GaeguliPipeline * self, GVariant * tags,
     GCancellable * cancellable, GAsyncReadyCallback callback,
     gpointer user_data)
 {
+  g_autoptr (GVariant) tags_autoptr = tags;
   g_autoptr (GTask) task = NULL;
   GError *error = NULL;
 
@@ -990,6 +1037,16 @@ gaeguli_pipeline_create_snapshot_async (GaeguliPipeline * self,
   if (self->vsrc == NULL && !_build_vsrc_pipeline (self, &error)) {
     g_task_return_error (task, error);
     return;
+  }
+
+  if (tags && !g_variant_is_of_type (tags, G_VARIANT_TYPE_VARDICT)) {
+    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+        "Tags must be NULL or of variant type 'a{sv}'");
+  }
+
+  if (tags) {
+    g_task_set_task_data (task, g_steal_pointer (&tags_autoptr),
+        (GDestroyNotify) g_variant_unref);
   }
 
   g_queue_push_tail (self->snapshot_tasks, g_steal_pointer (&task));
@@ -1031,6 +1088,7 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
   g_clear_pointer (&self->overlay, gst_object_unref);
   gst_clear_object (&self->snapshot_valve);
   gst_clear_object (&self->snapshot_jpegenc);
+  gst_clear_object (&self->snapshot_jifmux);
   gst_clear_object (&self->pipeline);
 
   g_mutex_unlock (&self->lock);
