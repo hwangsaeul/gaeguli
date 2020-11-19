@@ -50,8 +50,11 @@ struct _GaeguliPipeline
   GstElement *vsrc;
 
   GstElement *snapshot_valve;
+  GstElement *snapshot_jpegenc;
   GQueue *snapshot_tasks;
   guint num_snapshots_to_encode;
+  guint snapshot_quality;
+  GaeguliIDCTMethod snapshot_idct_method;
 
   GstElement *overlay;
   gboolean show_overlay;
@@ -85,6 +88,8 @@ typedef enum
   PROP_GST_PIPELINE,
   PROP_PREFER_HW_DECODING,
   PROP_BENCHMARK_INTERVAL,
+  PROP_SNAPSHOT_QUALITY,
+  PROP_SNAPSHOT_IDCT_METHOD,
 
   /*< private > */
   PROP_LAST
@@ -272,6 +277,12 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_BENCHMARK_INTERVAL:
       g_value_set_uint (value, self->benchmark_interval_ms);
       break;
+    case PROP_SNAPSHOT_QUALITY:
+      g_value_set_uint (value, self->snapshot_quality);
+      break;
+    case PROP_SNAPSHOT_IDCT_METHOD:
+      g_value_set_enum (value, self->snapshot_idct_method);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -315,6 +326,20 @@ gaeguli_pipeline_set_property (GObject * object,
       break;
     case PROP_BENCHMARK_INTERVAL:
       gaeguli_pipeline_set_benchmark_interval (self, g_value_get_uint (value));
+      break;
+    case PROP_SNAPSHOT_QUALITY:
+      self->snapshot_quality = g_value_get_uint (value);
+      if (self->snapshot_jpegenc) {
+        g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
+            NULL);
+      }
+      break;
+    case PROP_SNAPSHOT_IDCT_METHOD:
+      self->snapshot_idct_method = g_value_get_enum (value);
+      if (self->snapshot_jpegenc) {
+        g_object_set (self->snapshot_jpegenc, "idct-method",
+            self->snapshot_idct_method, NULL);
+      }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -371,6 +396,19 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       g_param_spec_uint ("benchmark-interval", "network benchmark interval",
       "period of benchmarking the network connections in ms", 0, G_MAXUINT, 0,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_SNAPSHOT_QUALITY] =
+      g_param_spec_uint ("snapshot-quality",
+      "JPEG encoding quality of stream snapshots",
+      "JPEG encoding quality of stream snapshots", 0, 100, 85,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_SNAPSHOT_IDCT_METHOD] =
+      g_param_spec_enum ("snapshot-idct-method",
+      "The IDCT algorithm to use to encode stream snapshots",
+      "The IDCT algorithm to use to encode stream snapshots",
+      GAEGULI_TYPE_IDCT_METHOD, GAEGULI_IDCT_METHOD_IFAST,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
@@ -632,6 +670,11 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
   gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
       (GstPadProbeCallback) _on_value_buffer, self, NULL);
+
+  self->snapshot_jpegenc = gst_bin_get_by_name (GST_BIN (self->pipeline),
+      "jpegenc");
+  g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
+      "idct-method", self->snapshot_idct_method, NULL);
 
   fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
   g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
@@ -987,6 +1030,7 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
   g_clear_pointer (&self->vsrc, gst_object_unref);
   g_clear_pointer (&self->overlay, gst_object_unref);
   gst_clear_object (&self->snapshot_valve);
+  gst_clear_object (&self->snapshot_jpegenc);
   gst_clear_object (&self->pipeline);
 
   g_mutex_unlock (&self->lock);

@@ -96,6 +96,12 @@ typedef enum {
   GAEGULI_TARGET_STATE_ERROR
 } GaeguliTargetState;
 
+typedef enum {
+  GAEGULI_IDCT_METHOD_ISLOW = 0,
+  GAEGULI_IDCT_METHOD_IFAST = 1,
+  GAEGULI_IDCT_METHOD_FLOAT = 2
+} GaeguliIDCTMethod;
+
 #define GAEGULI_RESOURCE_ERROR          (gaeguli_resource_error_quark ())
 GQuark gaeguli_resource_error_quark     (void);
 
