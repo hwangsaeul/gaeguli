@@ -126,6 +126,8 @@ GaeguliReturn           gaeguli_pipeline_remove_target
 /**
  * gaeguli_pipeline_create_snapshot_async:
  * @self: a #GaeguliPipeline object
+ * @tags: a #GVariant of type #G_VARIANT_TYPE_VARDICT with tags to insert
+ * into the snapshot in EXIF format.
  * @cancellable: a #GCancellable object
  * @callback: a #GAsyncReadyCallback to call when the request is fulfilled
  * @user_data: arbitrary data passed to @callback
@@ -135,6 +137,7 @@ GaeguliReturn           gaeguli_pipeline_remove_target
  */
 void                    gaeguli_pipeline_create_snapshot_async
                                                 (GaeguliPipeline       *self,
+                                                 GVariant              *tags,
                                                  GCancellable          *cancellable,
                                                  GAsyncReadyCallback    callback,
                                                  gpointer               user_data);
