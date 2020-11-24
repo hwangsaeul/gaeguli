@@ -1164,6 +1164,32 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   GstStateChangeReturn res;
   gint pbkeylen;
 
+  if (priv->state != GAEGULI_TARGET_STATE_NEW) {
+    g_warning ("Target %u is already running", self->id);
+    return;
+  }
+
+  priv->state = GAEGULI_TARGET_STATE_STARTING;
+
+  /* Changing srtsink URI must happen first because it will clear parameters
+   * like streamid. */
+  if (priv->buffer_size > 0) {
+    g_autoptr (GstUri) uri = NULL;
+    g_autofree gchar *uri_str = NULL;
+    g_autofree gchar *buffer_size_str = NULL;
+
+    buffer_size_str = g_strdup_printf ("%d", priv->buffer_size);
+
+    g_object_get (priv->srtsink, "uri", &uri_str, NULL);
+    uri = gst_uri_from_string (uri_str);
+    g_clear_pointer (&uri_str, g_free);
+
+    gst_uri_set_query_value (uri, "sndbuf", buffer_size_str);
+
+    uri_str = gst_uri_to_string (uri);
+    g_object_set (priv->srtsink, "uri", uri_str, NULL);
+  }
+
   switch (priv->pbkeylen) {
     default:
     case GAEGULI_SRT_KEY_LENGTH_0:
@@ -1183,14 +1209,7 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   streamid = gaeguli_target_create_streamid (self);
 
   g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
-      pbkeylen, "buffer-size", priv->buffer_size, "streamid", streamid, NULL);
-
-  if (priv->state != GAEGULI_TARGET_STATE_NEW) {
-    g_warning ("Target %u is already running", self->id);
-    return;
-  }
-
-  priv->state = GAEGULI_TARGET_STATE_STARTING;
+      pbkeylen, "streamid", streamid, NULL);
 
   priv->adaptor = g_object_new (priv->adaptor_type, "srtsink", priv->srtsink,
       "enabled", priv->adaptive_streaming, NULL);
