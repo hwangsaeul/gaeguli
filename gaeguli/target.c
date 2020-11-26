@@ -36,6 +36,8 @@ typedef struct
 {
   GObject parent;
 
+  GMutex lock;
+
   GaeguliTargetState state;
 
   GstElement *encoder;
@@ -105,11 +107,15 @@ G_DEFINE_TYPE_WITH_CODE (GaeguliTarget, gaeguli_target, G_TYPE_OBJECT,
                                                 gaeguli_target_initable_iface_init))
 /* *INDENT-ON* */
 
+#define LOCK_TARGET \
+  g_autoptr (GMutexLocker) locker = g_mutex_locker_new (&priv->lock)
+
 static void
 gaeguli_target_init (GaeguliTarget * self)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
+  g_mutex_init (&priv->lock);
   priv->state = GAEGULI_TARGET_STATE_NEW;
   priv->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
@@ -923,6 +929,7 @@ gaeguli_target_dispose (GObject * object)
   g_clear_pointer (&priv->peer_address, g_free);
   g_clear_pointer (&priv->username, g_free);
   g_clear_pointer (&priv->passphrase, g_free);
+  g_mutex_clear (&priv->lock);
 
   G_OBJECT_CLASS (gaeguli_target_parent_class)->dispose (object);
 }
@@ -1091,25 +1098,35 @@ _link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
    */
   gst_pad_remove_probe (pad, info->id);
 
-  if (priv->pending_pad_probe == info->id) {
-    priv->pending_pad_probe = 0;
+  {
+    LOCK_TARGET;
+
+    if (priv->pending_pad_probe == info->id) {
+      priv->pending_pad_probe = 0;
+    }
+
+    if (priv->state >= GAEGULI_TARGET_STATE_STOPPING) {
+      /* We got stopped before the first buffer arrived; bail out. */
+      goto out;
+    }
+
+    g_debug ("start link target [%x]", self->id);
+
+    gst_element_sync_state_with_parent (self->pipeline);
+    if (gst_pad_link (priv->peer_pad, priv->sinkpad) != GST_PAD_LINK_OK) {
+      g_error ("failed to link target to Gaeguli pipeline");
+    }
+
+    priv->state = GAEGULI_TARGET_STATE_RUNNING;
+
+    g_debug ("finished link target [%x]", self->id);
   }
-
-  g_debug ("start link target [%x]", self->id);
-
-  gst_element_sync_state_with_parent (self->pipeline);
-  if (gst_pad_link (priv->peer_pad, priv->sinkpad) != GST_PAD_LINK_OK) {
-    g_error ("failed to link target to Gaeguli pipeline");
-  }
-
-  priv->state = GAEGULI_TARGET_STATE_RUNNING;
-
-  g_debug ("finished link target [%x]", self->id);
 
   g_signal_emit (self, signals[SIG_STREAM_STARTED], 0);
 
   g_debug ("emitted \"stream-started\" for [%x]", self->id);
 
+out:
   return GST_PAD_PROBE_REMOVE;
 }
 
@@ -1203,6 +1220,8 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   priv->pending_pad_probe = gst_pad_add_probe (priv->peer_pad,
       GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb, self, NULL);
 
+  return;
+
 failed:
   if (internal_err) {
     g_propagate_error (error, internal_err);
@@ -1241,8 +1260,12 @@ _unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   /* Remove the probe first. See _link_probe_cb() for details. */
   gst_pad_remove_probe (pad, info->id);
 
-  if (priv->pending_pad_probe == info->id) {
-    priv->pending_pad_probe = 0;
+  {
+    LOCK_TARGET;
+
+    if (priv->pending_pad_probe == info->id) {
+      priv->pending_pad_probe = 0;
+    }
   }
 
   g_debug ("start unlink target [%x]", self->id);
@@ -1271,6 +1294,8 @@ void
 gaeguli_target_unlink (GaeguliTarget * self)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  LOCK_TARGET;
 
   priv->state = GAEGULI_TARGET_STATE_STOPPING;
 
