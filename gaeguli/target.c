@@ -1309,6 +1309,12 @@ _unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
   return GST_PAD_PROBE_REMOVE;
 }
 
+static GstPadProbeReturn
+_drop_buffers_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
+{
+  return GST_PAD_PROBE_DROP;
+}
+
 void
 gaeguli_target_unlink (GaeguliTarget * self)
 {
@@ -1324,9 +1330,16 @@ gaeguli_target_unlink (GaeguliTarget * self)
     priv->pending_pad_probe = 0;
     priv->state = GAEGULI_TARGET_STATE_STOPPED;
   } else {
+    g_autoptr (GstPad) pad = NULL;
+
     gst_pad_add_probe (priv->peer_pad, GST_PAD_PROBE_TYPE_BLOCK,
         _unlink_probe_cb, g_object_ref (self), (GDestroyNotify) g_object_unref);
-    /* Immediately closes SRT connection. */
+    /* Immediately closes SRT connection. Dropping buffers in the pad probe
+     * prevents srtsink in NULL state from returning GST_FLOW_FLUSHING, which
+     * could disturb video source pipeline. */
+    pad = gst_element_get_static_pad (priv->srtsink, "sink");
+    gst_pad_add_probe (GST_PAD_PEER (pad), GST_PAD_PROBE_TYPE_BLOCK,
+        _drop_buffers_cb, NULL, NULL);
     gst_element_set_state (priv->srtsink, GST_STATE_NULL);
   }
 }
