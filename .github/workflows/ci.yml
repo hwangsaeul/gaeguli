@@ -43,7 +43,7 @@ jobs:
           path: build/meson-logs/meson-log.txt
       - name: Meson Test
         run: |
-          meson test -C build --setup debug
+          meson test -C build --setup debug --no-stdsplit
       - uses: actions/upload-artifact@v1
         if: failure()
         with:
