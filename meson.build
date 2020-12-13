@@ -84,6 +84,8 @@ gst_dep = [
 
 libsrt_dep = dependency('srt', version: '>=1.4.1')
 
+pipewire_dep = dependency('libpipewire-0.3')
+
 gnome = import('gnome')
 
 gaeguli_incs = include_directories('.', 'gaeguli')

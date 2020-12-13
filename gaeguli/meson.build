@@ -47,14 +47,14 @@ libgaeguli = library(
   version: libversion,
   soversion: soversion,
   include_directories: gaeguli_incs,
-  dependencies: [ gobject_dep, gio_dep, gst_dep, libsrt_dep ],
+  dependencies: [ gobject_dep, gio_dep, gst_dep, libsrt_dep, pipewire_dep ],
   c_args: gaeguli_c_args,
   link_args: common_ldflags,
   install: true
 )
 
 pkg.generate(libgaeguli,
-  libraries : [ gst_dep, libsrt_dep ],
+  libraries : [ gst_dep, libsrt_dep, pipewire_dep ],
   name : meson.project_name(),
   description : 'A SRT Streaming library',
   filebase : gaeguli_api_name,

@@ -579,6 +579,8 @@ _get_source_description (GaeguliPipeline * self)
     case GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC:
       g_string_append_printf (result, " sensor-id=%s", self->device);
       break;
+    case GAEGULI_VIDEO_SOURCE_PIPEWIRESRC:
+      g_string_append_printf (result, " always-copy=true ");    /* always-copy property is set to avoid crash with jpegdec */
     default:
       break;
   }
