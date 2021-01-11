@@ -636,7 +636,9 @@ gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
     g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
   }
 
-  if (!gaeguli_stream_adaptor_is_enabled (priv->adaptor) || force_on_encoder) {
+  if (priv->adaptor == NULL
+      || !gaeguli_stream_adaptor_is_enabled (priv->adaptor)
+      || force_on_encoder) {
     /* Apply directly on the encoder */
     _set_encoding_parameters (priv->encoder, params);
   }
