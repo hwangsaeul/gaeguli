@@ -32,9 +32,22 @@
 
 #include <gio/gio.h>
 
-typedef struct
+#include <syslog.h>
+
+struct _GaeguliTarget
 {
   GObject parent;
+
+  guint id;
+  GstElement *pipeline;
+
+  GstElement *snapshot_valve;
+  GstElement *snapshot_jpegenc;
+  GstElement *snapshot_jifmux;
+  GQueue *snapshot_tasks;
+  guint num_snapshots_to_encode;
+  guint snapshot_quality;
+  GaeguliIDCTMethod snapshot_idct_method;
 
   GMutex lock;
 
@@ -42,9 +55,7 @@ typedef struct
 
   GstElement *encoder;
   GstElement *srtsink;
-  GstPad *peer_pad;
   GstPad *sinkpad;
-  gulong pending_pad_probe;
   GaeguliStreamAdaptor *adaptor;
 
   GaeguliVideoCodec codec;
@@ -52,6 +63,8 @@ typedef struct
   guint bitrate;
   guint quantizer;
   guint idr_period;
+  guint node_id;
+  gint client_fd;
   gchar *uri;
   gchar *peer_address;
   gchar *username;
@@ -59,16 +72,17 @@ typedef struct
   GaeguliSRTKeyLength pbkeylen;
   GType adaptor_type;
   gboolean adaptive_streaming;
-  gboolean is_recording;
+  GaeguliTargetType target_type;
   gint32 buffer_size;
   GstStructure *video_params;
   gchar *location;
-} GaeguliTargetPrivate;
+};
 
 enum
 {
   PROP_ID = 1,
-  PROP_PEER_PAD,
+  PROP_TARGET_TYPE,
+  PROP_NODE_ID,
   PROP_CODEC,
   PROP_BITRATE_CONTROL,
   PROP_BITRATE_CONTROL_ACTUAL,
@@ -86,8 +100,9 @@ enum
   PROP_BUFFER_SIZE,
   PROP_LATENCY,
   PROP_VIDEO_PARAMS,
-  PROP_TARGET_IS_RECORDING,
   PROP_LOCATION,
+  PROP_SNAPSHOT_QUALITY,
+  PROP_SNAPSHOT_IDCT_METHOD,
   PROP_LAST
 };
 
@@ -108,26 +123,21 @@ static void gaeguli_target_initable_iface_init (GInitableIface * iface);
 
 /* *INDENT-OFF* */
 G_DEFINE_TYPE_WITH_CODE (GaeguliTarget, gaeguli_target, G_TYPE_OBJECT,
-                         G_ADD_PRIVATE (GaeguliTarget)
                          G_IMPLEMENT_INTERFACE (G_TYPE_INITABLE,
                                                 gaeguli_target_initable_iface_init))
 /* *INDENT-ON* */
 
-#define LOCK_TARGET \
-  g_autoptr (GMutexLocker) locker = g_mutex_locker_new (&priv->lock)
-
 static void
 gaeguli_target_init (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+  self->state = GAEGULI_TARGET_STATE_NEW;
+  self->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 
-  g_mutex_init (&priv->lock);
-  priv->state = GAEGULI_TARGET_STATE_NEW;
-  priv->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
+  self->snapshot_tasks = g_queue_new ();
 }
 
 typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
-    guint idr_period);
+    guint idr_period, guint node_id);
 
 struct encoding_method_params
 {
@@ -137,15 +147,17 @@ struct encoding_method_params
 };
 
 static gchar *
-_format_general_pipeline (const gchar * pipeline_str, guint idr_period)
+_format_general_pipeline (const gchar * pipeline_str, guint idr_period,
+    guint node_id)
 {
-  return g_strdup_printf (pipeline_str, idr_period);
+  return g_strdup_printf (pipeline_str, node_id, idr_period);
 }
 
 static gchar *
-_format_tx1_pipeline (const gchar * pipeline_str, guint idr_period)
+_format_tx1_pipeline (const gchar * pipeline_str, guint idr_period,
+    guint node_id)
 {
-  return g_strdup_printf (pipeline_str, idr_period);
+  return g_strdup_printf (pipeline_str, node_id, idr_period);
 }
 
 static struct encoding_method_params enc_params[] = {
@@ -165,13 +177,13 @@ static struct encoding_method_params enc_params[] = {
 };
 
 static gchar *
-_get_enc_string (GaeguliVideoCodec codec, guint idr_period)
+_get_enc_string (GaeguliVideoCodec codec, guint idr_period, guint node_id)
 {
   struct encoding_method_params *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
     if (params->codec == codec)
-      return params->format_func (params->pipeline_str, idr_period);
+      return params->format_func (params->pipeline_str, idr_period, node_id);
   }
 
   return NULL;
@@ -615,30 +627,28 @@ static void
 gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
     gboolean force_on_encoder)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
   g_autoptr (GstStructure) params = NULL;
 
-  if (!priv->encoder) {
+  if (!self->encoder) {
     /* We're not initialized yet. */
     return;
   }
 
   params = gst_structure_new ("application/x-gaeguli-encoding-parameters",
       GAEGULI_ENCODING_PARAMETER_RATECTRL,
-      GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, priv->bitrate_control,
-      GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, priv->bitrate,
-      GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, priv->quantizer, NULL);
+      GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, self->bitrate_control,
+      GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, self->bitrate,
+      GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, self->quantizer, NULL);
 
   g_object_set (self, "video-params", params, NULL);
 
-  if (priv->adaptor) {
-    g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
+  if (self->adaptor) {
+    g_object_set (self->adaptor, "baseline-parameters", params, NULL);
   }
 
-  if (!gaeguli_stream_adaptor_is_enabled (priv->adaptor) || force_on_encoder) {
+  if (!gaeguli_stream_adaptor_is_enabled (self->adaptor) || force_on_encoder) {
     /* Apply directly on the encoder */
-    _set_encoding_parameters (priv->encoder, params);
+    _set_encoding_parameters (self->encoder, params);
   }
 }
 
@@ -668,12 +678,99 @@ gaeguli_target_on_caller_removed (GaeguliTarget * self, gint srtsocket,
   g_signal_emit (self, signals[SIG_CALLER_REMOVED], 0, srtsocket, address);
 }
 
+static void
+gaeguli_target_set_snapshot_tags (GaeguliTarget * self, GVariant * tags)
+{
+  GVariantIter it;
+  gchar *tag_name;
+  GVariant *val_variant;
+  GstTagSetter *tag_setter = GST_TAG_SETTER (self->snapshot_jifmux);
+
+  g_return_if_fail (g_variant_is_of_type (tags, G_VARIANT_TYPE_VARDICT));
+
+  gst_tag_setter_reset_tags (tag_setter);
+
+  g_variant_iter_init (&it, tags);
+  while (g_variant_iter_next (&it, "{sv}", &tag_name, &val_variant)) {
+    GValue val = G_VALUE_INIT;
+
+    if (!gst_tag_exists (tag_name)) {
+      g_warning ("Unknown tag %s", tag_name);
+      goto next;
+    }
+
+    g_dbus_gvariant_to_gvalue (val_variant, &val);
+    gst_tag_setter_add_tag_value (tag_setter, GST_TAG_MERGE_REPLACE, tag_name,
+        &val);
+    g_value_unset (&val);
+
+  next:
+    g_free (tag_name);
+    g_variant_unref (val_variant);
+  }
+}
+
+static GstPadProbeReturn
+_on_valve_buffer (GstPad * pad, GstPadProbeInfo * info, GaeguliTarget * self)
+{
+  GTask *task;
+
+  /* FIXME - Check whether locking is required? */
+  task = g_queue_peek_head (self->snapshot_tasks);
+  if (task) {
+    GVariant *tags = g_task_get_task_data (task);
+    if (tags) {
+      gaeguli_target_set_snapshot_tags (self, tags);
+    }
+  }
+
+  if (--self->num_snapshots_to_encode == 0) {
+    /* No pending snapshot requests, close the valve. */
+    g_object_set (GST_PAD_PARENT (pad), "drop", TRUE, NULL);
+  }
+
+  return GST_PAD_PROBE_OK;
+}
+
+static void
+gaeguli_target_create_snapshot (GaeguliTarget * self, GstBuffer * buffer)
+{
+  g_autoptr (GTask) task = NULL;
+  GstMapInfo info;
+
+  g_return_if_fail (!g_queue_is_empty (self->snapshot_tasks));
+
+  {
+    /* FIXME - Check whether locking is required? */
+    task = g_queue_pop_head (self->snapshot_tasks);
+  }
+
+  if (g_task_return_error_if_cancelled (task)) {
+    return;
+  }
+
+  gst_buffer_map (buffer, &info, GST_MAP_READ);
+
+  g_task_return_pointer (task, g_bytes_new (info.data, info.size),
+      (GDestroyNotify) g_bytes_unref);
+
+  gst_buffer_unmap (buffer, &info);
+}
+
+GBytes *
+gaeguli_target_create_snapshot_finish (GaeguliTarget * self,
+    GAsyncResult * result, GError ** error)
+{
+  g_return_val_if_fail (g_task_is_valid (result, self), NULL);
+
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
 static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
 {
   GaeguliTarget *self = GAEGULI_TARGET (initable);
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   g_autoptr (GaeguliPipeline) owner = NULL;
   g_autoptr (GstElement) enc_first = NULL;
@@ -683,101 +780,132 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autoptr (GError) internal_err = NULL;
   NotifyData *notify_data;
 
-  pipeline_str = _get_enc_string (priv->codec, priv->idr_period);
-  if (pipeline_str == NULL) {
-    g_set_error (error, GAEGULI_RESOURCE_ERROR,
-        GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
-    return FALSE;
+  if ((GAEGULI_TARGET_TYPE_SRT == self->target_type) ||
+      (GAEGULI_TARGET_TYPE_RECORDING == self->target_type)) {
+    pipeline_str =
+        _get_enc_string (self->codec, self->idr_period, self->node_id);
+    if (pipeline_str == NULL) {
+      g_set_error (error, GAEGULI_RESOURCE_ERROR,
+          GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
+          "Can't determine encoding method");
+      return FALSE;
+    }
+    g_debug ("using encoding pipeline [%s]", pipeline_str);
   }
 
-  g_debug ("using encoding pipeline [%s]", pipeline_str);
-
-  if (!priv->is_recording) {
+  if (GAEGULI_TARGET_TYPE_SRT == self->target_type) {
     pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
-        pipeline_str, priv->uri);
-  } else {
+        pipeline_str, self->uri);
+  } else if (GAEGULI_TARGET_TYPE_RECORDING == self->target_type) {
     pipeline_str = g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MUXSINK_STR,
-        pipeline_str, priv->location);
+        pipeline_str, self->location);
+  } else if (GAEGULI_TARGET_TYPE_IMAGE_CAPTURE == self->target_type) {
+    pipeline_str = g_strdup_printf (GAEGULI_PIPELINE_IMAGE_STR, self->node_id);
   }
 
+  syslog (LOG_INFO, "Encoding pipeline [%s]", pipeline_str);
   self->pipeline = gst_parse_launch (pipeline_str, &internal_err);
   if (internal_err) {
     g_warning ("failed to build muxsink pipeline (%s)", internal_err->message);
+    syslog (LOG_ERR, "Failed to build muxsink pipeline. Error [%s]",
+        internal_err->message);
     goto failed;
   }
 
   gst_object_ref_sink (self->pipeline);
 
-  muxsink_first =
-      gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
-  if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
-          "pcr-interval")) {
-    g_info ("set pcr-interval to 360");
-    g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+  if ((GAEGULI_TARGET_TYPE_SRT == self->target_type) ||
+      (GAEGULI_TARGET_TYPE_RECORDING == self->target_type)) {
+    muxsink_first =
+        gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
+    if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
+            "pcr-interval")) {
+      g_info ("set pcr-interval to 360");
+      g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+    }
   }
 
-  if (!priv->is_recording) {
-    priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
-    g_object_set_data (G_OBJECT (priv->srtsink), "gaeguli-target-id",
+  if (GAEGULI_TARGET_TYPE_SRT == self->target_type) {
+    self->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
+    g_object_set_data (G_OBJECT (self->srtsink), "gaeguli-target-id",
         GUINT_TO_POINTER (self->id));
-    g_signal_connect_swapped (priv->srtsink, "caller-added",
+    g_signal_connect_swapped (self->srtsink, "caller-added",
         G_CALLBACK (gaeguli_target_on_caller_added), self);
-    g_signal_connect_swapped (priv->srtsink, "caller-removed",
+    g_signal_connect_swapped (self->srtsink, "caller-removed",
         G_CALLBACK (gaeguli_target_on_caller_removed), self);
     if (gaeguli_target_get_srt_mode (self) == GAEGULI_SRT_MODE_CALLER) {
-      g_autoptr (GstUri) uri = gst_uri_from_string (priv->uri);
+      g_autoptr (GstUri) uri = gst_uri_from_string (self->uri);
 
-      priv->peer_address = g_strdup (gst_uri_get_host (uri));
+      self->peer_address = g_strdup (gst_uri_get_host (uri));
     }
-  } else {
-    priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "recsink");
+  } else if (GAEGULI_TARGET_TYPE_RECORDING == self->target_type) {
+    self->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "recsink");
+  } else if (GAEGULI_TARGET_TYPE_IMAGE_CAPTURE == self->target_type) {
+    /* Handle image capture type */
+    g_autoptr (GstPad) valve_src = NULL;
+    g_autoptr (GstElement) fakesink = NULL;
+
+    self->snapshot_valve = gst_bin_get_by_name (GST_BIN (self->pipeline),
+        "valve");
+    valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
+    gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
+        (GstPadProbeCallback) _on_valve_buffer, self, NULL);
+
+    self->snapshot_jpegenc = gst_bin_get_by_name (GST_BIN (self->pipeline),
+        "jpegenc");
+    g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
+        "idct-method", self->snapshot_idct_method, NULL);
+
+    self->snapshot_jifmux = gst_bin_get_by_name (GST_BIN (self->pipeline),
+        "jifmux");
+
+    fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
+    g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
+    g_signal_connect_swapped (fakesink, "handoff",
+        G_CALLBACK (gaeguli_target_create_snapshot), self);
   }
 
-  priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
+  if ((GAEGULI_TARGET_TYPE_SRT == self->target_type) ||
+      (GAEGULI_TARGET_TYPE_RECORDING == self->target_type)) {
+    self->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
 
-  notify_data = g_new (NotifyData, 1);
-  notify_data->target = G_OBJECT (self);
-  notify_data->pspec = properties[PROP_BITRATE_ACTUAL];
-  g_signal_connect_closure (priv->encoder, "notify::bitrate",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          (GClosureNotify) g_free), FALSE);
+    notify_data = g_new (NotifyData, 1);
+    notify_data->target = G_OBJECT (self);
+    notify_data->pspec = properties[PROP_BITRATE_ACTUAL];
+    g_signal_connect_closure (self->encoder, "notify::bitrate",
+        g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+            (GClosureNotify) g_free), FALSE);
 
-  notify_data = g_new (NotifyData, 1);
-  notify_data->target = G_OBJECT (self);
-  notify_data->pspec = properties[PROP_QUANTIZER_ACTUAL];
-  g_signal_connect_closure (priv->encoder, "notify::quantizer",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          (GClosureNotify) g_free), FALSE);
-  /* vaapienc */
-  g_signal_connect_closure (priv->encoder, "notify::init-qp",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
+    notify_data = g_new (NotifyData, 1);
+    notify_data->target = G_OBJECT (self);
+    notify_data->pspec = properties[PROP_QUANTIZER_ACTUAL];
+    g_signal_connect_closure (self->encoder, "notify::quantizer",
+        g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+            (GClosureNotify) g_free), FALSE);
+    /* vaapienc */
+    g_signal_connect_closure (self->encoder, "notify::init-qp",
+        g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+            NULL), FALSE);
 
-  notify_data = g_new (NotifyData, 1);
-  notify_data->target = G_OBJECT (self);
-  notify_data->pspec = properties[PROP_BITRATE_CONTROL_ACTUAL];
-  /* x264enc */
-  g_signal_connect_closure (priv->encoder, "notify::pass",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          (GClosureNotify) g_free), FALSE);
-  /* x265enc */
-  g_signal_connect_closure (priv->encoder, "notify::qp",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
-  g_signal_connect_closure (priv->encoder, "notify::option-string",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
-  /* vaapienc */
-  g_signal_connect_closure (priv->encoder, "notify::rate-control",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
-
-  enc_first = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc_first");
-  enc_sinkpad = gst_element_get_static_pad (enc_first, "sink");
-
-  priv->sinkpad = gst_ghost_pad_new (NULL, enc_sinkpad);
-  gst_object_ref_sink (priv->sinkpad);
-  gst_element_add_pad (self->pipeline, priv->sinkpad);
+    notify_data = g_new (NotifyData, 1);
+    notify_data->target = G_OBJECT (self);
+    notify_data->pspec = properties[PROP_BITRATE_CONTROL_ACTUAL];
+    /* x264enc */
+    g_signal_connect_closure (self->encoder, "notify::pass",
+        g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+            (GClosureNotify) g_free), FALSE);
+    /* x265enc */
+    g_signal_connect_closure (self->encoder, "notify::qp",
+        g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+            NULL), FALSE);
+    g_signal_connect_closure (self->encoder, "notify::option-string",
+        g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+            NULL), FALSE);
+    /* vaapienc */
+    g_signal_connect_closure (self->encoder, "notify::rate-control",
+        g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
+            NULL), FALSE);
+  }
 
   return TRUE;
 
@@ -795,53 +923,58 @@ gaeguli_target_get_property (GObject * object,
     guint prop_id, GValue * value, GParamSpec * pspec)
 {
   GaeguliTarget *self = GAEGULI_TARGET (object);
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   switch (prop_id) {
     case PROP_ID:
       g_value_set_uint (value, self->id);
       break;
     case PROP_BITRATE_CONTROL:
-      g_value_set_enum (value, priv->bitrate_control);
+      g_value_set_enum (value, self->bitrate_control);
       break;
     case PROP_BITRATE_CONTROL_ACTUAL:
-      g_value_set_enum (value, _get_encoding_parameter_enum (priv->encoder,
+      g_value_set_enum (value, _get_encoding_parameter_enum (self->encoder,
               GAEGULI_ENCODING_PARAMETER_RATECTRL));
       break;
     case PROP_BITRATE:
-      g_value_set_uint (value, priv->bitrate);
+      g_value_set_uint (value, self->bitrate);
       break;
     case PROP_BITRATE_ACTUAL:
-      g_value_set_uint (value, _get_encoding_parameter_uint (priv->encoder,
+      g_value_set_uint (value, _get_encoding_parameter_uint (self->encoder,
               GAEGULI_ENCODING_PARAMETER_BITRATE));
       break;
     case PROP_QUANTIZER:
-      g_value_set_uint (value, priv->quantizer);
+      g_value_set_uint (value, self->quantizer);
       break;
     case PROP_QUANTIZER_ACTUAL:
-      g_value_set_uint (value, _get_encoding_parameter_uint (priv->encoder,
+      g_value_set_uint (value, _get_encoding_parameter_uint (self->encoder,
               GAEGULI_ENCODING_PARAMETER_QUANTIZER));
       break;
     case PROP_ADAPTIVE_STREAMING:
-      if (priv->adaptor) {
-        priv->adaptive_streaming =
-            gaeguli_stream_adaptor_is_enabled (priv->adaptor);
+      if (self->adaptor) {
+        self->adaptive_streaming =
+            gaeguli_stream_adaptor_is_enabled (self->adaptor);
       }
-      g_value_set_boolean (value, priv->adaptive_streaming);
+      g_value_set_boolean (value, self->adaptive_streaming);
       break;
     case PROP_BUFFER_SIZE:
-      g_value_set_int (value, priv->buffer_size);
+      g_value_set_int (value, self->buffer_size);
       break;
     case PROP_LATENCY:{
-      g_object_get_property (G_OBJECT (priv->srtsink), "latency", value);
+      g_object_get_property (G_OBJECT (self->srtsink), "latency", value);
       break;
     }
     case PROP_VIDEO_PARAMS:{
-      g_value_set_boxed (value, priv->video_params);
+      g_value_set_boxed (value, self->video_params);
     }
       break;
-    case PROP_TARGET_IS_RECORDING:
-      g_value_set_boolean (value, priv->is_recording);
+    case PROP_NODE_ID:
+      g_value_set_uint (value, self->node_id);
+      break;
+    case PROP_SNAPSHOT_QUALITY:
+      g_value_set_uint (value, self->snapshot_quality);
+      break;
+    case PROP_SNAPSHOT_IDCT_METHOD:
+      g_value_set_enum (value, self->snapshot_idct_method);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -854,22 +987,18 @@ gaeguli_target_set_property (GObject * object,
     guint prop_id, const GValue * value, GParamSpec * pspec)
 {
   GaeguliTarget *self = GAEGULI_TARGET (object);
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   switch (prop_id) {
     case PROP_ID:
       self->id = g_value_get_uint (value);
       break;
-    case PROP_PEER_PAD:
-      priv->peer_pad = g_value_dup_object (value);
-      break;
     case PROP_CODEC:
-      priv->codec = g_value_get_enum (value);
+      self->codec = g_value_get_enum (value);
       break;
     case PROP_BITRATE:{
       guint new_bitrate = g_value_get_uint (value);
-      if (priv->bitrate != new_bitrate) {
-        priv->bitrate = new_bitrate;
+      if (self->bitrate != new_bitrate) {
+        self->bitrate = new_bitrate;
         gaeguli_target_update_baseline_parameters (self, FALSE);
         g_object_notify_by_pspec (object, pspec);
       }
@@ -877,8 +1006,8 @@ gaeguli_target_set_property (GObject * object,
     }
     case PROP_BITRATE_CONTROL:{
       GaeguliVideoBitrateControl new_rate_control = g_value_get_enum (value);
-      if (priv->bitrate_control != new_rate_control) {
-        priv->bitrate_control = new_rate_control;
+      if (self->bitrate_control != new_rate_control) {
+        self->bitrate_control = new_rate_control;
         gaeguli_target_update_baseline_parameters (self, FALSE);
         g_object_notify_by_pspec (object, pspec);
       }
@@ -886,39 +1015,39 @@ gaeguli_target_set_property (GObject * object,
     }
     case PROP_QUANTIZER:{
       guint new_quantizer = g_value_get_uint (value);
-      if (priv->quantizer != new_quantizer) {
-        priv->quantizer = new_quantizer;
+      if (self->quantizer != new_quantizer) {
+        self->quantizer = new_quantizer;
         gaeguli_target_update_baseline_parameters (self, FALSE);
         g_object_notify_by_pspec (object, pspec);
       }
       break;
     }
     case PROP_IDR_PERIOD:
-      priv->idr_period = g_value_get_uint (value);
+      self->idr_period = g_value_get_uint (value);
       break;
     case PROP_URI:
-      priv->uri = g_value_dup_string (value);
+      self->uri = g_value_dup_string (value);
       break;
     case PROP_USERNAME:
-      g_clear_pointer (&priv->username, g_free);
-      priv->username = g_value_dup_string (value);
+      g_clear_pointer (&self->username, g_free);
+      self->username = g_value_dup_string (value);
       break;
     case PROP_PASSPHRASE:
-      g_clear_pointer (&priv->passphrase, g_free);
-      priv->passphrase = g_value_dup_string (value);
+      g_clear_pointer (&self->passphrase, g_free);
+      self->passphrase = g_value_dup_string (value);
       break;
     case PROP_PBKEYLEN:
-      priv->pbkeylen = g_value_get_enum (value);
+      self->pbkeylen = g_value_get_enum (value);
       break;
     case PROP_ADAPTOR_TYPE:
-      priv->adaptor_type = g_value_get_gtype (value);
+      self->adaptor_type = g_value_get_gtype (value);
       break;
     case PROP_ADAPTIVE_STREAMING:{
       gboolean new_adaptive_streaming = g_value_get_boolean (value);
-      if (priv->adaptive_streaming != new_adaptive_streaming) {
-        priv->adaptive_streaming = new_adaptive_streaming;
-        if (priv->adaptor) {
-          g_object_set (priv->adaptor, "enabled", priv->adaptive_streaming,
+      if (self->adaptive_streaming != new_adaptive_streaming) {
+        self->adaptive_streaming = new_adaptive_streaming;
+        if (self->adaptor) {
+          g_object_set (self->adaptor, "enabled", self->adaptive_streaming,
               NULL);
         }
         g_object_notify_by_pspec (object, pspec);
@@ -926,17 +1055,34 @@ gaeguli_target_set_property (GObject * object,
       break;
     }
     case PROP_BUFFER_SIZE:
-      priv->buffer_size = g_value_get_int (value);
+      self->buffer_size = g_value_get_int (value);
       break;
     case PROP_VIDEO_PARAMS:
-      priv->video_params = g_value_dup_boxed (value);
-      break;
-    case PROP_TARGET_IS_RECORDING:
-      priv->is_recording = g_value_get_boolean (value);
+      self->video_params = g_value_dup_boxed (value);
       break;
     case PROP_LOCATION:
-      g_clear_pointer (&priv->location, g_free);
-      priv->location = g_value_dup_string (value);
+      g_clear_pointer (&self->location, g_free);
+      self->location = g_value_dup_string (value);
+      break;
+    case PROP_NODE_ID:
+      self->node_id = g_value_get_uint (value);
+      break;
+    case PROP_TARGET_TYPE:
+      self->target_type = g_value_get_enum (value);
+      break;
+    case PROP_SNAPSHOT_QUALITY:
+      self->snapshot_quality = g_value_get_uint (value);
+      if (self->snapshot_jpegenc) {
+        g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
+            NULL);
+      }
+      break;
+    case PROP_SNAPSHOT_IDCT_METHOD:
+      self->snapshot_idct_method = g_value_get_enum (value);
+      if (self->snapshot_jpegenc) {
+        g_object_set (self->snapshot_jpegenc, "idct-method",
+            self->snapshot_idct_method, NULL);
+      }
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -948,23 +1094,25 @@ static void
 gaeguli_target_dispose (GObject * object)
 {
   GaeguliTarget *self = GAEGULI_TARGET (object);
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   gst_clear_object (&self->pipeline);
-  gst_clear_object (&priv->encoder);
-  gst_clear_object (&priv->srtsink);
-  gst_clear_object (&priv->peer_pad);
-  gst_clear_object (&priv->sinkpad);
+  gst_clear_object (&self->encoder);
+  gst_clear_object (&self->srtsink);
+  gst_clear_object (&self->sinkpad);
 
-  g_clear_object (&priv->adaptor);
+  g_clear_object (&self->adaptor);
 
-  g_clear_pointer (&priv->uri, g_free);
-  g_clear_pointer (&priv->peer_address, g_free);
-  g_clear_pointer (&priv->username, g_free);
-  g_clear_pointer (&priv->passphrase, g_free);
-  g_clear_pointer (&priv->location, g_free);
-  gst_clear_structure (&priv->video_params);
-  g_mutex_clear (&priv->lock);
+  g_clear_pointer (&self->uri, g_free);
+  g_clear_pointer (&self->peer_address, g_free);
+  g_clear_pointer (&self->username, g_free);
+  g_clear_pointer (&self->passphrase, g_free);
+  g_clear_pointer (&self->location, g_free);
+  gst_clear_structure (&self->video_params);
+
+  gst_clear_object (&self->snapshot_valve);
+  gst_clear_object (&self->snapshot_jpegenc);
+  gst_clear_object (&self->snapshot_jifmux);
+  g_clear_pointer (&self->snapshot_tasks, g_queue_free);
 
   G_OBJECT_CLASS (gaeguli_target_parent_class)->dispose (object);
 }
@@ -982,11 +1130,6 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       g_param_spec_uint ("id", "target ID", "target ID",
       0, G_MAXUINT, 0,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
-
-  properties[PROP_PEER_PAD] =
-      g_param_spec_object ("peer-pad", "the video stream's source pad",
-      "the video stream's source pad", GST_TYPE_PAD,
-      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_CODEC] =
       g_param_spec_enum ("codec", "video codec", "video codec",
@@ -1084,17 +1227,35 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       GST_TYPE_STRUCTURE,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
 
-  properties[PROP_TARGET_IS_RECORDING] =
-      g_param_spec_boolean ("is-recording", "Is Recording target",
-      "Is Recording target", FALSE,
+  properties[PROP_NODE_ID] =
+      g_param_spec_uint ("node-id", "pipewire ouput node ID",
+      "pipewire ouput node ID", 0, G_MAXUINT, 0,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_EXPLICIT_NOTIFY |
       G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_TARGET_TYPE] =
+      g_param_spec_enum ("target-type", "Target Type",
+      "Type of the target to create", GAEGULI_TYPE_TARGET_TYPE,
+      GAEGULI_TARGET_TYPE_SRT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_LOCATION] =
       g_param_spec_string ("location",
       "Location to store the recorded stream",
       "Location to store the recorded stream", NULL,
       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_SNAPSHOT_QUALITY] =
+      g_param_spec_uint ("snapshot-quality",
+      "JPEG encoding quality of stream snapshots",
+      "JPEG encoding quality of stream snapshots", 0, 100, 85,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_SNAPSHOT_IDCT_METHOD] =
+      g_param_spec_enum ("snapshot-idct-method",
+      "The IDCT algorithm to use to encode stream snapshots",
+      "The IDCT algorithm to use to encode stream snapshots",
+      GAEGULI_TYPE_IDCT_METHOD, GAEGULI_IDCT_METHOD_IFAST,
+      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
       properties);
@@ -1127,79 +1288,32 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 }
 
 GaeguliTarget *
-gaeguli_target_new (GstPad * peer_pad, guint id,
+gaeguli_target_new (guint id,
     GaeguliVideoCodec codec, guint bitrate, guint idr_period,
-    const gchar * srt_uri, const gchar * username, gboolean is_record_target,
-    const gchar * location, GError ** error)
+    const gchar * srt_uri, const gchar * username,
+    GaeguliTargetType target_type, const gchar * location, guint node_id,
+    GError ** error)
 {
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
-      "peer-pad", peer_pad, "codec", codec, "bitrate", bitrate,
+      "target-type", target_type, "node-id", node_id,
+      "codec", codec, "bitrate", bitrate,
       "idr-period", idr_period, "uri", srt_uri, "username", username,
-      "is-recording", is_record_target, "location", location, NULL);
-}
-
-static GstPadProbeReturn
-_link_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
-{
-  GaeguliTarget *self = GAEGULI_TARGET (user_data);
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  /*
-   * GST_PAD_PROBE_TYPE_IDLE can cause infinite waiting in filesink.
-   * In addition, to prevent events generated in gst_ghost_pad_new()
-   * from invoking this probe callback again, we remove the probe first.
-   *
-   * For more details, refer to
-   * https://github.com/hwangsaeul/gaeguli/pull/10#discussion_r327031325
-   */
-  gst_pad_remove_probe (pad, info->id);
-
-  {
-    LOCK_TARGET;
-
-    if (priv->pending_pad_probe == info->id) {
-      priv->pending_pad_probe = 0;
-    }
-
-    if (priv->state >= GAEGULI_TARGET_STATE_STOPPING) {
-      /* We got stopped before the first buffer arrived; bail out. */
-      goto out;
-    }
-
-    g_debug ("start link target [%x]", self->id);
-
-    gst_element_sync_state_with_parent (self->pipeline);
-    if (gst_pad_link (priv->peer_pad, priv->sinkpad) != GST_PAD_LINK_OK) {
-      g_error ("failed to link target to Gaeguli pipeline");
-    }
-
-    priv->state = GAEGULI_TARGET_STATE_RUNNING;
-
-    g_debug ("finished link target [%x]", self->id);
-  }
-
-  g_signal_emit (self, signals[SIG_STREAM_STARTED], 0);
-
-  g_debug ("emitted \"stream-started\" for [%x]", self->id);
-
-out:
-  return GST_PAD_PROBE_REMOVE;
+      "location", location, "adaptor_type", GAEGULI_TYPE_NULL_STREAM_ADAPTOR,
+      NULL);
 }
 
 static gchar *
 gaeguli_target_create_streamid (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
   GString *str = g_string_new (NULL);
 
-  if (priv->username) {
-    g_string_append_printf (str, "u=%s", priv->username);
+  if (self->username) {
+    g_string_append_printf (str, "u=%s", self->username);
   }
 
-  if (priv->buffer_size > 0) {
+  if (self->buffer_size > 0) {
     g_string_append_printf (str, "%sh8l_bufsize=%d",
-        (str->len > 0) ? "," : "", priv->buffer_size);
+        (str->len > 0) ? "," : "", self->buffer_size);
   }
 
   if (str->len > 0) {
@@ -1209,45 +1323,43 @@ gaeguli_target_create_streamid (GaeguliTarget * self)
   return g_string_free (str, FALSE);
 }
 
-void
-gaeguli_target_start (GaeguliTarget * self, GError ** error)
+GaeguliConsumerRspType
+gaeguli_start_consumer (GaeguliTarget * self, GError ** error)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GError) internal_err = NULL;
   g_autofree gchar *streamid = NULL;
   GstStateChangeReturn res;
   gint pbkeylen;
 
-  if (priv->state != GAEGULI_TARGET_STATE_NEW) {
-    g_warning ("Target %u is already running", self->id);
-    return;
+  if (self->state != GAEGULI_TARGET_STATE_NEW) {
+    syslog (LOG_INFO, "Target %p already running", self);
+    return GAEGULI_CONSUMER_RSP_START_TARGET_SUCCESS;
   }
 
-  priv->state = GAEGULI_TARGET_STATE_STARTING;
+  self->state = GAEGULI_TARGET_STATE_STARTING;
 
-  if (!priv->is_recording) {
+  if (GAEGULI_TARGET_TYPE_SRT == self->target_type) {
     /* Changing srtsink URI must happen first because it will clear parameters
      * like streamid. */
-    if (priv->buffer_size > 0) {
+    if (self->buffer_size > 0) {
       g_autoptr (GstUri) uri = NULL;
       g_autofree gchar *uri_str = NULL;
       g_autofree gchar *buffer_size_str = NULL;
 
-      buffer_size_str = g_strdup_printf ("%d", priv->buffer_size);
+      buffer_size_str = g_strdup_printf ("%d", self->buffer_size);
 
-      g_object_get (priv->srtsink, "uri", &uri_str, NULL);
+      g_object_get (self->srtsink, "uri", &uri_str, NULL);
       uri = gst_uri_from_string (uri_str);
       g_clear_pointer (&uri_str, g_free);
 
       gst_uri_set_query_value (uri, "sndbuf", buffer_size_str);
 
       uri_str = gst_uri_to_string (uri);
-      g_object_set (priv->srtsink, "uri", uri_str, NULL);
+      g_object_set (self->srtsink, "uri", uri_str, NULL);
     }
 
-    switch (priv->pbkeylen) {
+    switch (self->pbkeylen) {
       default:
       case GAEGULI_SRT_KEY_LENGTH_0:
         pbkeylen = 0;
@@ -1265,43 +1377,49 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
 
     streamid = gaeguli_target_create_streamid (self);
 
-    g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
+    g_object_set (self->srtsink, "passphrase", self->passphrase, "pbkeylen",
         pbkeylen, "streamid", streamid, NULL);
 
-    priv->adaptor = g_object_new (priv->adaptor_type, "srtsink", priv->srtsink,
-        "enabled", priv->adaptive_streaming, NULL);
+    self->adaptor = g_object_new (self->adaptor_type, "srtsink", self->srtsink,
+        "enabled", self->adaptive_streaming, NULL);
 
     gaeguli_target_update_baseline_parameters (self, TRUE);
 
-    g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
-        (GCallback) _set_encoding_parameters, priv->encoder);
+    g_signal_connect_swapped (self->adaptor, "encoding-parameters",
+        (GCallback) _set_encoding_parameters, self->encoder);
 
     bus = gst_element_get_bus (self->pipeline);
     gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler,
         &internal_err, NULL);
     /* Setting READY state on srtsink check that we can bind to address and port
      * specified in srt_uri. On failure, bus handler should set internal_err. */
-    res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
+    syslog (LOG_INFO, "Setting READY state on srtsink");
+    res = gst_element_set_state (self->srtsink, GST_STATE_READY);
 
     gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
-  } else {
-    res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
+
+    if (res == GST_STATE_CHANGE_FAILURE) {
+      goto failed;
+    }
+  } else if (GAEGULI_TARGET_TYPE_RECORDING == self->target_type) {
+    syslog (LOG_INFO, "Setting READY state on filesink");
+    res = gst_element_set_state (self->srtsink, GST_STATE_READY);
     if (res == GST_STATE_CHANGE_FAILURE) {
       goto failed;
     }
   }
 
-  if (res == GST_STATE_CHANGE_FAILURE) {
-    goto failed;
-  }
+  syslog (LOG_INFO, "Setting PLAYING state on target");
+  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
 
-  gst_bin_add (GST_BIN (GST_ELEMENT_PARENT (GST_PAD_PARENT (priv->peer_pad))),
-      self->pipeline);
+  self->state = GAEGULI_TARGET_STATE_RUNNING;
 
-  priv->pending_pad_probe = gst_pad_add_probe (priv->peer_pad,
-      GST_PAD_PROBE_TYPE_BLOCK, _link_probe_cb, self, NULL);
+  syslog (LOG_INFO, "Emitting SIG_STREAM_STARTED");
+  g_signal_emit (self, signals[SIG_STREAM_STARTED], 0);
 
-  return;
+  g_print ("emitted \"stream-started\" for [%x]\n", self->id);
+
+  return GAEGULI_CONSUMER_RSP_START_TARGET_SUCCESS;
 
 failed:
   if (internal_err) {
@@ -1309,101 +1427,57 @@ failed:
     internal_err = NULL;
   }
 
-  priv->state = GAEGULI_TARGET_STATE_ERROR;
+  self->state = GAEGULI_TARGET_STATE_ERROR;
+  return GAEGULI_CONSUMER_RSP_FAIL;
 }
 
-static gboolean
-_unlink_finish_in_main_thread (GaeguliTarget * self)
+GaeguliConsumerRspType
+gaeguli_target_start (GaeguliTarget * self, GError ** error)
 {
-  GaeguliTargetPrivate *priv;
+  /* send IPC msg to consumer daemon */
+  if (gaeguli_send_socket_consumer_msg ((void *)
+          gaeguli_build_consumer_msg (GAEGULI_CONSUMER_MSG_START_TARGET, NULL,
+              0, 0, NULL, NULL, 0, self->node_id, self->id),
+          self->client_fd) > 0) {
+    /* poll and wait for the response */
 
-  g_return_val_if_fail (self != NULL, G_SOURCE_REMOVE);
-
-  priv = gaeguli_target_get_instance_private (self);
-
-  gst_element_set_state (self->pipeline, GST_STATE_NULL);
-
-  priv->state = GAEGULI_TARGET_STATE_STOPPED;
-
-  g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0);
-
-  return G_SOURCE_REMOVE;
-}
-
-static GstPadProbeReturn
-_unlink_probe_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
-{
-  GaeguliTarget *self = GAEGULI_TARGET (user_data);
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  g_autoptr (GstElement) topmost_pipeline = NULL;
-
-  /* Remove the probe first. See _link_probe_cb() for details. */
-  gst_pad_remove_probe (pad, info->id);
-
-  {
-    LOCK_TARGET;
-
-    if (priv->pending_pad_probe == info->id) {
-      priv->pending_pad_probe = 0;
+    while (1) {
+      GaeguliConsumerRspType rsp =
+          gaeguli_get_consumer_daemon_response (self->client_fd);
+      if (GAEGULI_CONSUMER_RSP_START_TARGET_SUCCESS == rsp) {
+        syslog (LOG_INFO, "Successfully started the target");
+        return rsp;
+      } else if (GAEGULI_CONSUMER_RSP_FAIL == rsp) {
+        syslog (LOG_ERR,
+            "Got the fail IPC responce from daemon. Failed to start the target");
+        return rsp;
+      } else {
+        continue;
+      }
     }
+  } else {
+    syslog (LOG_ERR, "Failed to send IPC msg to consumer daemon\n");
   }
-
-  g_debug ("start unlink target [%x]", self->id);
-
-  if (!gst_pad_unlink (priv->peer_pad, priv->sinkpad)) {
-    g_error ("failed to unlink");
-  }
-
-  gst_element_release_request_pad (GST_PAD_PARENT (priv->peer_pad),
-      priv->peer_pad);
-
-  topmost_pipeline =
-      GST_ELEMENT (gst_object_get_parent (GST_OBJECT (self->pipeline)));
-  gst_bin_remove (GST_BIN (topmost_pipeline), self->pipeline);
-
-  /* This probe may get called from the target's streaming thread, so let the
-   * state change happen in the main thread. */
-  g_idle_add_full (G_PRIORITY_DEFAULT_IDLE,
-      (GSourceFunc) _unlink_finish_in_main_thread,
-      g_object_ref (self), g_object_unref);
-
-  return GST_PAD_PROBE_REMOVE;
-}
-
-static GstPadProbeReturn
-_drop_buffers_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
-{
-  return GST_PAD_PROBE_DROP;
+  return GAEGULI_CONSUMER_RSP_FAIL;
 }
 
 void
-gaeguli_target_unlink (GaeguliTarget * self)
+gaeguli_target_stop (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+  self->state = GAEGULI_TARGET_STATE_STOPPING;
 
-  LOCK_TARGET;
+  gst_element_set_state (self->pipeline, GST_STATE_NULL);
 
-  priv->state = GAEGULI_TARGET_STATE_STOPPING;
-
-  if (priv->pending_pad_probe != 0) {
-    /* Target removed before its link pad probe got called. */
-    gst_pad_remove_probe (priv->peer_pad, priv->pending_pad_probe);
-    priv->pending_pad_probe = 0;
-    priv->state = GAEGULI_TARGET_STATE_STOPPED;
-  } else {
-    g_autoptr (GstPad) pad = NULL;
-
-    gst_pad_add_probe (priv->peer_pad, GST_PAD_PROBE_TYPE_BLOCK,
-        _unlink_probe_cb, g_object_ref (self), (GDestroyNotify) g_object_unref);
-    /* Immediately closes SRT connection. Dropping buffers in the pad probe
-     * prevents srtsink in NULL state from returning GST_FLOW_FLUSHING, which
-     * could disturb video source pipeline. */
-    pad = gst_element_get_static_pad (priv->srtsink, "sink");
-    gst_pad_add_probe (GST_PAD_PEER (pad), GST_PAD_PROBE_TYPE_BLOCK,
-        _drop_buffers_cb, NULL, NULL);
-    gst_element_set_state (priv->srtsink, GST_STATE_NULL);
+  while (!g_queue_is_empty (self->snapshot_tasks)) {
+    g_autoptr (GTask) task = g_queue_pop_head (self->snapshot_tasks);
+    g_task_return_new_error (task, GAEGULI_RESOURCE_ERROR,
+        GAEGULI_RESOURCE_ERROR_STOPPED,
+        "The image capture pipeline has been stopped");
   }
+
+  self->state = GAEGULI_TARGET_STATE_STOPPED;
+
+  g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0);
 }
 
 static GVariant *_convert_gst_structure_to (GstStructure * s);
@@ -1477,11 +1551,9 @@ out:
 GaeguliSRTMode
 gaeguli_target_get_srt_mode (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
   GaeguliSRTMode mode;
 
-  g_object_get (priv->srtsink, "mode", &mode, NULL);
+  g_object_get (self->srtsink, "mode", &mode, NULL);
 
   return mode;
 }
@@ -1489,30 +1561,24 @@ gaeguli_target_get_srt_mode (GaeguliTarget * self)
 const gchar *
 gaeguli_target_get_peer_address (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  return priv->peer_address;
+  return self->peer_address;
 }
 
 GaeguliTargetState
 gaeguli_target_get_state (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  return priv->state;
+  return self->state;
 }
 
 GVariant *
 gaeguli_target_get_stats (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
   g_autoptr (GstStructure) s = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_TARGET (self), NULL);
 
-  if (priv->srtsink) {
-    g_object_get (priv->srtsink, "stats", &s, NULL);
+  if (self->srtsink) {
+    g_object_get (self->srtsink, "stats", &s, NULL);
     return _convert_gst_structure_to (s);
   }
 
@@ -1522,7 +1588,88 @@ gaeguli_target_get_stats (GaeguliTarget * self)
 GaeguliStreamAdaptor *
 gaeguli_target_get_stream_adaptor (GaeguliTarget * self)
 {
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+  return self->adaptor;
+}
 
-  return priv->adaptor;
+void
+gaeguli_target_set_clientfd (GaeguliTarget * self, gint fd)
+{
+  self->client_fd = fd;
+}
+
+void
+gaeguli_target_deep_copy (GaeguliTarget * src, GaeguliTarget * dst)
+{
+  dst->id = src->id;
+  dst->pipeline = src->pipeline;
+  dst->node_id = src->node_id;
+  dst->parent = src->parent;
+  dst->state = src->state;
+  dst->encoder = src->encoder;
+  dst->srtsink = src->srtsink;
+  dst->sinkpad = src->sinkpad;
+  dst->adaptor = src->adaptor;
+  dst->codec = src->codec;
+  dst->bitrate_control = src->bitrate_control;
+  dst->bitrate = src->bitrate;
+  dst->quantizer = src->quantizer;
+  dst->idr_period = src->idr_period;
+  dst->node_id = src->node_id;
+  dst->client_fd = src->client_fd;
+  dst->pbkeylen = src->pbkeylen;
+  dst->adaptor_type = src->adaptor_type;
+  dst->adaptive_streaming = src->adaptive_streaming;
+  dst->target_type = src->target_type;
+
+  dst->buffer_size = src->buffer_size;
+  dst->video_params = src->video_params;
+  dst->uri = g_strdup (src->uri);
+  dst->peer_address = g_strdup (src->peer_address);
+  dst->username = g_strdup (src->username);
+  dst->passphrase = g_strdup (src->passphrase);
+  dst->location = g_strdup (src->location);
+}
+
+void
+gaeguli_target_free_srt_resources (GaeguliTarget * self)
+{
+  if (self->uri) {
+    g_free (self->uri);
+  }
+  if (self->peer_address) {
+    g_free (self->peer_address);
+  }
+  if (self->username) {
+    g_free (self->username);
+  }
+  if (self->passphrase) {
+    g_free (self->passphrase);
+  }
+  if (self->location) {
+    g_free (self->location);
+  }
+}
+
+int
+gaeguli_target_get_size ()
+{
+  return sizeof (GaeguliTarget);
+}
+
+guint
+gaeguli_target_get_id (GaeguliTarget * self)
+{
+  return self->id;
+}
+
+guint
+gaeguli_target_get_node_id (GaeguliTarget * self)
+{
+  return self->node_id;
+}
+
+gint
+gaeguli_target_get_clientfd (GaeguliTarget * self)
+{
+  return self->client_fd;
 }

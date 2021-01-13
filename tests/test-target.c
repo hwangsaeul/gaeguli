@@ -35,12 +35,12 @@ test_gaeguli_target_encoding_params ()
   GaeguliTarget *target;
   guint val;
 
-  pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+  pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 15);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264_X264, DEFAULT_BITRATE, "srt://127.0.0.1:1111",
-      NULL, &error);
+      NULL, 0, 0, &error);
   g_assert_no_error (error);
 
   gaeguli_target_start (target, &error);
@@ -108,13 +108,13 @@ passphrase_run (const gchar * sender_passphrase,
   g_autoptr (GError) error = NULL;
   GaeguliTarget *target;
 
-  pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+  pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 15);
   g_signal_connect (pipeline, "connection-error", error_cb, loop);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264_X264, DEFAULT_BITRATE, "srt://127.0.0.1:1111",
-      NULL, &error);
+      NULL, 0, 0, &error);
   g_assert_no_error (error);
   g_object_set (G_OBJECT (target), "passphrase", sender_passphrase, NULL);
 

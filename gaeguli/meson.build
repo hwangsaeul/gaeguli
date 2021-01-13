@@ -11,6 +11,7 @@ source_h = [
   'pipeline.h',
   'streamadaptor.h',
   'adaptors/bandwidthadaptor.h',
+  'utils/gaeguli_utils.h',
 ]
 
 source_c = [
@@ -20,6 +21,7 @@ source_c = [
   'streamadaptor.c',
   'adaptors/nulladaptor.c',
   'adaptors/bandwidthadaptor.c',
+  'utils/gaeguli_utils.c'
 ]
 
 install_headers(source_h, subdir: gaeguli_install_header_subdir)
@@ -47,14 +49,14 @@ libgaeguli = library(
   version: libversion,
   soversion: soversion,
   include_directories: gaeguli_incs,
-  dependencies: [ gobject_dep, gio_dep, gst_dep, libsrt_dep ],
+  dependencies: [ gobject_dep, gio_dep, gst_dep, libsrt_dep, pipewire_dep, rt_lib, pthread_lib ],
   c_args: gaeguli_c_args,
   link_args: common_ldflags,
   install: true
 )
 
 pkg.generate(libgaeguli,
-  libraries : [ gst_dep, libsrt_dep ],
+  libraries : [ gst_dep, libsrt_dep, pipewire_dep ],
   name : meson.project_name(),
   description : 'A SRT Streaming library',
   filebase : gaeguli_api_name,

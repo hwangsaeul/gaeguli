@@ -1,0 +1,10 @@
+#daemon config file for Gaeguli Source Provider @VERSION@
+
+## exec <program-name>
+#
+# Execute the given program.
+#
+# Start the Gaeguli Source Provider.
+#
+#
+exec @gaeguli_provider_path@

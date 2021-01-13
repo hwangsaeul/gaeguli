@@ -44,30 +44,22 @@ G_BEGIN_DECLS
 #define GAEGULI_TYPE_TARGET   (gaeguli_target_get_type ())
 G_DECLARE_FINAL_TYPE          (GaeguliTarget, gaeguli_target, GAEGULI, TARGET, GObject)
 
-struct _GaeguliTarget
-{
-  GObject parent;
 
-  guint id;
-  GstElement *pipeline;
-};
-
-
-GaeguliTarget          *gaeguli_target_new           (GstPad                *peer_pad,
-                                                      guint                  id,
+GaeguliTarget          *gaeguli_target_new           (guint                  id,
                                                       GaeguliVideoCodec      codec,
                                                       guint                  bitrate,
                                                       guint                  idr_period,
                                                       const gchar           *srt_uri,
                                                       const gchar           *username,
-                                                      gboolean              is_record_target,
+                                                      GaeguliTargetType      target_type,
                                                       const gchar           *location,
+                                                      guint                  node_id,
                                                       GError               **error);
 
-void                    gaeguli_target_start         (GaeguliTarget        *self,
-                                                      GError              **error);
+GaeguliConsumerRspType gaeguli_target_start           (GaeguliTarget        *self,
+                                                       GError              **error);
 
-void                    gaeguli_target_unlink        (GaeguliTarget        *self);
+void                    gaeguli_target_stop          (GaeguliTarget        * self);
 
 GaeguliTargetState      gaeguli_target_get_state     (GaeguliTarget        *self);
 
@@ -80,6 +72,21 @@ GVariant               *gaeguli_target_get_stats      (GaeguliTarget       *self
 
 GaeguliStreamAdaptor   *gaeguli_target_get_stream_adaptor
                                                      (GaeguliTarget *self);
+
+void                    gaeguli_target_set_clientfd   (GaeguliTarget * self, gint fd);
+
+gint                    gaeguli_target_get_clientfd   (GaeguliTarget * self);
+
+GaeguliConsumerRspType  gaeguli_start_consumer        (GaeguliTarget * self, GError ** error);
+
+int                     gaeguli_target_get_size       ();
+
+guint                   gaeguli_target_get_node_id    (GaeguliTarget * self);
+
+guint                   gaeguli_target_get_id         (GaeguliTarget * self);
+
+void                    gaeguli_target_free_srt_resources
+                                                      (GaeguliTarget *self);
 
 G_END_DECLS
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=Multimedia Service
+
+# After=gaeguli-consumer.socket is not needed, as it is already implicit in the
+# socket-service relationship, see systemd.socket(5).
+Requires=gaeguli-consumer.socket
+
+[Service]
+Type=simple
+ExecStart=@GAEGULI_CONSUMER_BINARY@
+Restart=on-failure
+
+[Install]
+Also=gaeguli-consumer.socket
+WantedBy=default.target

@@ -24,6 +24,8 @@
 
 #include <gio/gio.h>
 
+#include <syslog.h>
+
 /* *INDENT-OFF* */
 #if !GLIB_CHECK_VERSION(2,57,1)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEnumClass, g_type_class_unref)
@@ -36,10 +38,12 @@ struct _GaeguliPipeline
 {
   GObject parent;
 
-  GMutex lock;
+  pthread_mutex_t *lock;
 
   GaeguliVideoSource source;
   gchar *device;
+  guint node_id;
+  gint client_fd;
   GaeguliVideoResolution resolution;
   guint fps;
 
@@ -48,23 +52,12 @@ struct _GaeguliPipeline
 
   GstElement *pipeline;
   GstElement *vsrc;
-
-  GstElement *snapshot_valve;
-  GstElement *snapshot_jpegenc;
-  GstElement *snapshot_jifmux;
-  GQueue *snapshot_tasks;
-  guint num_snapshots_to_encode;
-  guint snapshot_quality;
-  GaeguliIDCTMethod snapshot_idct_method;
-
   GstElement *overlay;
   gboolean show_overlay;
-
   guint benchmark_interval_ms;
   guint benchmark_timeout_id;
   GHashTable *srtsocket_to_peer_addr;
   GHashTable *benchmarks;
-
   gboolean prefer_hw_decoding;
 
   GType adaptor_type;
@@ -82,6 +75,7 @@ typedef enum
 {
   PROP_SOURCE = 1,
   PROP_DEVICE,
+  PROP_NODE_ID,
   PROP_RESOLUTION,
   PROP_FRAMERATE,
   PROP_CLOCK_OVERLAY,
@@ -89,8 +83,6 @@ typedef enum
   PROP_GST_PIPELINE,
   PROP_PREFER_HW_DECODING,
   PROP_BENCHMARK_INTERVAL,
-  PROP_SNAPSHOT_QUALITY,
-  PROP_SNAPSHOT_IDCT_METHOD,
 
   /*< private > */
   PROP_LAST
@@ -112,8 +104,10 @@ static guint signals[LAST_SIGNAL] = { 0 };
 G_DEFINE_TYPE (GaeguliPipeline, gaeguli_pipeline, G_TYPE_OBJECT)
 /* *INDENT-ON* */
 
+#if 0                           /* FIXME - Need to check this */
 #define LOCK_PIPELINE \
   g_autoptr (GMutexLocker) locker = g_mutex_locker_new (&self->lock)
+#endif
 
 static void gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self);
 
@@ -232,10 +226,19 @@ gaeguli_pipeline_finalize (GObject * object)
   g_clear_pointer (&self->srtsocket_to_peer_addr, g_hash_table_unref);
   g_clear_pointer (&self->benchmarks, g_hash_table_unref);
   g_clear_pointer (&self->device, g_free);
-  g_clear_pointer (&self->snapshot_tasks, g_queue_free);
   g_clear_handle_id (&self->benchmark_timeout_id, g_source_remove);
 
-  g_mutex_clear (&self->lock);
+  if (gaeguli_shm_mutex_unmap (self->lock, sizeof (pthread_mutex_t)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap shared lock");
+  } else {
+    syslog (LOG_ERR, "Unmapped shared lock");
+  }
+
+  if (gaeguli_shm_mutex_close ("source_provider_lock", self->node_id) < 0) {
+    syslog (LOG_ERR, "Failed to unlink shared lock");
+  } else {
+    syslog (LOG_ERR, "Unlinked shared lock");
+  }
 
   if (g_atomic_int_dec_and_test (&gaeguli_init_refcnt)) {
     g_debug ("Cleaning up GStreamer");
@@ -256,6 +259,9 @@ gaeguli_pipeline_get_property (GObject * object,
       break;
     case PROP_DEVICE:
       g_value_set_string (value, self->device);
+      break;
+    case PROP_NODE_ID:
+      g_value_set_uint (value, self->node_id);
       break;
     case PROP_RESOLUTION:
       g_value_set_enum (value, self->resolution);
@@ -278,12 +284,6 @@ gaeguli_pipeline_get_property (GObject * object,
     case PROP_BENCHMARK_INTERVAL:
       g_value_set_uint (value, self->benchmark_interval_ms);
       break;
-    case PROP_SNAPSHOT_QUALITY:
-      g_value_set_uint (value, self->snapshot_quality);
-      break;
-    case PROP_SNAPSHOT_IDCT_METHOD:
-      g_value_set_enum (value, self->snapshot_idct_method);
-      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -304,6 +304,10 @@ gaeguli_pipeline_set_property (GObject * object,
     case PROP_DEVICE:
       g_assert_null (self->device);     /* construct only */
       self->device = g_value_dup_string (value);
+      break;
+    case PROP_NODE_ID:
+      self->node_id = g_value_get_uint (value);
+      gaeguli_pipeline_update_vsrc_caps (self);
       break;
     case PROP_RESOLUTION:
       self->resolution = g_value_get_enum (value);
@@ -328,20 +332,6 @@ gaeguli_pipeline_set_property (GObject * object,
     case PROP_BENCHMARK_INTERVAL:
       gaeguli_pipeline_set_benchmark_interval (self, g_value_get_uint (value));
       break;
-    case PROP_SNAPSHOT_QUALITY:
-      self->snapshot_quality = g_value_get_uint (value);
-      if (self->snapshot_jpegenc) {
-        g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
-            NULL);
-      }
-      break;
-    case PROP_SNAPSHOT_IDCT_METHOD:
-      self->snapshot_idct_method = g_value_get_enum (value);
-      if (self->snapshot_jpegenc) {
-        g_object_set (self->snapshot_jpegenc, "idct-method",
-            self->snapshot_idct_method, NULL);
-      }
-      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -364,6 +354,9 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
   properties[PROP_DEVICE] = g_param_spec_string ("device", "device", "device",
       DEFAULT_VIDEO_SOURCE_DEVICE,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_NODE_ID] = g_param_spec_uint ("node-id", "node-id",
+      "node-id", 0, G_MAXUINT, 0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_RESOLUTION] = g_param_spec_enum ("resolution", "resolution",
       "resolution", GAEGULI_TYPE_VIDEO_RESOLUTION, DEFAULT_VIDEO_RESOLUTION,
@@ -397,19 +390,6 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       g_param_spec_uint ("benchmark-interval", "network benchmark interval",
       "period of benchmarking the network connections in ms", 0, G_MAXUINT, 0,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
-
-  properties[PROP_SNAPSHOT_QUALITY] =
-      g_param_spec_uint ("snapshot-quality",
-      "JPEG encoding quality of stream snapshots",
-      "JPEG encoding quality of stream snapshots", 0, 100, 85,
-      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
-
-  properties[PROP_SNAPSHOT_IDCT_METHOD] =
-      g_param_spec_enum ("snapshot-idct-method",
-      "The IDCT algorithm to use to encode stream snapshots",
-      "The IDCT algorithm to use to encode stream snapshots",
-      GAEGULI_TYPE_IDCT_METHOD, GAEGULI_IDCT_METHOD_IFAST,
-      G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
@@ -446,9 +426,7 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
 
   g_atomic_int_inc (&gaeguli_init_refcnt);
 
-  g_mutex_init (&self->lock);
-
-  /* kv: hash(fifo-path), target_pipeline */
+  // /* kv: hash(fifo-path), target_pipeline */
   self->targets = g_hash_table_new_full (g_direct_hash, g_direct_equal,
       NULL, g_object_unref);
 
@@ -458,15 +436,14 @@ gaeguli_pipeline_init (GaeguliPipeline * self)
       g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 
   self->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
-
-  self->snapshot_tasks = g_queue_new ();
 }
 
 GaeguliPipeline *
-gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device,
+gaeguli_create_pipeline (GaeguliVideoSource source, guint node_id,
     GaeguliVideoResolution resolution, guint framerate)
 {
-  g_autoptr (GaeguliPipeline) pipeline = NULL;
+  GaeguliPipeline *pipeline = NULL;
+  g_autoptr (GError) error = NULL;
 
   /* TODO:
    *   1. check if source is valid
@@ -475,11 +452,68 @@ gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device,
    * perphas, implement GInitable?
    */
 
-  g_debug ("source: [%d / %s]", source, device);
-  pipeline = g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device",
-      device, "resolution", resolution, "framerate", framerate, NULL);
+  g_debug ("source: [%d / %u]", source, node_id);
+  pipeline = g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "node-id",
+      node_id, "resolution", resolution, "framerate", framerate, NULL);
 
-  return g_steal_pointer (&pipeline);
+  /* Create the shared lock and shared hash table, here */
+  pipeline->lock =
+      gaeguli_shm_mutex_new ("source_provider_lock", pipeline->node_id);
+  if (!pipeline->lock) {
+    syslog (LOG_ERR, "Failed to create shared lock");
+  }
+
+  /* create Source pipeline here */
+  gaeguli_pipeline_create_source (pipeline, &error);
+
+  return pipeline;
+}
+
+GaeguliPipeline *
+gaeguli_pipeline_new_full (GaeguliVideoSource source, guint node_id,
+    GaeguliVideoResolution resolution, guint framerate)
+{
+  GaeguliPipeline *pipeline = NULL;
+  /* configure the client socket to communicate with provider daemon */
+  int sockfd;
+
+  if ((sockfd =
+          gaeguli_configure_client_socket
+          (DEFAULT_SOURCE_PROVIDER_CLIENT_SOCK_PATH)) < 0) {
+    syslog (LOG_ERR, "Failed to create client socket");
+    return NULL;
+  }
+
+  /* send IPC msg to provider daemon */
+  if (gaeguli_send_socket_provider_msg ((void *)
+          gaeguli_build_source_provider_msg
+          (GAEGULI_SOURCE_PROVIDER_MSG_CREATE_PIPELINE, node_id), sockfd) > 0) {
+    /* poll and wait for the response */
+
+    while (1) {
+      GaeguliSourceProviderRspType rsp =
+          gaeguli_get_provider_daemon_response (sockfd);
+      if (GAEGULI_SOURCE_PROVIDER_RSP_CREATE_SUCCESS == rsp) {
+        /* Get the GaeguliPipeline instance from shared memory */
+        pipeline = gaeguli_source_provider_shm_read (node_id);
+        if (!pipeline) {
+          syslog (LOG_ERR, "Failed to get pipeline instance.");
+          return pipeline;
+        }
+        /* set the fd for further IPC */
+        pipeline->client_fd = sockfd;
+        return pipeline;
+      } else if (GAEGULI_SOURCE_PROVIDER_RSP_FAIL == rsp) {
+        syslog (LOG_ERR, "Got the fail IPC responce from daemon");
+        return pipeline;
+      } else {
+        continue;
+      }
+    }
+  } else {
+    syslog (LOG_ERR, "Failed to send IPC msg to provider daemon\n");
+  }
+  return pipeline;
 }
 
 GaeguliPipeline *
@@ -488,65 +522,9 @@ gaeguli_pipeline_new (void)
   g_autoptr (GaeguliPipeline) pipeline = NULL;
 
   pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE,
-      DEFAULT_VIDEO_SOURCE_DEVICE, DEFAULT_VIDEO_RESOLUTION,
-      DEFAULT_VIDEO_FRAMERATE);
+      0, DEFAULT_VIDEO_RESOLUTION, DEFAULT_VIDEO_FRAMERATE);
 
   return g_steal_pointer (&pipeline);
-}
-
-static void
-gaeguli_pipeline_set_snapshot_tags (GaeguliPipeline * self, GVariant * tags)
-{
-  GVariantIter it;
-  gchar *tag_name;
-  GVariant *val_variant;
-  GstTagSetter *tag_setter = GST_TAG_SETTER (self->snapshot_jifmux);
-
-  g_return_if_fail (g_variant_is_of_type (tags, G_VARIANT_TYPE_VARDICT));
-
-  gst_tag_setter_reset_tags (tag_setter);
-
-  g_variant_iter_init (&it, tags);
-  while (g_variant_iter_next (&it, "{sv}", &tag_name, &val_variant)) {
-    GValue val = G_VALUE_INIT;
-
-    if (!gst_tag_exists (tag_name)) {
-      g_warning ("Unknown tag %s", tag_name);
-      goto next;
-    }
-
-    g_dbus_gvariant_to_gvalue (val_variant, &val);
-    gst_tag_setter_add_tag_value (tag_setter, GST_TAG_MERGE_REPLACE, tag_name,
-        &val);
-    g_value_unset (&val);
-
-  next:
-    g_free (tag_name);
-    g_variant_unref (val_variant);
-  }
-}
-
-static GstPadProbeReturn
-_on_valve_buffer (GstPad * pad, GstPadProbeInfo * info, GaeguliPipeline * self)
-{
-  GTask *task;
-
-  LOCK_PIPELINE;
-
-  task = g_queue_peek_head (self->snapshot_tasks);
-  if (task) {
-    GVariant *tags = g_task_get_task_data (task);
-    if (tags) {
-      gaeguli_pipeline_set_snapshot_tags (self, tags);
-    }
-  }
-
-  if (--self->num_snapshots_to_encode == 0) {
-    /* No pending snapshot requests, close the valve. */
-    g_object_set (GST_PAD_PARENT (pad), "drop", TRUE, NULL);
-  }
-
-  return GST_PAD_PROBE_OK;
 }
 
 static GstPadProbeReturn
@@ -579,6 +557,10 @@ _get_source_description (GaeguliPipeline * self)
     case GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC:
       g_string_append_printf (result, " sensor-id=%s", self->device);
       break;
+    case GAEGULI_VIDEO_SOURCE_PIPEWIRESRC:
+      /* always-copy property is set to avoid crash with jpegdec */
+      g_string_append_printf (result, " path=%u always-copy=true ",
+          self->node_id);
     default:
       break;
   }
@@ -592,7 +574,7 @@ _get_vsrc_pipeline_string (GaeguliPipeline * self)
   g_autofree gchar *source = _get_source_description (self);
 
   return g_strdup_printf
-      (GAEGULI_PIPELINE_VSRC_STR " ! " GAEGULI_PIPELINE_IMAGE_STR, source,
+      (GAEGULI_PIPELINE_VSRC_STR, source,
       self->source == GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC ? "" :
       GAEGULI_PIPELINE_DECODEBIN_STR);
 }
@@ -619,6 +601,7 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
       gpointer target_id;
       GaeguliTarget *target;
       g_autoptr (GError) error = NULL;
+      pthread_mutex_t *lock = NULL;
 
       if (!message->src) {
         break;
@@ -627,9 +610,20 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
       target_id = g_object_get_data (G_OBJECT (message->src),
           "gaeguli-target-id");
 
-      g_mutex_lock (&self->lock);
+      lock = gaeguli_shm_mutex_read ("source_provider_lock", self->node_id);
+      if (!lock) {
+        syslog (LOG_INFO, "Failed to get shared lock. Exit _bus_watch ()");
+        return FALSE;
+      }
+      gaeguli_shm_mutex_lock (lock);
+
       target = g_hash_table_lookup (self->targets, target_id);
-      g_mutex_unlock (&self->lock);
+
+      gaeguli_shm_mutex_unlock (self->lock);
+
+      if (gaeguli_shm_mutex_unmap (lock, sizeof (pthread_mutex_t)) < 0) {
+        syslog (LOG_ERR, "Failed to unmap shared lock");
+      }
 
       if (!target) {
         break;
@@ -648,31 +642,6 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
   return G_SOURCE_CONTINUE;
 }
 
-static void
-gaeguli_pipeline_create_snapshot (GaeguliPipeline * self, GstBuffer * buffer)
-{
-  g_autoptr (GTask) task = NULL;
-  GstMapInfo info;
-
-  g_return_if_fail (!g_queue_is_empty (self->snapshot_tasks));
-
-  {
-    LOCK_PIPELINE;
-    task = g_queue_pop_head (self->snapshot_tasks);
-  }
-
-  if (g_task_return_error_if_cancelled (task)) {
-    return;
-  }
-
-  gst_buffer_map (buffer, &info, GST_MAP_READ);
-
-  g_task_return_pointer (task, g_bytes_new (info.data, info.size),
-      (GDestroyNotify) g_bytes_unref);
-
-  gst_buffer_unmap (buffer, &info);
-}
-
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
@@ -689,7 +658,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   /* FIXME: what if zero-copy */
   vsrc_str = _get_vsrc_pipeline_string (self);
 
-  g_debug ("trying to create video source pipeline (%s)", vsrc_str);
+  g_print ("trying to create video source pipeline (%s)\n\n", vsrc_str);
+  syslog (LOG_INFO, "trying to create video source pipeline (%s)", vsrc_str);
   self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
 
   if (internal_err) {
@@ -708,25 +678,6 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   if (self->overlay)
     g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
 
-  self->snapshot_valve = gst_bin_get_by_name (GST_BIN (self->pipeline),
-      "valve");
-  valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
-  gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
-      (GstPadProbeCallback) _on_valve_buffer, self, NULL);
-
-  self->snapshot_jpegenc = gst_bin_get_by_name (GST_BIN (self->pipeline),
-      "jpegenc");
-  g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
-      "idct-method", self->snapshot_idct_method, NULL);
-
-  self->snapshot_jifmux = gst_bin_get_by_name (GST_BIN (self->pipeline),
-      "jifmux");
-
-  fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
-  g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
-  g_signal_connect_swapped (fakesink, "handoff",
-      G_CALLBACK (gaeguli_pipeline_create_snapshot), self);
-
   /* Caps of the video source are determined by the caps filter in vsrc pipeline
    * and don't need to be renegotiated when a new target pipeline links to
    * the tee. Thus, ignore reconfigure events coming from downstream. */
@@ -741,17 +692,19 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
         G_CALLBACK (_decodebin_pad_added), self->overlay);
   }
 
-  if (self->prefer_hw_decoding) {
-    /* Verify whether hardware accelearted vaapijpeg decoder is available.
-     * If available, make sure that the decodebin picks it up. */
-    feature = gst_registry_find_feature (gst_registry_get (), "vaapijpegdec",
-        GST_TYPE_ELEMENT_FACTORY);
-    if (feature)
-      gst_plugin_feature_set_rank (feature, GST_RANK_PRIMARY + 100);
-  }
+  /* FIXME - Disabled the hardware decoder selection as it causes crash with pipewiresrc */
+  // if (self->prefer_hw_decoding) {
+  //   /* Verify whether hardware accelearted vaapijpeg decoder is available.
+  //    * If available, make sure that the decodebin picks it up. */
+  //   feature = gst_registry_find_feature (gst_registry_get (), "vaapijpegdec",
+  //       GST_TYPE_ELEMENT_FACTORY);
+  //   if (feature)
+  //     gst_plugin_feature_set_rank (feature, GST_RANK_PRIMARY + 100);
+  // }
 
   gaeguli_pipeline_update_vsrc_caps (self);
 
+  syslog (LOG_INFO, "setting PLAYING state on pipeline (%s)", vsrc_str);
   gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
 
   return TRUE;
@@ -761,6 +714,28 @@ failed:
   gst_clear_object (&self->pipeline);
 
   return FALSE;
+}
+
+void
+gaeguli_pipeline_create_source (GaeguliPipeline * self, GError ** error)
+{
+  pthread_mutex_t *lock =
+      gaeguli_shm_mutex_read ("source_provider_lock", self->node_id);
+  if (!lock) {
+    syslog (LOG_INFO, "Failed to get shared lock. Exit %s ()", __FUNCTION__);
+    return;
+  }
+  gaeguli_shm_mutex_lock (lock);
+
+  if (!_build_vsrc_pipeline (self, error)) {
+    g_error ("failed to build source pipeline");
+  }
+
+  gaeguli_shm_mutex_unlock (lock);
+
+  if (gaeguli_shm_mutex_unmap (lock, sizeof (pthread_mutex_t)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap shared lock");
+  }
 }
 
 static void
@@ -832,10 +807,24 @@ static void
 gaeguli_pipeline_emit_stream_started (GaeguliPipeline * self,
     GaeguliTarget * target)
 {
-  g_mutex_lock (&self->lock);
-  ++self->num_active_targets;
-  g_mutex_unlock (&self->lock);
+  pthread_mutex_t *lock =
+      gaeguli_shm_mutex_read ("source_provider_lock", self->node_id);
+  if (!lock) {
+    syslog (LOG_ERR, "Failed to get shared lock.");
+    return;
+  }
 
+  gaeguli_shm_mutex_lock (lock);
+
+  ++self->num_active_targets;
+
+  gaeguli_shm_mutex_unlock (lock);
+
+  if (gaeguli_shm_mutex_unmap (lock, sizeof (pthread_mutex_t)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap shared lock");
+  }
+
+  syslog (LOG_INFO, "Emitting SIG_STREAM_STARTED");
   g_signal_emit (self, signals[SIG_STREAM_STARTED], 0, target);
 }
 
@@ -843,15 +832,28 @@ static void
 gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
     GaeguliTarget * target)
 {
+  pthread_mutex_t *lock =
+      gaeguli_shm_mutex_read ("source_provider_lock", self->node_id);
+  if (!lock) {
+    syslog (LOG_INFO, "Failed to get shared lock");
+    return;
+  }
+
   g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0, target);
 
-  g_mutex_lock (&self->lock);
+  gaeguli_shm_mutex_lock (lock);
+
   if (g_hash_table_size (self->targets) == 0 && --self->num_active_targets == 0) {
-    g_mutex_unlock (&self->lock);
-    gaeguli_pipeline_stop (self);
-    g_mutex_lock (&self->lock);
+    gaeguli_shm_mutex_unlock (lock);
+    /* gaeguli_pipeline_stop (self); *//* Need to check this */
+    gaeguli_shm_mutex_lock (lock);
   }
-  g_mutex_unlock (&self->lock);
+
+  gaeguli_shm_mutex_unlock (lock);
+
+  if (gaeguli_shm_mutex_unmap (lock, sizeof (pthread_mutex_t)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap shared lock");
+  }
 
   /* Reference acquired in gaeguli_pipeline_remove_target(). */
   g_object_unref (self);
@@ -901,53 +903,52 @@ gaeguli_pipeline_suggest_buffer_size_for_target (GaeguliPipeline * self,
   return (latency_ms + b->rtt_ms / 2) * bps / 1000 / 8;
 }
 
-static GaeguliTarget *
+GaeguliTarget *
 gaeguli_pipeline_add_target (GaeguliPipeline * self,
     GaeguliVideoCodec codec, guint bitrate,
     const gchar * uri, const gchar * username,
-    const gchar * location, gboolean is_record_target, GError ** error)
+    const gchar * location, GaeguliTargetType target_type,
+    guint input_node_id, guint output_node_id, GError ** error)
 {
   guint target_id = 0;
   GaeguliTarget *target = NULL;
+  pthread_mutex_t *lock = NULL;
 
-  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
-  if (!is_record_target) {
+  // g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0); /* FIXME - This crashes with shm memory object */
+  if (GAEGULI_TARGET_TYPE_SRT == target_type) {
     g_return_val_if_fail (uri != NULL, 0);
-  } else {
+  } else if (GAEGULI_TARGET_TYPE_RECORDING == target_type) {
     g_return_val_if_fail (location != NULL, 0);
   }
   g_return_val_if_fail (error == NULL || *error == NULL, 0);
 
-  g_mutex_lock (&self->lock);
-
-  /* assume that it's first target */
-  if (self->vsrc == NULL && !is_record_target
-      && !_build_vsrc_pipeline (self, error)) {
-    goto failed;
+  /* Get the shared mem lock */
+  lock = gaeguli_shm_mutex_read ("source_provider_lock", self->node_id);
+  if (!lock) {
+    syslog (LOG_INFO, "Failed to get shared lock");
+    return NULL;
   }
 
-  if (!is_record_target) {
+  gaeguli_shm_mutex_lock (lock);
+
+  if (GAEGULI_TARGET_TYPE_SRT == target_type) {
     target_id = g_str_hash (uri);
-  } else {
+  } else if (GAEGULI_TARGET_TYPE_RECORDING == target_type) {
     target_id = g_str_hash (location);
+  } else if (GAEGULI_TARGET_TYPE_IMAGE_CAPTURE == target_type) {
+    target_id = g_str_hash ("image_capture");
   }
 
-  target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
+  target = gaeguli_consumer_shm_read (target_id, output_node_id);
 
   if (!target) {
-    g_autoptr (GstElement) tee = NULL;
-    g_autoptr (GstPad) tee_srcpad = NULL;
     g_autoptr (GError) internal_err = NULL;
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
-    tee_srcpad = gst_element_request_pad (tee,
-        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
-            "src_%u"), NULL, NULL);
-
-    target = gaeguli_target_new (tee_srcpad, target_id, codec, bitrate,
-        self->fps, uri, username, is_record_target, location, &internal_err);
+    target = gaeguli_target_new (target_id, codec, bitrate,
+        self->fps, uri, username, target_type, location, output_node_id,
+        &internal_err);
 
     if (target == NULL) {
       g_propagate_error (error, internal_err);
@@ -956,6 +957,7 @@ gaeguli_pipeline_add_target (GaeguliPipeline * self,
     }
 
     if (self->benchmark_interval_ms != 0 &&
+        (GAEGULI_TARGET_TYPE_SRT == target_type) &&
         gaeguli_target_get_srt_mode (target) == GAEGULI_SRT_MODE_CALLER) {
       gint32 buffer;
 
@@ -969,147 +971,291 @@ gaeguli_pipeline_add_target (GaeguliPipeline * self,
       }
     }
 
-    g_object_set (target, "adaptor-type", self->adaptor_type, NULL);
+    g_object_set (target, "adaptor-type", GAEGULI_TYPE_NULL_STREAM_ADAPTOR,
+        NULL);
 
-    if (!is_record_target) {
+    if (GAEGULI_TARGET_TYPE_SRT == target_type) {
       g_signal_connect_swapped (target, "stream-started",
           G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
       g_signal_connect_swapped (target, "stream-stopped",
           G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
+
       g_signal_connect_swapped (target, "caller-added",
           G_CALLBACK (gaeguli_pipeline_on_caller_added), self);
       g_signal_connect_swapped (target, "caller-removed",
           G_CALLBACK (gaeguli_pipeline_on_caller_removed), self);
     }
-    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
+    // g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target); /* FIXME - This crashes with shm memory object */
   } else {
-    if (is_record_target) {
+    if (GAEGULI_TARGET_TYPE_RECORDING == target_type) {
       g_warning ("Record target already exists for given location %s",
           location);
+      syslog (LOG_INFO,
+          "Record target already exists for given location %s. target [%p]",
+          location, target);
+    } else if (GAEGULI_TARGET_TYPE_SRT == target_type) {
+      g_warning ("SRT target already exists for given uri %s", uri);
+      syslog (LOG_INFO,
+          "SRT target already exists for given uri %s. target [%p]", uri,
+          target);
+    } else if (GAEGULI_TARGET_TYPE_IMAGE_CAPTURE == target_type) {
+      g_warning ("Record target already exists for given location %s",
+          location);
+      syslog (LOG_INFO, "Image capture target already exists. target [%p]",
+          target);
+    }
+    /* unmap the shared memory */
+    if (gaeguli_consumer_shm_unmap (target, gaeguli_target_get_size ()) < 0) {
+      syslog (LOG_ERR, "Failed to unmap the shared memory of target");
     }
   }
 
-  g_mutex_unlock (&self->lock);
+  gaeguli_shm_mutex_unlock (lock);
+
+  if (gaeguli_shm_mutex_unmap (lock, sizeof (pthread_mutex_t)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap shared lock");
+  }
 
   return target;
 
 failed:
-  g_mutex_unlock (&self->lock);
+  gaeguli_shm_mutex_unlock (lock);
 
   g_debug ("failed to add target");
+  syslog (LOG_ERR, "Failed to create target [%p]", target);
+
+  if (gaeguli_shm_mutex_unmap (lock, sizeof (pthread_mutex_t)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap shared lock");
+  }
+
   return NULL;
 }
 
 GaeguliTarget *
 gaeguli_pipeline_add_recording_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, guint bitrate,
-    const gchar * location, GError ** error)
+    const gchar * location, guint input_node_id,
+    guint output_node_id, GError ** error)
 {
-  return gaeguli_pipeline_add_target (self, codec,
-      bitrate, NULL, NULL, location, TRUE, error);
+  GaeguliTarget *target = NULL;
+  /* configure the client socket to communicate with provider daemon */
+  int sockfd;
+
+  if ((sockfd =
+          gaeguli_configure_client_socket (DEFAULT_CONSUMER_CLIENT_SOCK_PATH)) <
+      0) {
+    syslog (LOG_ERR, "Failed to create client socket");
+    return NULL;
+  }
+
+  /* send IPC msg to consumer daemon */
+  if (gaeguli_send_socket_consumer_msg ((void *)
+          gaeguli_build_consumer_msg
+          (GAEGULI_CONSUMER_MSG_CREATE_RECORDING_TARGET, self, codec, bitrate,
+              location, NULL, input_node_id, output_node_id, 0), sockfd) > 0) {
+
+    /* poll and wait for the response */
+
+    while (1) {
+      GaeguliConsumerRspType rsp =
+          gaeguli_get_consumer_daemon_response (sockfd);
+      if (GAEGULI_CONSUMER_RSP_CREATE_TARGET_SUCCESS == rsp) {
+        /* Get the GaeguliTarget instance from shared memory */
+        target =
+            gaeguli_consumer_shm_read (g_str_hash (location), output_node_id);
+        if (!target) {
+          syslog (LOG_ERR, "Failed to get target instance.");
+          return target;
+        }
+        /* set sockfd for further IPC */
+        gaeguli_target_set_clientfd (target, sockfd);
+        return target;
+      } else if (GAEGULI_CONSUMER_RSP_FAIL == rsp) {
+        syslog (LOG_ERR, "Got the fail IPC responce from daemon");
+        return target;
+      } else {
+        continue;
+      }
+    }
+  } else {
+    syslog (LOG_ERR, "Failed to send IPC msg to consumer daemon\n");
+  }
+  return target;
+}
+
+GaeguliTarget *
+gaeguli_pipeline_add_image_capture_target_full (GaeguliPipeline * self,
+    guint input_node_id, guint output_node_id, GError ** error)
+{
+  GaeguliTarget *target = NULL;
+  /* configure the client socket to communicate with provider daemon */
+  int sockfd;
+
+  if ((sockfd =
+          gaeguli_configure_client_socket (DEFAULT_CONSUMER_CLIENT_SOCK_PATH)) <
+      0) {
+    syslog (LOG_ERR, "Failed to create client socket");
+    return NULL;
+  }
+
+  /* send IPC msg to consumer daemon */
+  if (gaeguli_send_socket_consumer_msg ((void *)
+          gaeguli_build_consumer_msg
+          (GAEGULI_CONSUMER_MSG_CREATE_IMGCAPTURE_TARGET, self, 0, 0, NULL,
+              NULL, input_node_id, output_node_id, 0), sockfd) > 0) {
+
+    /* poll and wait for the response */
+
+    while (1) {
+      GaeguliConsumerRspType rsp =
+          gaeguli_get_consumer_daemon_response (sockfd);
+      if (GAEGULI_CONSUMER_RSP_CREATE_TARGET_SUCCESS == rsp) {
+
+        /* Get the GaeguliTarget instance from shared memory */
+        target =
+            gaeguli_consumer_shm_read (g_str_hash ("image_capture"),
+            output_node_id);
+        if (!target) {
+          syslog (LOG_ERR, "Failed to get target instance.");
+          return target;
+        }
+        /* set the sockfd for further IPC */
+        gaeguli_target_set_clientfd (target, sockfd);
+        return target;
+      } else if (GAEGULI_CONSUMER_RSP_FAIL == rsp) {
+        syslog (LOG_ERR, "Got the fail IPC responce from daemon");
+        return target;
+      } else {
+        continue;
+      }
+    }
+  } else {
+    syslog (LOG_ERR, "Failed to send IPC msg to consumer daemon\n");
+  }
+  return target;
+}
+
+GaeguliTarget *
+gaeguli_pipeline_add_image_capture_target (GaeguliPipeline * self,
+    guint input_node_id, guint output_node_id, GError ** error)
+{
+  return gaeguli_pipeline_add_image_capture_target_full (self,
+      input_node_id, output_node_id, error);
 }
 
 GaeguliTarget *
 gaeguli_pipeline_add_recording_target (GaeguliPipeline * self,
-    const gchar * location, GError ** error)
+    const gchar * location, guint input_node_id,
+    guint output_node_id, GError ** error)
 {
   return gaeguli_pipeline_add_recording_target_full (self, DEFAULT_VIDEO_CODEC,
-      DEFAULT_VIDEO_BITRATE, location, error);
+      DEFAULT_VIDEO_BITRATE, location, input_node_id, output_node_id, error);
 }
 
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, guint bitrate, const gchar * uri,
-    const gchar * username, GError ** error)
+    const gchar * username, guint input_node_id,
+    guint output_node_id, GError ** error)
 {
-  return gaeguli_pipeline_add_target (self, codec,
-      bitrate, uri, username, NULL, FALSE, error);
+  GaeguliTarget *target = NULL;
+  /* configure the client socket to communicate with provider daemon */
+  int sockfd;
+
+  if ((sockfd =
+          gaeguli_configure_client_socket (DEFAULT_CONSUMER_CLIENT_SOCK_PATH)) <
+      0) {
+    syslog (LOG_ERR, "Failed to create client socket");
+    return NULL;
+  }
+
+  /* send IPC msg to consumer daemon */
+  if (gaeguli_send_socket_consumer_msg ((void *)
+          gaeguli_build_consumer_msg (GAEGULI_CONSUMER_MSG_CREATE_SRT_TARGET,
+              self, codec, bitrate, uri, username, input_node_id,
+              output_node_id, 0), sockfd) > 0) {
+    /* poll and wait for the response */
+
+    while (1) {
+      GaeguliConsumerRspType rsp =
+          gaeguli_get_consumer_daemon_response (sockfd);
+
+      if (GAEGULI_CONSUMER_RSP_CREATE_TARGET_SUCCESS == rsp) {
+        /* Get the GaeguliTarget instance from shared memory */
+        target = gaeguli_consumer_shm_read (g_str_hash (uri), output_node_id);
+        if (!target) {
+          syslog (LOG_ERR, "Failed to get target instance.");
+          return target;
+        }
+        /* set the sockfd for further IPC */
+        gaeguli_target_set_clientfd (target, sockfd);
+        return target;
+      } else if (GAEGULI_CONSUMER_RSP_FAIL == rsp) {
+        syslog (LOG_ERR, "Got the fail IPC responce from daemon");
+        return target;
+      } else {
+        continue;
+      }
+    }
+  } else {
+    syslog (LOG_ERR, "Failed to send IPC msg to consumer daemon\n");
+  }
+  return target;
 }
 
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
-    const gchar * uri, const gchar * username, GError ** error)
+    const gchar * uri, const gchar * username, guint input_node_id,
+    guint output_node_id, GError ** error)
 {
   return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_VIDEO_CODEC,
-      DEFAULT_VIDEO_BITRATE, uri, username, error);
+      DEFAULT_VIDEO_BITRATE, uri, username,
+      input_node_id, output_node_id, error);
 }
 
 GaeguliReturn
 gaeguli_pipeline_remove_target (GaeguliPipeline * self, GaeguliTarget * target,
     GError ** error)
 {
-  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), GAEGULI_RETURN_FAIL);
-  g_return_val_if_fail (target != NULL, GAEGULI_RETURN_FAIL);
-  g_return_val_if_fail (error == NULL || *error == NULL, GAEGULI_RETURN_FAIL);
+  /* Send unix socket IPC to consumer daemon to remove target */
+  guint node_id = gaeguli_target_get_node_id (target);
+  guint target_id = gaeguli_target_get_id (target);
+  gint sockfd = gaeguli_target_get_clientfd (target);
 
-  g_mutex_lock (&self->lock);
-
-  if (!g_hash_table_steal (self->targets, GINT_TO_POINTER (target->id))) {
-    g_debug ("no target pipeline mapped with [%x]", target->id);
-    goto out;
+  /* unmap the pipeline shared memory instance from client */
+  if (gaeguli_consumer_shm_unmap (target, gaeguli_target_get_size ()) < 0) {
+    syslog (LOG_ERR, "In %s. Failed to unmap the shared memory. Error (%s)",
+        __FUNCTION__, strerror (errno));
   }
 
-  gaeguli_target_unlink (target);
-  if (gaeguli_target_get_state (target) == GAEGULI_TARGET_STATE_STOPPING) {
-    /* Target removal will happen asynchronously. Keep the pipeline alive
-     * until the target fires "stream-stopped". */
-    g_object_ref (self);
+  if (gaeguli_send_socket_consumer_msg ((void *)
+          gaeguli_build_consumer_msg (GAEGULI_CONSUMER_MSG_DESTROY_TARGET, self,
+              0, 0, NULL, NULL, 0, node_id, target_id), sockfd) > 0) {
+    /* poll and wait for the response */
+
+    while (1) {
+      GaeguliConsumerRspType rsp =
+          gaeguli_get_consumer_daemon_response (sockfd);
+      if (GAEGULI_CONSUMER_RSP_DESTROY_TARGET_SUCCESS == rsp) {
+        syslog (LOG_INFO, "Successfully destroyed the source");
+        return GAEGULI_RETURN_OK;
+      } else if (GAEGULI_CONSUMER_RSP_FAIL == rsp) {
+        syslog (LOG_ERR, "Got the fail IPC responce from daemon");
+        return GAEGULI_RETURN_FAIL;
+      } else {
+        continue;
+      }
+    }
+  } else {
+    syslog (LOG_ERR, "Failed to send IPC msg to consumer daemon\n");
   }
-  g_object_unref (target);
-
-out:
-  g_mutex_unlock (&self->lock);
-
   return GAEGULI_RETURN_OK;
 }
 
 void
-gaeguli_pipeline_create_snapshot_async (GaeguliPipeline * self, GVariant * tags,
-    GCancellable * cancellable, GAsyncReadyCallback callback,
-    gpointer user_data)
+gaeguli_destroy_pipeline (GaeguliPipeline * self)
 {
-  g_autoptr (GVariant) tags_autoptr = tags;
-  g_autoptr (GTask) task = NULL;
-  GError *error = NULL;
-
-  LOCK_PIPELINE;
-
-  task = g_task_new (self, cancellable, callback, user_data);
-
-  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, &error)) {
-    g_task_return_error (task, error);
-    return;
-  }
-
-  if (tags && !g_variant_is_of_type (tags, G_VARIANT_TYPE_VARDICT)) {
-    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-        "Tags must be NULL or of variant type 'a{sv}'");
-  }
-
-  if (tags) {
-    g_task_set_task_data (task, g_steal_pointer (&tags_autoptr),
-        (GDestroyNotify) g_variant_unref);
-  }
-
-  g_queue_push_tail (self->snapshot_tasks, g_steal_pointer (&task));
-  if (self->num_snapshots_to_encode++ == 0) {
-    g_object_set (self->snapshot_valve, "drop", FALSE, NULL);
-  }
-}
-
-GBytes *
-gaeguli_pipeline_create_snapshot_finish (GaeguliPipeline * self,
-    GAsyncResult * result, GError ** error)
-{
-  g_return_val_if_fail (g_task_is_valid (result, self), NULL);
-
-  return g_task_propagate_pointer (G_TASK (result), error);
-}
-
-/* Must be called from the main thread. */
-void
-gaeguli_pipeline_stop (GaeguliPipeline * self)
-{
+  pthread_mutex_t *lock = NULL;
   g_return_if_fail (GAEGULI_IS_PIPELINE (self));
 
   g_debug ("clear internal pipeline");
@@ -1118,22 +1264,51 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
     gst_element_set_state (self->pipeline, GST_STATE_NULL);
   }
 
-  g_mutex_lock (&self->lock);
-
-  while (!g_queue_is_empty (self->snapshot_tasks)) {
-    g_autoptr (GTask) task = g_queue_pop_head (self->snapshot_tasks);
-    g_task_return_new_error (task, GAEGULI_RESOURCE_ERROR,
-        GAEGULI_RESOURCE_ERROR_STOPPED, "The pipeline has been stopped");
+  lock = gaeguli_shm_mutex_read ("source_provider_lock", self->node_id);
+  if (!lock) {
+    syslog (LOG_INFO, "Failed to get shared lock");
+    return;
   }
+  gaeguli_shm_mutex_lock (lock);
 
+  close (self->client_fd);
   g_clear_pointer (&self->vsrc, gst_object_unref);
   g_clear_pointer (&self->overlay, gst_object_unref);
-  gst_clear_object (&self->snapshot_valve);
-  gst_clear_object (&self->snapshot_jpegenc);
-  gst_clear_object (&self->snapshot_jifmux);
   gst_clear_object (&self->pipeline);
 
-  g_mutex_unlock (&self->lock);
+  gaeguli_shm_mutex_unlock (lock);
+
+  if (gaeguli_shm_mutex_unmap (lock, sizeof (pthread_mutex_t)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap shared lock");
+  }
+}
+
+/* Must be called from the main thread. */
+void
+gaeguli_pipeline_stop (GaeguliPipeline * self)
+{
+  guint node_id = self->node_id;
+  guint sockfd = self->client_fd;
+
+  if (gaeguli_source_provider_shm_unmap (self, sizeof (GaeguliPipeline)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap the shared memory. Error (%s)",
+        strerror (errno));
+  }
+
+  /* send IPC msg to provider daemon */
+  if (gaeguli_send_socket_provider_msg ((void *)
+          gaeguli_build_source_provider_msg
+          (GAEGULI_SOURCE_PROVIDER_MSG_DESTROY_PIPELINE, node_id),
+          sockfd) > 0) {
+    /* poll and wait for the response */
+    if (GAEGULI_SOURCE_PROVIDER_RSP_DESTROY_SUCCESS ==
+        gaeguli_get_provider_daemon_response (sockfd)) {
+      syslog (LOG_INFO, "successfully destroyed GaeguliPipeline instance");
+    }
+  } else {
+    syslog (LOG_ERR,
+        "Failed to send destroy pipeline IPC msg to provider daemon\n");
+  }
 }
 
 void
@@ -1141,4 +1316,54 @@ gaeguli_pipeline_dump_to_dot_file (GaeguliPipeline * self)
 {
   GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS (GST_BIN (self->pipeline),
       GST_DEBUG_GRAPH_SHOW_ALL, g_get_prgname ());
+}
+
+void
+gaeguli_pipeline_deep_copy (GaeguliPipeline * src, GaeguliPipeline * dst)
+{
+  dst->parent = src->parent;
+  dst->lock = src->lock;
+
+  dst->source = src->source;
+  dst->resolution = src->resolution;
+  dst->node_id = src->node_id;
+  dst->client_fd = src->client_fd;
+
+  dst->fps = src->fps;
+
+  dst->targets = src->targets;
+  dst->num_active_targets = src->num_active_targets;
+
+  dst->pipeline = src->pipeline;
+  dst->vsrc = src->vsrc;
+
+  dst->overlay = src->overlay;
+  dst->show_overlay = src->show_overlay;
+  dst->benchmark_interval_ms = src->benchmark_interval_ms;
+  dst->benchmark_timeout_id = src->benchmark_timeout_id;
+  dst->srtsocket_to_peer_addr = src->srtsocket_to_peer_addr;
+  dst->benchmarks = src->benchmarks;
+  dst->prefer_hw_decoding = src->prefer_hw_decoding;
+  dst->adaptor_type = src->adaptor_type;
+}
+
+GaeguliPipeline *
+gaeguli_get_pipeline (guint node_id)
+{
+  return gaeguli_source_provider_shm_read (node_id);
+}
+
+void
+gaeguli_unmap_pipeline (GaeguliPipeline * pipeline)
+{
+  if (gaeguli_source_provider_shm_unmap (pipeline,
+          sizeof (GaeguliPipeline)) < 0) {
+    syslog (LOG_ERR, "Failed to unmap pipeline");
+  }
+}
+
+int
+gaeguli_pipeline_get_size ()
+{
+  return sizeof (GaeguliPipeline);
 }

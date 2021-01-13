@@ -1,0 +1,10 @@
+#daemon config file for Gaeguli Source Consumer @VERSION@
+
+## exec <program-name>
+#
+# Execute the given program.
+#
+# Start the Gaeguli Source Consumer.
+#
+#
+exec @gaeguli_consumer_path@

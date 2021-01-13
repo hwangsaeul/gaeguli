@@ -55,7 +55,7 @@ GaeguliPipeline        *gaeguli_pipeline_new    (void);
 /**
  * gaeguli_pipeline_new_full:
  * @source: the source of the video
- * @device: the device used as source in case of V4L
+ * @node_id: the node id used as source in case of pipewiresrc
  * @resolution: source stream resolution
  * @framerate: source stream frame rate
  *
@@ -65,14 +65,29 @@ GaeguliPipeline        *gaeguli_pipeline_new    (void);
  */
 GaeguliPipeline        *gaeguli_pipeline_new_full
                                                 (GaeguliVideoSource     source,
-                                                 const gchar           *device,
+                                                 guint                  node_id,
                                                  GaeguliVideoResolution resolution,
                                                  guint                  framerate);
+
+/**
+ * gaeguli_pipeline_create_source:
+ * @self: a #GaeguliPipeline object
+ * @error: a #GError
+ *
+ * Creates a new source pipeline.
+ *
+ * Returns: the newly created object
+ */
+void                    gaeguli_pipeline_create_source
+                                                (GaeguliPipeline * self,
+                                                 GError ** error);
 /**
  * gaeguli_pipeline_add_srt_target:
  * @self: a #GaeguliPipeline object
  * @uri: SRT URI
  * @username: SRT Stream ID User Name identifying this target
+ * @input_node_id: pipewire node id identifying the video source
+ * output_node_id: pipewire node id from which the target gets the video feed
  * @error: a #GError
  *
  * Adds a SRT target to the pipeline.
@@ -84,6 +99,8 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
                                                 (GaeguliPipeline       *self,
                                                  const gchar           *uri,
                                                  const gchar           *username,
+                                                 guint                  input_node_id,
+                                                 guint                  output_node_id,
                                                  GError               **error);
 
 /**
@@ -91,7 +108,10 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
  * @self: a #GaeguliPipeline object
  * @codec: codec to use for streaming
  * @bitrate: bitrate use for streaming
+ * @uri: SRT URI
  * @username: SRT Stream ID User Name identifying this target
+ * @input_node_id: pipewire node id identifying the video source
+ * output_node_id: pipewire node id from which the target gets the video feed
  * @uri: SRT URI
  * @error: a #GError
  *
@@ -106,12 +126,16 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
                                                  guint                  bitrate,
                                                  const gchar           *uri,
                                                  const gchar           *username,
+                                                 guint                  input_node_id,
+                                                 guint                  output_node_id,
                                                  GError               **error);
 
 /**
  * gaeguli_pipeline_add_recording_target:
  * @self: a #GaeguliPipeline object
  * @location: Recording location
+ * @input_node_id: pipewire node id identifying the video source
+ * output_node_id: pipewire node id from which the target gets the video feed
  * @error: a #GError
  *
  * Adds a Recording target to the pipeline.
@@ -122,6 +146,8 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
 GaeguliTarget          *gaeguli_pipeline_add_recording_target
                                                 (GaeguliPipeline       *self,
                                                  const gchar           *location,
+                                                 guint                  input_node_id,
+                                                 guint                  output_node_id,
                                                  GError               **error);
 
 /**
@@ -130,6 +156,8 @@ GaeguliTarget          *gaeguli_pipeline_add_recording_target
  * @codec: codec to use for streaming
  * @bitrate: bitrate use for streaming
  * @location: Recording location
+ * @input_node_id: pipewire node id identifying the video source
+ * output_node_id: pipewire node id from which the target gets the video feed
  * @error: a #GError
  *
  * Adds a Recording target to the pipeline using specific parameters.
@@ -142,8 +170,75 @@ GaeguliTarget          *gaeguli_pipeline_add_recording_target_full
                                                  GaeguliVideoCodec      codec,
                                                  guint                  bitrate,
                                                  const gchar           *location,
+                                                 guint                  input_node_id,
+                                                 guint                  output_node_id,
                                                  GError               **error);
 
+/**
+ * gaeguli_pipeline_add_image_capture_target:
+ * @self: a #GaeguliPipeline object
+ * @input_node_id: pipewire node id identifying the video source
+ * output_node_id: pipewire node id from which the target gets the video feed
+ * @error: a #GError
+ *
+ * Adds a Image capture target to the pipeline using specific parameters.
+ *
+ * Returns: A #GageuliTarget. The object is owned by #GaeguliPipeline.
+ * You should g_object_ref() it to keep the reference.
+ */
+GaeguliTarget         *gaeguli_pipeline_add_image_capture_target
+                                                (GaeguliPipeline * self,
+                                                 guint input_node_id,
+                                                 guint output_node_id,
+                                                 GError ** error);
+
+/**
+ * gaeguli_pipeline_add_image_capture_target_full:
+ * @self: a #GaeguliPipeline object
+ * @input_node_id: pipewire node id identifying the video source
+ * output_node_id: pipewire node id from which the target gets the video feed
+ * @error: a #GError
+ *
+ * Adds a Image capture target to the pipeline using specific parameters.
+ *
+ * Returns: A #GageuliTarget. The object is owned by #GaeguliPipeline.
+ * You should g_object_ref() it to keep the reference.
+ */
+GaeguliTarget         *gaeguli_pipeline_add_image_capture_target_full
+                                                (GaeguliPipeline * self,
+                                                 guint input_node_id,
+                                                 guint output_node_id,
+                                                 GError ** error);
+
+/**
+ * gaeguli_pipeline_add_target:
+ * @self: a #GaeguliPipeline object
+ * @codec: codec to use for streaming
+ * @bitrate: bitrate use for streaming
+ * @uri: SRT URI
+ * @username: SRT Stream ID User Name identifying this target
+ * @location: Recording location
+ * @target_type: Gaeguli Target type
+ * @input_node_id: pipewire node id identifying the video source
+ * output_node_id: pipewire node id from which the target gets the video feed
+ * @error: a #GError
+ *
+ * Adds a target to the pipeline using specific parameters based on target_type.
+ *
+ * Returns: A #GageuliTarget. The object is owned by #GaeguliPipeline.
+ * You should g_object_ref() it to keep the reference.
+ */
+GaeguliTarget           *gaeguli_pipeline_add_target
+                                                (GaeguliPipeline      *self,
+                                                 GaeguliVideoCodec     codec,
+                                                 guint                 bitrate,
+                                                 const gchar          *uri,
+                                                 const gchar          *username,
+                                                 const gchar          *location,
+                                                 GaeguliTargetType     target_type,
+                                                 guint                 input_node_id,
+                                                 guint                 output_node_id,
+                                                 GError              **error);
 /**
  * gaeguli_pipeline_remove_target:
  * @self: a #GaeguliPipeline object
@@ -209,6 +304,49 @@ void                    gaeguli_pipeline_stop   (GaeguliPipeline       *self);
  */
 void                    gaeguli_pipeline_dump_to_dot_file
                                                 (GaeguliPipeline       *self);
+
+GaeguliPipeline *       gaeguli_create_pipeline (GaeguliVideoSource     source,
+                                                 guint                  node_id,
+                                                 GaeguliVideoResolution resolution,
+                                                 guint                  framerate);
+
+/**
+ * gaeguli_destroy_pipeline:
+ * @self: a #GaeguliPipeline object
+ *
+ * Destroys pipeline on IPC request.
+ */
+void                    gaeguli_destroy_pipeline
+                                                (GaeguliPipeline * self);
+
+/**
+ * gaeguli_pipeline_deep_copy:
+ * @src: a #GaeguliPipeline object
+ * @dst: a #GaeguliPipeline object
+ *
+ * Deep copies to shared memory instance of GaeguliPipeline.
+ */
+void                    gaeguli_pipeline_deep_copy
+                                                (GaeguliPipeline *src,
+                                                 GaeguliPipeline *dst);
+
+/**
+ * gaeguli_target_deep_copy:
+ * @src: a #GaeguliPipeline object
+ * @dst: a #GaeguliPipeline object
+ *
+ * Deep copies to shared memory instance of GaeguliTarget.
+ */
+void                    gaeguli_target_deep_copy
+                                                (GaeguliTarget *src,
+                                                 GaeguliTarget *dst);
+
+/**
+ * gaeguli_pipeline_get_size:
+ *
+ * Retuns the size of GaeguliPipeline.
+ */
+int                     gaeguli_pipeline_get_size ();
 
 G_END_DECLS
 

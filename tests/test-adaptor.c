@@ -297,13 +297,13 @@ test_gaeguli_adaptor_stats ()
   g_autoptr (GError) error = NULL;
   GaeguliTarget *target;
 
-  pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+  pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 15);
   g_object_set (pipeline, "stream-adaptor", GAEGULI_TYPE_TEST_ADAPTOR, NULL);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264_X264, TEST_BITRATE2, "srt://127.0.0.1:1111",
-      NULL, &error);
+      NULL, 0, 0, &error);
   g_assert_no_error (error);
 
   gaeguli_target_start (target, &error);

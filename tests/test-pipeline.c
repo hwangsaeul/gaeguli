@@ -66,7 +66,7 @@ static void
 _stream_stopped_cb (GaeguliPipeline * pipeline, GaeguliTarget * target,
     TestFixture * fixture)
 {
-  g_debug ("got stopped signal %x", target->id);
+  g_debug ("got stopped signal %x", gaeguli_target_get_id (target));
 
   g_timeout_add (100, (GSourceFunc) _quit_loop, fixture);
 }
@@ -76,7 +76,7 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
 {
   GaeguliTarget *target;
   g_autoptr (GaeguliPipeline) pipeline =
-      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 30);
   g_autoptr (GError) error = NULL;
 
@@ -86,12 +86,12 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
       fixture);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264_X264, 2048000, "srt://127.0.0.1:1111", NULL,
-      &error);
+      GAEGULI_VIDEO_CODEC_H264_X264, 2048000, "srt://127.0.0.1:1111", NULL, 0,
+      0, &error);
 
   g_assert_no_error (error);
   g_assert_nonnull (target);
-  g_assert_cmpuint (target->id, !=, 0);
+  g_assert_cmpuint (gaeguli_target_get_id (target), !=, 0);
   fixture->target = target;
 
   gaeguli_target_start (target, &error);
@@ -142,13 +142,13 @@ add_remove_target_cb (AddRemoveTestData * data)
           data->fixture->port_base + i);
 
       target->target = gaeguli_pipeline_add_srt_target_full (data->pipeline,
-          GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri, NULL, &error);
+          GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri, NULL, 0, 0, &error);
       g_assert_no_error (error);
 
       gaeguli_target_start (target->target, &error);
       g_assert_no_error (error);
 
-      g_debug ("Added target %u", target->target->id);
+      g_debug ("Added target %u", gaeguli_target_get_id (target));
 
       --data->targets_to_create;
       break;
@@ -175,7 +175,8 @@ add_remove_target_cb (AddRemoveTestData * data)
       g_variant_dict_clear (&dict);
     }
 
-    g_debug ("Target %u has sent %lu B", target->target->id, bytes_sent);
+    g_debug ("Target %u has sent %lu B", gaeguli_target_get_id (target->target),
+        bytes_sent);
 
     /* Remove targets that have read at least FIFO_READ_LIMIT_BYTES. */
     if (bytes_sent >= TARGET_BYTES_SENT_LIMIT) {
@@ -212,7 +213,8 @@ stream_stopped_cb (GaeguliPipeline * pipeline, GaeguliTarget * target,
       gst_element_set_state (target_data->receiver_pipeline, GST_STATE_NULL);
       gst_clear_object (&target_data->receiver_pipeline);
 
-      g_debug ("Removed target %u", target_data->target->id);
+      g_debug ("Removed target %u",
+          gaeguli_target_get_id (target_data->target));
 
       target_data->target = NULL;
       target_data->closing = FALSE;
@@ -239,7 +241,7 @@ test_gaeguli_pipeline_add_remove_target_random (TestFixture * fixture,
   g_mutex_init (&data.lock);
   data.fixture = fixture;
   data.pipeline = gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC,
-      NULL, GAEGULI_VIDEO_RESOLUTION_640X480, 30);
+      0, GAEGULI_VIDEO_RESOLUTION_640X480, 30);
   data.targets_to_create = 10;
 
   g_signal_connect (data.pipeline, "stream-stopped",
@@ -257,14 +259,14 @@ static void
 test_gaeguli_pipeline_address_in_use (void)
 {
   g_autoptr (GaeguliPipeline) pipeline =
-      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 30);
   g_autoptr (GError) error = NULL;
   GaeguliTarget *target;
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264_X264, 2048000,
-      "srt://127.0.0.1:1111?mode=listener", NULL, &error);
+      "srt://127.0.0.1:1111?mode=listener", NULL, 0, 0, &error);
   g_assert_no_error (error);
   g_assert_nonnull (target);
 
@@ -273,7 +275,7 @@ test_gaeguli_pipeline_address_in_use (void)
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264_X264, 2048000,
-      "srt://127.0.0.2:1111?mode=listener", NULL, &error);
+      "srt://127.0.0.2:1111?mode=listener", NULL, 0, 0, &error);
   g_assert_no_error (error);
   g_assert_nonnull (target);
 
@@ -349,7 +351,7 @@ receiver1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
         data->fixture->port_base + 1);
 
     target = gaeguli_pipeline_add_srt_target_full (data->pipeline,
-        GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri_str, NULL, &error);
+        GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri_str, NULL, 0, 0, &error);
     g_assert_no_error (error);
     g_assert_nonnull (target);
 
@@ -367,7 +369,7 @@ static void
 test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
 {
   g_autoptr (GaeguliPipeline) pipeline =
-      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 30);
   g_autoptr (GError) error = NULL;
   g_autofree gchar *uri_str = NULL;
@@ -377,7 +379,7 @@ test_gaeguli_pipeline_listener (TestFixture * fixture, gconstpointer unused)
   uri_str = g_strdup_printf ("srt://127.0.0.1:%d?mode=caller",
       fixture->port_base);
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri_str, NULL, &error);
+      GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri_str, NULL, 0, 0, &error);
   g_assert_no_error (error);
   g_assert_nonnull (target);
 
@@ -427,7 +429,7 @@ listener_random_cb (ListenerRandomTestData * data)
         data->fixture->port_base + i);
 
     data->listeners[i] = gaeguli_pipeline_add_srt_target_full (data->pipeline,
-        GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri, NULL, &error);
+        GAEGULI_VIDEO_CODEC_H264_X264, 2048000, uri, NULL, 0, 0, &error);
     g_assert_no_error (error);
 
     gaeguli_target_start (data->listeners[i], &error);
@@ -461,7 +463,7 @@ test_gaeguli_pipeline_listener_random (TestFixture * fixture,
     gconstpointer unused)
 {
   g_autoptr (GaeguliPipeline) pipeline =
-      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 30);
 
   ListenerRandomTestData data = { 0 };
@@ -518,7 +520,7 @@ test_gaeguli_pipeline_connection_error (TestFixture * fixture,
 {
   ConnectionErrorTestData data;
   g_autoptr (GaeguliPipeline) pipeline =
-      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 30);
   g_autoptr (GstElement) receiver = NULL;
   g_autoptr (GError) error = NULL;
@@ -532,7 +534,8 @@ test_gaeguli_pipeline_connection_error (TestFixture * fixture,
   data.loop = fixture->loop;
 
   g_debug ("Running a target without a listener. This should issue errors.");
-  data.target = gaeguli_pipeline_add_srt_target (pipeline, uri, NULL, &error);
+  data.target =
+      gaeguli_pipeline_add_srt_target (pipeline, uri, NULL, 0, 0, &error);
   g_assert_no_error (error);
 
   handler_id = g_signal_connect (pipeline, "connection-error",
@@ -558,7 +561,8 @@ test_gaeguli_pipeline_connection_error (TestFixture * fixture,
   g_assert_nonnull (receiver);
 
   g_debug ("Running a target with a listener. This should report no errors.");
-  data.target = gaeguli_pipeline_add_srt_target (pipeline, uri, NULL, &error);
+  data.target =
+      gaeguli_pipeline_add_srt_target (pipeline, uri, NULL, 0, 0, &error);
   g_assert_no_error (error);
 
   gaeguli_target_start (data.target, &error);
@@ -589,13 +593,13 @@ static void
 do_pipeline_cycle (TestFixture * fixture, GaeguliVideoCodec codec)
 {
   g_autoptr (GaeguliPipeline) pipeline =
-      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
+      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, 0,
       GAEGULI_VIDEO_RESOLUTION_640X480, 30);
   GaeguliTarget *target;
   g_autoptr (GError) error = NULL;
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline, codec, 2048000,
-      "srt://127.0.0.1:1111", NULL, &error);
+      "srt://127.0.0.1:1111", NULL, 0, 0, &error);
   g_assert_no_error (error);
 
   gaeguli_target_start (target, &error);

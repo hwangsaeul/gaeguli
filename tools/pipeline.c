@@ -35,7 +35,7 @@ activate (GApplication * app, gpointer user_data)
 
   g_print ("Streaming to %s\n", options.uri);
   target = gaeguli_pipeline_add_srt_target (pipeline, options.uri,
-      options.username, &error);
+      options.username, 0, 0, &error);
   gaeguli_target_start (target, &error);
 }
 

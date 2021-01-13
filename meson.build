@@ -20,6 +20,7 @@ libversion = '@0@.@1@.0'.format(soversion, curversion)
 gaeguli_api_name = '@0@-@1@'.format(meson.project_name(), apiversion)
 
 prefix = get_option('prefix')
+gaeguli_bindir = join_paths(prefix, get_option('bindir'))
 
 cc = meson.get_compiler('c')
 
@@ -33,7 +34,7 @@ cdata.set_quoted('VERSION', meson.project_version())
 
 host_system = host_machine.system()
 if host_system == 'linux'
-  cdata.set('DEFAULT_VIDEO_SOURCE', 'GAEGULI_VIDEO_SOURCE_V4L2SRC')
+  cdata.set('DEFAULT_VIDEO_SOURCE', 'GAEGULI_VIDEO_SOURCE_PIPEWIRESRC')
   cdata.set('DEFAULT_VIDEO_RESOLUTION', 'GAEGULI_VIDEO_RESOLUTION_1920X1080')
   cdata.set_quoted('DEFAULT_VIDEO_SOURCE_DEVICE', '/dev/video0')
 elif ['darwin'].contains(host_system)
@@ -50,6 +51,12 @@ endif
 cdata.set('DEFAULT_VIDEO_FRAMERATE', 15)
 cdata.set('DEFAULT_VIDEO_BITRATE', 1000000)
 cdata.set('DEFAULT_VIDEO_CODEC', 'GAEGULI_VIDEO_CODEC_H264_X264')
+
+cdata.set_quoted('DEFAULT_SOURCE_PROVIDER_CLIENT_SOCK_PATH', 'gaeguli-provider.socket')
+cdata.set_quoted('DEFAULT_CONSUMER_CLIENT_SOCK_PATH', 'gaeguli-consumer.socket')
+
+cdata.set('GAEGULI_MAX_SOURCE_PROVIDERS', 4)
+cdata.set('GAEGULI_MAX_CONSUMERS', 12)
 
 cdata.set('_GAEGULI_EXTERN', '__attribute__((visibility("default"))) extern')
 
@@ -84,6 +91,12 @@ gst_dep = [
 
 libsrt_dep = dependency('srt', version: '>=1.4.1')
 
+pipewire_dep = dependency('libpipewire-0.3')
+
+cc = meson.get_compiler('c')
+rt_lib = cc.find_library('rt', required : false)
+pthread_lib = dependency('threads')
+
 gnome = import('gnome')
 
 gaeguli_incs = include_directories('.', 'gaeguli')
@@ -92,6 +105,7 @@ gaeguli_doc_incs = include_directories('gaeguli')
 common_ldflags = [ ]
 
 subdir('gaeguli')
+subdir('daemon')
 subdir('tests')
 subdir('tools')
 subdir('doc')
