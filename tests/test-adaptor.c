@@ -394,23 +394,23 @@ test_gaeguli_adaptor_bandwidth ()
 
   g_assert_false (data.params_change_triggered);
 
-  /* Bandwidth lower than default - bitrate should change to 90% of available
-   * bandwidth. */
+  /* Bandwidth lower than default - bitrate should change to 120% of estimated
+   * bandwidth (because it seems libsrt estimates too low). */
 
   gaeguli_dummy_srtsink_set_stats (dummysrt, "bandwidth-mbps", G_TYPE_DOUBLE,
       0.7, NULL);
-  data.expected_bitrate = 0.7 * 0.9 * 1e6;
+  data.expected_bitrate = 0.7 * 1.2 * 1e6;
 
   g_main_loop_run (loop);
 
   g_assert_true (data.params_change_triggered);
 
-  /* Bandwidth going back up over default bitrate - bitrate should change to
-   * default. */
+  /* Bandwidth going back up over default bitrate - bitrate should begin
+   * rising in 5% increments. */
 
   gaeguli_dummy_srtsink_set_stats (dummysrt, "bandwidth-mbps", G_TYPE_DOUBLE,
       2.0, NULL);
-  data.expected_bitrate = 1000000;
+  data.expected_bitrate = data.expected_bitrate * 1.05;
 
   g_main_loop_run (loop);
 
