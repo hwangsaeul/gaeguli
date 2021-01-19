@@ -23,6 +23,7 @@ struct _GaeguliBandwidthStreamAdaptor
   GaeguliStreamAdaptor parent;
 
   guint current_bitrate;
+  gint64 settling_time;
 };
 
 /* *INDENT-OFF* */
@@ -43,11 +44,19 @@ gaeguli_bandwidth_stream_adaptor_new (GstElement * srtsink,
 static void
 gaeguli_bandwidth_adaptor_on_enabled (GaeguliStreamAdaptor * adaptor)
 {
+  GaeguliBandwidthStreamAdaptor *self =
+      GAEGULI_BANDWIDTH_STREAM_ADAPTOR (adaptor);
+
   /* Bandwidth adaptor operates only in constant bitrate mode. */
   gaeguli_stream_adaptor_signal_encoding_parameters (adaptor,
       GAEGULI_ENCODING_PARAMETER_RATECTRL,
       GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, GAEGULI_VIDEO_BITRATE_CONTROL_CBR,
       NULL);
+
+  if (!gaeguli_stream_adaptor_get_baseline_parameter_uint (adaptor,
+          GAEGULI_ENCODING_PARAMETER_BITRATE, &self->current_bitrate)) {
+    g_warning ("Couldn't read baseline bitrate");
+  }
 }
 
 static void
@@ -58,6 +67,14 @@ gaeguli_bandwidth_adaptor_on_stats (GaeguliStreamAdaptor * adaptor,
       GAEGULI_BANDWIDTH_STREAM_ADAPTOR (adaptor);
 
   gdouble srt_bandwidth;
+
+  if (self->current_bitrate == 0) {
+    if (!gaeguli_stream_adaptor_get_baseline_parameter_uint
+        (GAEGULI_STREAM_ADAPTOR (self), GAEGULI_ENCODING_PARAMETER_BITRATE,
+            &self->current_bitrate)) {
+      g_warning ("Couldn't read baseline bitrate");
+    }
+  }
 
   if (gst_structure_has_field (stats, "callers")) {
     GValueArray *array;
@@ -72,18 +89,24 @@ gaeguli_bandwidth_adaptor_on_stats (GaeguliStreamAdaptor * adaptor,
     /* Convert to bits per second */
     srt_bandwidth *= 1e6;
 
-    if (srt_bandwidth < (self->current_bitrate * 1.1)) {
-      new_bitrate = srt_bandwidth * 0.9;
-    } else if (srt_bandwidth * 0.9 > self->current_bitrate) {
+    if (srt_bandwidth < self->current_bitrate) {
+      new_bitrate = srt_bandwidth * 1.2;
+    } else if (srt_bandwidth > self->current_bitrate) {
       guint baseline_bitrate = G_MAXUINT;
 
-      if (!gaeguli_stream_adaptor_get_baseline_parameter_uint
-          (GAEGULI_STREAM_ADAPTOR (self), GAEGULI_ENCODING_PARAMETER_BITRATE,
-              &baseline_bitrate)) {
-        g_warning ("Couldn't read baseline bitrate");
+      gaeguli_stream_adaptor_get_baseline_parameter_uint (adaptor,
+          GAEGULI_ENCODING_PARAMETER_BITRATE, &baseline_bitrate);
+
+      if (srt_bandwidth > baseline_bitrate) {
+        if (self->settling_time < g_get_monotonic_time ()) {
+          new_bitrate *= 1.05;
+          self->settling_time = g_get_monotonic_time () + 1e6;
+        }
+      } else {
+        new_bitrate = srt_bandwidth * 1.2;
       }
 
-      new_bitrate = MIN (srt_bandwidth * 0.9, baseline_bitrate);
+      new_bitrate = MIN (new_bitrate, baseline_bitrate);
     }
 
     if (self->current_bitrate != new_bitrate) {
@@ -115,7 +138,7 @@ gaeguli_bandwidth_adaptor_on_baseline_update (GaeguliStreamAdaptor * adaptor,
   gst_structure_get_uint (baseline_params, GAEGULI_ENCODING_PARAMETER_BITRATE,
       &new_bitrate);
 
-  if (new_bitrate < self->current_bitrate) {
+  if (new_bitrate < self->current_bitrate || self->current_bitrate == 0) {
     self->current_bitrate = new_bitrate;
 
     if (gaeguli_stream_adaptor_is_enabled (adaptor)) {
