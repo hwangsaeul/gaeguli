@@ -67,6 +67,9 @@ struct _GaeguliPipeline
 
   gboolean prefer_hw_decoding;
 
+  GMainLoop *loop;
+  guint pw_node_id;
+
   GType adaptor_type;
 };
 
@@ -549,18 +552,6 @@ _on_valve_buffer (GstPad * pad, GstPadProbeInfo * info, GaeguliPipeline * self)
   return GST_PAD_PROBE_OK;
 }
 
-static GstPadProbeReturn
-_drop_reconfigure_cb (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
-{
-  GstEvent *event = GST_PAD_PROBE_INFO_EVENT (info);
-
-  if (GST_EVENT_TYPE (event) == GST_EVENT_RECONFIGURE) {
-    return GST_PAD_PROBE_DROP;
-  }
-
-  return GST_PAD_PROBE_OK;
-}
-
 static gchar *
 _get_source_description (GaeguliPipeline * self)
 {
@@ -587,14 +578,40 @@ _get_source_description (GaeguliPipeline * self)
 }
 
 static gchar *
+_get_pipeline_id_description (GaeguliPipeline * self)
+{
+  GString *desc = g_string_new (NULL);
+
+  g_string_append_printf (desc, "%d_%p", getpid (), self);
+
+  return g_string_free (desc, FALSE);
+}
+
+static gchar *
+_get_stream_props_description (GaeguliPipeline * self)
+{
+  GString *stream_props = g_string_new (PIPEWIRE_NODE_STREAM_PROPERTIES_STR);
+
+  g_string_append_printf (stream_props, ",%s=%s",
+      GAEGULI_PIPELINE_TAG, _get_pipeline_id_description (self));
+
+  return g_string_free (stream_props, FALSE);
+}
+
+static gchar *
 _get_vsrc_pipeline_string (GaeguliPipeline * self)
 {
   g_autofree gchar *source = _get_source_description (self);
+  g_autofree gchar *props = _get_stream_props_description (self);
 
+  /* FIXME - pipewiresink along with another sink in the pipeline   *
+   * do not provide the captured video to the consumer pipeline.    *
+   * Hence its inclusion is diabled.                                *
+   * This should be a sepearate target.                             */
   return g_strdup_printf
-      (GAEGULI_PIPELINE_VSRC_STR " ! " GAEGULI_PIPELINE_IMAGE_STR, source,
+      (GAEGULI_PIPELINE_VSRC_STR, source,
       self->source == GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC ? "" :
-      GAEGULI_PIPELINE_DECODEBIN_STR);
+      GAEGULI_PIPELINE_DECODEBIN_STR, props);
 }
 
 static void
@@ -648,6 +665,75 @@ _bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
   return G_SOURCE_CONTINUE;
 }
 
+static gboolean
+_is_target_device (GstDevice * target_device)
+{
+  gchar *device_class;
+  gboolean res = FALSE;
+
+  device_class = gst_device_get_device_class (target_device);
+
+  if (g_strrstr (device_class, PIPEWIRE_MEDIA_CLASS_STR)) {
+    res = TRUE;
+  }
+  g_free (device_class);
+
+  return res;
+}
+
+static guint
+_get_pw_nodeid (GstDevice * target_device, gchar * device_id)
+{
+  GstStructure *props;
+  guint node_id = 0;
+
+  props = gst_device_get_properties (target_device);
+  if (props) {
+    const gchar *node_str, *node_id_str;
+
+    if (gst_structure_has_field (props, GAEGULI_PIPELINE_TAG)
+        && gst_structure_has_field (props, PIPEWIRE_NODE_ID_STR)) {
+      node_str = gst_structure_get_string (props, GAEGULI_PIPELINE_TAG);
+      if (!g_strcmp0 (node_str, device_id)) {
+        node_id_str = gst_structure_get_string (props, PIPEWIRE_NODE_ID_STR);
+        node_id = atoi (node_id_str);
+        g_debug ("Got node_id = %d", node_id);
+      }
+    }
+    gst_structure_free (props);
+  }
+
+  return node_id;
+}
+
+static gboolean
+_bus_device_monitor (GstBus * bus, GstMessage * message, gpointer user_data)
+{
+  GaeguliPipeline *self = user_data;
+
+  GstDevice *device;
+
+  switch (GST_MESSAGE_TYPE (message)) {
+    case GST_MESSAGE_DEVICE_ADDED:{
+      gst_message_parse_device_added (message, &device);
+      if (_is_target_device (device)) {
+        g_autofree gchar *pipeline_id = _get_pipeline_id_description (self);
+        self->pw_node_id = _get_pw_nodeid (device, pipeline_id);
+        if (self->pw_node_id > 0) {
+          g_main_loop_quit (self->loop);
+        }
+      }
+      gst_object_unref (device);
+    }
+      break;
+
+    default:
+      break;
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
 static void
 gaeguli_pipeline_create_snapshot (GaeguliPipeline * self, GstBuffer * buffer)
 {
@@ -671,6 +757,33 @@ gaeguli_pipeline_create_snapshot (GaeguliPipeline * self, GstBuffer * buffer)
       (GDestroyNotify) g_bytes_unref);
 
   gst_buffer_unmap (buffer, &info);
+}
+
+static void
+gaeguli_pipeline_create_device_monitor (GaeguliPipeline * self)
+{
+  GstBus *bus;
+  GstCaps *caps;
+  GstDeviceMonitor *device_monitor;
+
+  device_monitor = gst_device_monitor_new ();
+
+  bus = gst_device_monitor_get_bus (device_monitor);
+  gst_bus_add_watch (bus, _bus_device_monitor, self);
+  gst_object_unref (bus);
+
+  caps = gst_caps_new_empty_simple ("video/x-raw");
+  gst_device_monitor_add_filter (device_monitor, "Video", caps);
+  gst_caps_unref (caps);
+
+  self->loop = g_main_loop_new (NULL, FALSE);
+  gst_device_monitor_start (device_monitor);
+  g_main_loop_run (self->loop);
+  g_main_loop_unref (self->loop);
+  self->loop = NULL;
+
+  gst_device_monitor_stop (device_monitor);
+  gst_object_unref (device_monitor);
 }
 
 static gboolean
@@ -710,30 +823,24 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 
   self->snapshot_valve = gst_bin_get_by_name (GST_BIN (self->pipeline),
       "valve");
-  valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
-  gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
-      (GstPadProbeCallback) _on_valve_buffer, self, NULL);
+  if (self->snapshot_valve) {
+    valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
+    gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
+        (GstPadProbeCallback) _on_valve_buffer, self, NULL);
 
-  self->snapshot_jpegenc = gst_bin_get_by_name (GST_BIN (self->pipeline),
-      "jpegenc");
-  g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
-      "idct-method", self->snapshot_idct_method, NULL);
+    self->snapshot_jpegenc = gst_bin_get_by_name (GST_BIN (self->pipeline),
+        "jpegenc");
+    g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
+        "idct-method", self->snapshot_idct_method, NULL);
 
-  self->snapshot_jifmux = gst_bin_get_by_name (GST_BIN (self->pipeline),
-      "jifmux");
+    self->snapshot_jifmux = gst_bin_get_by_name (GST_BIN (self->pipeline),
+        "jifmux");
 
-  fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
-  g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
-  g_signal_connect_swapped (fakesink, "handoff",
-      G_CALLBACK (gaeguli_pipeline_create_snapshot), self);
-
-  /* Caps of the video source are determined by the caps filter in vsrc pipeline
-   * and don't need to be renegotiated when a new target pipeline links to
-   * the tee. Thus, ignore reconfigure events coming from downstream. */
-  tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
-  tee_sink = gst_element_get_static_pad (tee, "sink");
-  gst_pad_add_probe (tee_sink, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
-      _drop_reconfigure_cb, NULL, NULL);
+    fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
+    g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
+    g_signal_connect_swapped (fakesink, "handoff",
+        G_CALLBACK (gaeguli_pipeline_create_snapshot), self);
+  }
 
   decodebin = gst_bin_get_by_name (GST_BIN (self->pipeline), "decodebin");
   if (decodebin) {
@@ -753,6 +860,8 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   gaeguli_pipeline_update_vsrc_caps (self);
 
   gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
+
+  gaeguli_pipeline_create_device_monitor (self);
 
   return TRUE;
 
@@ -852,9 +961,6 @@ gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
     g_mutex_lock (&self->lock);
   }
   g_mutex_unlock (&self->lock);
-
-  /* Reference acquired in gaeguli_pipeline_remove_target(). */
-  g_object_unref (self);
 }
 
 static void
@@ -935,19 +1041,13 @@ gaeguli_pipeline_add_target (GaeguliPipeline * self,
   target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
 
   if (!target) {
-    g_autoptr (GstElement) tee = NULL;
-    g_autoptr (GstPad) tee_srcpad = NULL;
     g_autoptr (GError) internal_err = NULL;
 
     g_debug ("no target pipeline mapped with [%x]", target_id);
 
-    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
-    tee_srcpad = gst_element_request_pad (tee,
-        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
-            "src_%u"), NULL, NULL);
-
-    target = gaeguli_target_new (tee_srcpad, target_id, codec, bitrate,
-        self->fps, uri, username, is_record_target, location, &internal_err);
+    target = gaeguli_target_new (target_id, codec, bitrate,
+        self->fps, uri, username, is_record_target, location,
+        self->pw_node_id, &internal_err);
 
     if (target == NULL) {
       g_propagate_error (error, internal_err);
@@ -1049,16 +1149,12 @@ gaeguli_pipeline_remove_target (GaeguliPipeline * self, GaeguliTarget * target,
     goto out;
   }
 
-  gaeguli_target_unlink (target);
-  if (gaeguli_target_get_state (target) == GAEGULI_TARGET_STATE_STOPPING) {
-    /* Target removal will happen asynchronously. Keep the pipeline alive
-     * until the target fires "stream-stopped". */
-    g_object_ref (self);
-  }
+  g_mutex_unlock (&self->lock);
+
+  gaeguli_target_stop (target);
   g_object_unref (target);
 
 out:
-  g_mutex_unlock (&self->lock);
 
   return GAEGULI_RETURN_OK;
 }

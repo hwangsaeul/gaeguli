@@ -26,37 +26,45 @@
    \"mode\": %" G_GINT32_FORMAT " \
 }"
 
+#define PIPEWIRE_MEDIA_CLASS_STR "Stream/Output/Video"
+
+#define PIPEWIRE_NODE_ID_STR "object.id"
+
+#define PIPEWIRE_NODE_STREAM_PROPERTIES_STR "props"
+
+#define GAEGULI_PIPELINE_TAG "gaeguli.pipeline_id"
+
 #define GAEGULI_PIPELINE_VSRC_STR       "\
-        %s ! capsfilter name=caps ! %s ! tee name=tee allow-not-linked=1 "
+        %s ! capsfilter name=caps ! %s ! pipewiresink mode=provide stream-properties=%s "
 
 #define GAEGULI_PIPELINE_IMAGE_STR    "\
         valve name=valve drop=1 ! jpegenc name=jpegenc ! jifmux name=jifmux ! fakesink name=fakesink async=0"
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
-        queue name=enc_first ! videoconvert ! x264enc name=enc tune=zerolatency key-int-max=%d ! \
+        pipewiresrc path=%u do-timestamp=true ! queue name=enc_first ! videoconvert ! x264enc name=enc tune=zerolatency key-int-max=%d ! \
         h264parse ! queue "
 
 #define GAEGULI_PIPELINE_GENERAL_H265ENC_STR    "\
-        queue name=enc_first ! videoconvert ! x265enc name=enc tune=zerolatency key-int-max=%d ! \
+        pipewiresrc path=%u do-timestamp=true ! queue name=enc_first ! videoconvert ! x265enc name=enc tune=zerolatency key-int-max=%d ! \
         h265parse ! queue "
 
 #define GAEGULI_PIPELINE_DECODEBIN_STR    "\
         decodebin name=decodebin ! clockoverlay name=overlay "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
-        queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
+        pipewiresrc path=%u do-timestamp=true ! queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
         omxh264enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 periodicity-idr=%d ! queue "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR    "\
-        queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
+        pipewiresrc path=%u do-timestamp=true ! queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
         omxh264enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 periodicity-idr=%d ! queue "
 
 #define GAEGULI_PIPELINE_VAAPI_H264_STR    "\
-        queue name=enc_first ! vaapipostproc ! vaapih264enc name=enc keyframe-period=%d ! \
+        pipewiresrc path=%u do-timestamp=true ! queue name=enc_first ! vaapipostproc ! vaapih264enc name=enc keyframe-period=%d ! \
         h264parse ! queue "
 
 #define GAEGULI_PIPELINE_VAAPI_H265_STR    "\
-        queue name=enc_first ! vaapipostproc ! vaapih265enc name=enc keyframe-period=%d ! \
+        pipewiresrc path=%u do-timestamp=true ! queue name=enc_first ! vaapipostproc ! vaapih265enc name=enc keyframe-period=%d ! \
         h265parse ! queue "
 
 #define GAEGULI_PIPELINE_MUXSINK_STR    "\

@@ -53,8 +53,7 @@ struct _GaeguliTarget
 };
 
 
-GaeguliTarget          *gaeguli_target_new           (GstPad                *peer_pad,
-                                                      guint                  id,
+GaeguliTarget          *gaeguli_target_new           (guint                  id,
                                                       GaeguliVideoCodec      codec,
                                                       guint                  bitrate,
                                                       guint                  idr_period,
@@ -62,12 +61,13 @@ GaeguliTarget          *gaeguli_target_new           (GstPad                *pee
                                                       const gchar           *username,
                                                       gboolean              is_record_target,
                                                       const gchar           *location,
+                                                      guint                 node_id,
                                                       GError               **error);
 
 void                    gaeguli_target_start         (GaeguliTarget        *self,
                                                       GError              **error);
 
-void                    gaeguli_target_unlink        (GaeguliTarget        *self);
+void                    gaeguli_target_stop          (GaeguliTarget        *self);
 
 GaeguliTargetState      gaeguli_target_get_state     (GaeguliTarget        *self);
 
