@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - master
+      - pipewire-experimental 
   pull_request:
     branches:
       - master
+      - pipewire-experimental 
 
 jobs:
   build:
