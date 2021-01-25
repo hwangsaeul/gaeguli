@@ -20,6 +20,7 @@ libversion = '@0@.@1@.0'.format(soversion, curversion)
 gaeguli_api_name = '@0@-@1@'.format(meson.project_name(), apiversion)
 
 prefix = get_option('prefix')
+gaeguli_bindir = join_paths(prefix, get_option('libexecdir'))
 
 cc = meson.get_compiler('c')
 
@@ -50,6 +51,11 @@ endif
 cdata.set('DEFAULT_VIDEO_FRAMERATE', 15)
 cdata.set('DEFAULT_VIDEO_BITRATE', 1000000)
 cdata.set('DEFAULT_VIDEO_CODEC', 'GAEGULI_VIDEO_CODEC_H264_X264')
+
+cdata.set_quoted('GAEGULI_PIPELINE_WORKER',
+  join_paths(gaeguli_bindir, 'gaeguli_pipeline_worker'))
+cdata.set_quoted('GAEGULI_TARGET_WORKER',
+  join_paths(gaeguli_bindir, 'gaeguli_target_worker'))
 
 cdata.set('_GAEGULI_EXTERN', '__attribute__((visibility("default"))) extern')
 

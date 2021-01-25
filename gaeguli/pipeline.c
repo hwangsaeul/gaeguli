@@ -69,6 +69,7 @@ struct _GaeguliPipeline
 
   GMainLoop *loop;
   guint pw_node_id;
+  GPid worker_pid;
 
   GType adaptor_type;
 };
@@ -786,6 +787,14 @@ gaeguli_pipeline_create_device_monitor (GaeguliPipeline * self)
   gst_object_unref (device_monitor);
 }
 
+static void
+_cb_child_watch (GPid pid, gint status, gpointer * data)
+{
+  /* Close pid */
+  g_debug ("closing process with pid: %d\n", pid);
+  g_spawn_close_pid (pid);
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
@@ -798,6 +807,28 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   g_autoptr (GstPad) tee_sink = NULL;
   g_autoptr (GstPad) valve_src = NULL;
   g_autoptr (GstPluginFeature) feature = NULL;
+
+  g_autoptr (GError) gerr = NULL;
+  GPid pid;
+  gchar *arg[2];
+
+  if (g_file_test (GAEGULI_PIPELINE_WORKER, G_FILE_TEST_EXISTS)) {
+    arg[0] = GAEGULI_PIPELINE_WORKER;
+  } else {
+    arg[0] = GAEGULI_PIPELINE_WORKER_ALT;
+  }
+
+  arg[1] = NULL;
+
+  g_spawn_async (NULL, arg, NULL,
+      G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid, &gerr);
+  if (gerr != NULL) {
+    g_error ("spawning pipeline worker failed. %s", gerr->message);
+  } else {
+    g_debug ("A new child process spawned with pid %d\n", pid);
+    self->worker_pid = pid;
+    g_child_watch_add (pid, (GChildWatchFunc) _cb_child_watch, NULL);
+  }
 
   /* FIXME: what if zero-copy */
   vsrc_str = _get_vsrc_pipeline_string (self);
@@ -1209,6 +1240,9 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
   g_return_if_fail (GAEGULI_IS_PIPELINE (self));
 
   g_debug ("clear internal pipeline");
+
+  /* Send SIGINT to worker pid */
+  kill (self->worker_pid, SIGINT);
 
   if (self->pipeline) {
     gst_element_set_state (self->pipeline, GST_STATE_NULL);
