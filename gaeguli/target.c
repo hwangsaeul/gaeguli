@@ -62,6 +62,7 @@ typedef struct
   gchar *location;
 
   guint node_id;
+  GPid worker_pid;
 } GaeguliTargetPrivate;
 
 enum
@@ -669,6 +670,14 @@ gaeguli_target_on_caller_removed (GaeguliTarget * self, gint srtsocket,
   g_signal_emit (self, signals[SIG_CALLER_REMOVED], 0, srtsocket, address);
 }
 
+static void
+_cb_child_watch (GPid pid, gint status, gpointer * data)
+{
+  /* Close pid */
+  g_debug ("closing process with pid: %d\n", pid);
+  g_spawn_close_pid (pid);
+}
+
 static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
@@ -682,6 +691,28 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
   NotifyData *notify_data;
+
+  g_autoptr (GError) gerr = NULL;
+  GPid pid;
+  gchar *arg[2];
+
+  if (g_file_test (GAEGULI_TARGET_WORKER, G_FILE_TEST_EXISTS)) {
+    arg[0] = GAEGULI_TARGET_WORKER;
+  } else {
+    arg[0] = GAEGULI_TARGET_WORKER_ALT;
+  }
+
+  arg[1] = NULL;
+
+  g_spawn_async (NULL, arg, NULL,
+      G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid, &gerr);
+  if (gerr != NULL) {
+    g_error ("spawning pipeline worker failed. %s", gerr->message);
+  } else {
+    g_debug ("A new child process spawned with pid %d\n", pid);
+    priv->worker_pid = pid;
+    g_child_watch_add (pid, (GChildWatchFunc) _cb_child_watch, NULL);
+  }
 
   pipeline_str = _get_enc_string (priv->codec, priv->idr_period, priv->node_id);
   if (pipeline_str == NULL) {
@@ -1272,6 +1303,8 @@ gaeguli_target_stop (GaeguliTarget * self)
   priv->state = GAEGULI_TARGET_STATE_STOPPED;
 
   g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0);
+  /* Send SIGINT to worker pid */
+  kill (priv->worker_pid, SIGINT);
 }
 
 static GVariant *_convert_gst_structure_to (GstStructure * s);
