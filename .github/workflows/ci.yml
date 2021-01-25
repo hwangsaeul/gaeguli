@@ -31,6 +31,9 @@ jobs:
                   gstreamer1.0-plugins-bad \
                   gstreamer1.0-plugins-bad-dbg \
                   gstreamer1.0-plugins-ugly \
+                  gstreamer1.0-pipewire \
+                  pipewire \
+                  libpipewire-0.2-dev \
                   libsrt-dev \
                   libjson-glib-dev \
                   libsoup2.4-dev \
