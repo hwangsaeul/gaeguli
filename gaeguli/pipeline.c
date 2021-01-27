@@ -604,12 +604,7 @@ _get_vsrc_pipeline_string (GaeguliPipeline * self)
   g_autofree gchar *source = _get_source_description (self);
   g_autofree gchar *props = _get_stream_props_description (self);
 
-  /* FIXME - pipewiresink along with another sink in the pipeline   *
-   * do not provide the captured video to the consumer pipeline.    *
-   * Hence its inclusion is diabled.                                *
-   * This should be a sepearate target.                             */
-  return g_strdup_printf
-      (GAEGULI_PIPELINE_VSRC_STR, source,
+  return g_strdup_printf (GAEGULI_PIPELINE_VSRC_STR, source,
       self->source == GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC ? "" :
       GAEGULI_PIPELINE_DECODEBIN_STR, props);
 }
