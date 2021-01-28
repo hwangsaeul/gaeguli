@@ -34,11 +34,14 @@
 
 #define GAEGULI_PIPELINE_TAG "gaeguli.pipeline_id"
 
-#define GAEGULI_PIPELINE_VSRC_STR       "\
-        %s ! capsfilter name=caps ! %s ! pipewiresink mode=provide stream-properties=%s "
+#define GAEGULI_PIPELINE_VSRC_BASE_STR    "\
+        %s ! capsfilter name=caps ! %s ! tee name=t ! pipewiresink mode=provide stream-properties=%s "
 
 #define GAEGULI_PIPELINE_IMAGE_STR    "\
-        valve name=valve drop=1 ! jpegenc name=jpegenc ! jifmux name=jifmux ! fakesink name=fakesink async=0"
+        t. ! valve name=valve drop=1 ! jpegenc name=jpegenc ! jifmux name=jifmux ! fakesink name=fakesink async=0"
+
+#define GAEGULI_PIPELINE_VSRC_STR \
+        GAEGULI_PIPELINE_VSRC_BASE_STR GAEGULI_PIPELINE_IMAGE_STR
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
         pipewiresrc path=%u do-timestamp=true ! queue name=enc_first ! videoconvert ! x264enc name=enc tune=zerolatency key-int-max=%d ! \
