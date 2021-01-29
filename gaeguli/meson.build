@@ -28,7 +28,9 @@ gaeguli_c_args = [
   '-DG_LOG_DOMAIN="GAEGULI"',
   '-DGAEGULI_COMPILATION',
   '-DGAEGULI_PIPELINE_WORKER_ALT="' + join_paths(meson.current_build_dir(), 'workers', 'gaeguli_pipeline_worker') +'"',
-  '-DGAEGULI_TARGET_WORKER_ALT="' + join_paths(meson.current_build_dir(), 'workers', 'gaeguli_target_worker') + '"'
+  '-DGAEGULI_TARGET_WORKER_ALT="' + join_paths(meson.current_build_dir(), 'workers', 'gaeguli_target_worker') + '"',
+  '-DUSE_PIPELINE_WORKER_PROCESS',
+  '-DUSE_TARGET_WORKER_PROCESS'
 ]
 
 gaeguli_enums = gnome.mkenums(

@@ -23,6 +23,7 @@
 #include "adaptors/nulladaptor.h"
 
 #include <gio/gio.h>
+#include <fcntl.h>
 
 /* *INDENT-OFF* */
 #if !GLIB_CHECK_VERSION(2,57,1)
@@ -47,7 +48,6 @@ struct _GaeguliPipeline
   guint num_active_targets;
 
   GstElement *pipeline;
-  GstElement *vsrc;
 
   GstElement *snapshot_valve;
   GstElement *snapshot_jpegenc;
@@ -56,8 +56,6 @@ struct _GaeguliPipeline
   guint num_snapshots_to_encode;
   guint snapshot_quality;
   GaeguliIDCTMethod snapshot_idct_method;
-
-  GstElement *overlay;
   gboolean show_overlay;
 
   guint benchmark_interval_ms;
@@ -70,17 +68,18 @@ struct _GaeguliPipeline
   GMainLoop *loop;
   guint pw_node_id;
   GPid worker_pid;
+  gint pipeline_fds[2];
+  gint worker_fds[2];
+  GIOChannel *read_ch;
 
   GType adaptor_type;
 };
 
-static const gchar *const supported_formats[] = {
-  "video/x-raw",
-  "video/x-raw(memory:GLMemory)",
-  "video/x-raw(memory:NVMM)",
-  "image/jpeg",
-  NULL
-};
+typedef struct _GaeguliPipelineMsg
+{
+  GaeguliPipelineMsgType msg_type;
+  guint value;
+} GaeguliPipelineMsg;
 
 typedef enum
 {
@@ -118,8 +117,6 @@ G_DEFINE_TYPE (GaeguliPipeline, gaeguli_pipeline, G_TYPE_OBJECT)
 
 #define LOCK_PIPELINE \
   g_autoptr (GMutexLocker) locker = g_mutex_locker_new (&self->lock)
-
-static void gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self);
 
 typedef struct
 {
@@ -248,6 +245,36 @@ gaeguli_pipeline_finalize (GObject * object)
   G_OBJECT_CLASS (gaeguli_pipeline_parent_class)->finalize (object);
 }
 
+static GaeguliPipelineMsg *
+gaeguli_pipeline_build_message (GaeguliPipelineMsgType type, guint val)
+{
+  GaeguliPipelineMsg *msg = g_new0 (GaeguliPipelineMsg, 1);
+
+  msg->msg_type = type;
+  msg->value = val;
+
+  return msg;
+}
+
+static gboolean
+gaeguli_pipeline_post_message (GaeguliPipeline * self, GaeguliPipelineMsg * msg)
+{
+  g_autoptr (GError) error = NULL;
+  gsize size = sizeof (GaeguliPipelineMsg);
+
+  if (!self->pipeline_fds[1]) {
+    g_free (msg);
+    return FALSE;
+  }
+
+  if (write (self->pipeline_fds[1], msg, size) < 0) {
+    g_warning ("Failed to post message");
+  }
+  g_free (msg);
+
+  return TRUE;
+}
+
 static void
 gaeguli_pipeline_get_property (GObject * object,
     guint prop_id, GValue * value, GParamSpec * pspec)
@@ -311,16 +338,26 @@ gaeguli_pipeline_set_property (GObject * object,
       break;
     case PROP_RESOLUTION:
       self->resolution = g_value_get_enum (value);
-      gaeguli_pipeline_update_vsrc_caps (self);
+      if ((self->worker_pid != 0) && !gaeguli_pipeline_post_message (self,
+              gaeguli_pipeline_build_message (GAEGULI_SET_RESOLUTION_MSG,
+                  self->resolution))) {
+        g_warning ("Failed to post message");
+      }
       break;
     case PROP_FRAMERATE:
       self->fps = g_value_get_uint (value);
-      gaeguli_pipeline_update_vsrc_caps (self);
+      if ((self->worker_pid != 0) && !gaeguli_pipeline_post_message (self,
+              gaeguli_pipeline_build_message (GAEGULI_SET_FPS_MSG,
+                  self->fps))) {
+        g_warning ("Failed to post message");
+      }
       break;
     case PROP_CLOCK_OVERLAY:
       self->show_overlay = g_value_get_boolean (value);
-      if (self->overlay) {
-        g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
+      if ((self->worker_pid != 0) && !gaeguli_pipeline_post_message (self,
+              gaeguli_pipeline_build_message (GAEGULI_SET_OVERLAY_MSG,
+                  !self->show_overlay))) {
+        g_warning ("Failed to post message");
       }
       break;
     case PROP_STREAM_ADAPTOR:
@@ -554,31 +591,6 @@ _on_valve_buffer (GstPad * pad, GstPadProbeInfo * info, GaeguliPipeline * self)
 }
 
 static gchar *
-_get_source_description (GaeguliPipeline * self)
-{
-  g_autoptr (GEnumClass) enum_class =
-      g_type_class_ref (GAEGULI_TYPE_VIDEO_SOURCE);
-  GEnumValue *enum_value = g_enum_get_value (enum_class, self->source);
-  GString *result = g_string_new (enum_value->value_nick);
-
-  switch (self->source) {
-    case GAEGULI_VIDEO_SOURCE_V4L2SRC:
-      g_string_append_printf (result, " device=%s", self->device);
-      break;
-    case GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC:
-      g_string_append (result, " is-live=1");
-      break;
-    case GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC:
-      g_string_append_printf (result, " sensor-id=%s", self->device);
-      break;
-    default:
-      break;
-  }
-
-  return g_string_free (result, FALSE);
-}
-
-static gchar *
 _get_pipeline_id_description (GaeguliPipeline * self)
 {
   GString *desc = g_string_new (NULL);
@@ -586,84 +598,6 @@ _get_pipeline_id_description (GaeguliPipeline * self)
   g_string_append_printf (desc, "%d_%p", getpid (), self);
 
   return g_string_free (desc, FALSE);
-}
-
-static gchar *
-_get_stream_props_description (GaeguliPipeline * self)
-{
-  GString *stream_props = g_string_new (PIPEWIRE_NODE_STREAM_PROPERTIES_STR);
-
-  g_string_append_printf (stream_props, ",%s=%s",
-      GAEGULI_PIPELINE_TAG, _get_pipeline_id_description (self));
-
-  return g_string_free (stream_props, FALSE);
-}
-
-static gchar *
-_get_vsrc_pipeline_string (GaeguliPipeline * self)
-{
-  g_autofree gchar *source = _get_source_description (self);
-  g_autofree gchar *props = _get_stream_props_description (self);
-
-  /* FIXME - pipewiresink along with another sink in the pipeline   *
-   * do not provide the captured video to the consumer pipeline.    *
-   * Hence its inclusion is diabled.                                *
-   * This should be a sepearate target.                             */
-  return g_strdup_printf
-      (GAEGULI_PIPELINE_VSRC_STR, source,
-      self->source == GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC ? "" :
-      GAEGULI_PIPELINE_DECODEBIN_STR, props);
-}
-
-static void
-_decodebin_pad_added (GstElement * decodebin, GstPad * pad, gpointer user_data)
-{
-  if (GST_PAD_PEER (pad) == NULL) {
-    GstElement *overlay = GST_ELEMENT (user_data);
-    g_autoptr (GstPad) sinkpad =
-        gst_element_get_static_pad (overlay, "video_sink");
-
-    gst_pad_link (pad, sinkpad);
-  }
-}
-
-static gboolean
-_bus_watch (GstBus * bus, GstMessage * message, gpointer user_data)
-{
-  GaeguliPipeline *self = user_data;
-
-  switch (message->type) {
-    case GST_MESSAGE_WARNING:{
-      gpointer target_id;
-      GaeguliTarget *target;
-      g_autoptr (GError) error = NULL;
-
-      if (!message->src) {
-        break;
-      }
-
-      target_id = g_object_get_data (G_OBJECT (message->src),
-          "gaeguli-target-id");
-
-      g_mutex_lock (&self->lock);
-      target = g_hash_table_lookup (self->targets, target_id);
-      g_mutex_unlock (&self->lock);
-
-      if (!target) {
-        break;
-      }
-
-      gst_message_parse_warning (message, &error, NULL);
-      if (error && error->domain == GST_RESOURCE_ERROR) {
-        g_signal_emit (self, signals[SIG_CONNECTION_ERROR], 0, target, error);
-      }
-      break;
-    }
-    default:
-      break;
-  }
-
-  return G_SOURCE_CONTINUE;
 }
 
 static gboolean
@@ -795,6 +729,36 @@ _cb_child_watch (GPid pid, gint status, gpointer * data)
   g_spawn_close_pid (pid);
 }
 
+static gchar **
+_gaeguli_build_pipeline_worker_args (GaeguliPipeline * self)
+{
+  gsize n_bytes = (GAEGULI_PIPELINE_WORKER_ARGS_NUM * sizeof (gchar *));
+  gchar **args = g_malloc (n_bytes);
+  if (args) {
+    gint i = 0;
+
+    if (g_file_test (GAEGULI_PIPELINE_WORKER, G_FILE_TEST_EXISTS)) {
+      args[i++] = g_strdup (GAEGULI_PIPELINE_WORKER);
+    } else {
+      args[i++] = g_strdup (GAEGULI_PIPELINE_WORKER_ALT);
+    }
+    args[i++] = g_strdup_printf ("%p", self);
+    args[i++] = g_strdup (self->device);
+    args[i++] = g_strdup_printf ("%d", self->source);
+    args[i++] = g_strdup_printf ("%d", self->show_overlay);
+    args[i++] = g_strdup_printf ("%d", self->prefer_hw_decoding);
+    args[i++] = g_strdup_printf ("%d", self->resolution);
+    args[i++] = g_strdup_printf ("%d", self->fps);
+    args[i++] = g_strdup_printf ("%d", self->pipeline_fds[0]);
+    args[i++] = g_strdup_printf ("%d", self->pipeline_fds[1]);
+    args[i++] = g_strdup_printf ("%d", self->worker_fds[0]);
+    args[i++] = g_strdup_printf ("%d", self->worker_fds[1]);
+
+    args[i++] = NULL;
+  }
+  return args;
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
@@ -809,163 +773,62 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   g_autoptr (GstPluginFeature) feature = NULL;
 
   g_autoptr (GError) gerr = NULL;
+  gboolean ret = TRUE;
   GPid pid;
-  gchar *arg[2];
+  gchar **args = NULL;
 
-  if (g_file_test (GAEGULI_PIPELINE_WORKER, G_FILE_TEST_EXISTS)) {
-    arg[0] = GAEGULI_PIPELINE_WORKER;
-  } else {
-    arg[0] = GAEGULI_PIPELINE_WORKER_ALT;
+  /* Create pipes for IPC: Pipeline -> Worker direction */
+  if (pipe (self->pipeline_fds) < 0) {
+    g_error ("Failed to create pipeline fds");
+    ret = FALSE;
+    goto failed;
   }
 
-  arg[1] = NULL;
+  /* Create pipes for IPC: Worker -> Pipeline direction */
+  if (pipe (self->worker_fds) < 0) {
+    g_error ("Failed to create worker fds");
+    ret = FALSE;
+    goto failed;
+  }
 
-  g_spawn_async (NULL, arg, NULL,
-      G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid, &gerr);
-  if (gerr != NULL) {
+  if (!(args = _gaeguli_build_pipeline_worker_args (self))) {
+    ret = FALSE;
+    goto failed;
+  }
+
+  if (!g_spawn_async (NULL, args, NULL,
+          G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_LEAVE_DESCRIPTORS_OPEN, NULL,
+          NULL, &pid, &gerr)) {
     g_error ("spawning pipeline worker failed. %s", gerr->message);
+    ret = FALSE;
+    goto failed;
   } else {
     g_debug ("A new child process spawned with pid %d\n", pid);
     self->worker_pid = pid;
     g_child_watch_add (pid, (GChildWatchFunc) _cb_child_watch, NULL);
+
+    /* Close the read side of the pipeline pipe */
+    close (self->pipeline_fds[0]);
+    self->pipeline_fds[0] = 0;
+
+    /* Make the write fd of pipeline pipe non blocking */
+    if (fcntl (self->pipeline_fds[1], F_SETFL, O_NONBLOCK) < 0) {
+      g_error ("failed to set non blocking flag on write fd of pipeline pipe");
+      ret = FALSE;
+      goto failed;
+    }
+
+    /* Close the write side of the worker pipe */
+    close (self->worker_fds[1]);
+    self->worker_fds[1] = 0;
   }
-
-  /* FIXME: what if zero-copy */
-  vsrc_str = _get_vsrc_pipeline_string (self);
-
-  g_debug ("trying to create video source pipeline (%s)", vsrc_str);
-  self->vsrc = gst_parse_launch (vsrc_str, &internal_err);
-
-  if (internal_err) {
-    g_warning ("failed to build source pipeline (%s)", internal_err->message);
-    g_propagate_error (error, internal_err);
-    goto failed;
-  }
-
-  self->pipeline = gst_pipeline_new (NULL);
-  gst_bin_add (GST_BIN (self->pipeline), g_object_ref (self->vsrc));
-
-  bus = gst_element_get_bus (self->pipeline);
-  gst_bus_add_watch (bus, _bus_watch, self);
-
-  self->overlay = gst_bin_get_by_name (GST_BIN (self->pipeline), "overlay");
-  if (self->overlay)
-    g_object_set (self->overlay, "silent", !self->show_overlay, NULL);
-
-  self->snapshot_valve = gst_bin_get_by_name (GST_BIN (self->pipeline),
-      "valve");
-  if (self->snapshot_valve) {
-    valve_src = gst_element_get_static_pad (self->snapshot_valve, "src");
-    gst_pad_add_probe (valve_src, GST_PAD_PROBE_TYPE_BUFFER,
-        (GstPadProbeCallback) _on_valve_buffer, self, NULL);
-
-    self->snapshot_jpegenc = gst_bin_get_by_name (GST_BIN (self->pipeline),
-        "jpegenc");
-    g_object_set (self->snapshot_jpegenc, "quality", self->snapshot_quality,
-        "idct-method", self->snapshot_idct_method, NULL);
-
-    self->snapshot_jifmux = gst_bin_get_by_name (GST_BIN (self->pipeline),
-        "jifmux");
-
-    fakesink = gst_bin_get_by_name (GST_BIN (self->pipeline), "fakesink");
-    g_object_set (fakesink, "signal-handoffs", TRUE, NULL);
-    g_signal_connect_swapped (fakesink, "handoff",
-        G_CALLBACK (gaeguli_pipeline_create_snapshot), self);
-  }
-
-  decodebin = gst_bin_get_by_name (GST_BIN (self->pipeline), "decodebin");
-  if (decodebin) {
-    g_signal_connect (decodebin, "pad-added",
-        G_CALLBACK (_decodebin_pad_added), self->overlay);
-  }
-
-  if (self->prefer_hw_decoding) {
-    /* Verify whether hardware accelearted vaapijpeg decoder is available.
-     * If available, make sure that the decodebin picks it up. */
-    feature = gst_registry_find_feature (gst_registry_get (), "vaapijpegdec",
-        GST_TYPE_ELEMENT_FACTORY);
-    if (feature)
-      gst_plugin_feature_set_rank (feature, GST_RANK_PRIMARY + 100);
-  }
-
-  gaeguli_pipeline_update_vsrc_caps (self);
-
-  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
 
   gaeguli_pipeline_create_device_monitor (self);
 
-  return TRUE;
-
 failed:
-  gst_clear_object (&self->vsrc);
-  gst_clear_object (&self->pipeline);
+  g_strfreev (args);
 
-  return FALSE;
-}
-
-static void
-gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
-{
-  gint width, height, i;
-  g_autoptr (GstElement) capsfilter = NULL;
-  g_autoptr (GstCaps) caps = NULL;
-
-  if (!self->vsrc) {
-    return;
-  }
-
-  switch (self->resolution) {
-    case GAEGULI_VIDEO_RESOLUTION_640X480:
-      width = 640;
-      height = 480;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_1280X720:
-      width = 1280;
-      height = 720;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_1920X1080:
-      width = 1920;
-      height = 1080;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_3840X2160:
-      width = 3840;
-      height = 2160;
-      break;
-    default:
-      width = -1;
-      height = -1;
-      break;
-  }
-
-  caps = gst_caps_new_empty ();
-
-  for (i = 0; supported_formats[i] != NULL; i++) {
-    GstCaps *supported_caps = gst_caps_from_string (supported_formats[i]);
-    gst_caps_set_simple (supported_caps, "width", G_TYPE_INT, width, "height",
-        G_TYPE_INT, height, "framerate", GST_TYPE_FRACTION, self->fps, 1, NULL);
-    gst_caps_append (caps, supported_caps);
-  }
-
-  capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
-  g_object_set (capsfilter, "caps", caps, NULL);
-
-  /* Cycling vsrc through READY state prods decodebin into re-discovery of input
-   * stream format and rebuilding its decoding pipeline. This is needed when
-   * a switch is made between two resolutions that the connected camera can only
-   * produce in different output formats, e.g. a change from raw 640x480 stream
-   * to MJPEG 1920x1080.
-   *
-   * NVARGUS Camera src doesn't support this.
-   */
-  if (self->source != GAEGULI_VIDEO_SOURCE_NVARGUSCAMERASRC) {
-    GstState cur_state;
-
-    gst_element_get_state (self->vsrc, &cur_state, NULL, 0);
-    if (cur_state > GST_STATE_READY) {
-      gst_element_set_state (self->vsrc, GST_STATE_READY);
-      gst_element_set_state (self->vsrc, cur_state);
-    }
-  }
+  return ret;
 }
 
 static void
@@ -994,6 +857,7 @@ gaeguli_pipeline_emit_stream_stopped (GaeguliPipeline * self,
   g_mutex_unlock (&self->lock);
 }
 
+#ifndef USE_PIPELINE_WORKER_PROCESS
 static void
 gaeguli_pipeline_on_caller_added (GaeguliPipeline * self, gint srtsocket,
     GInetSocketAddress * address)
@@ -1016,6 +880,7 @@ gaeguli_pipeline_on_caller_removed (GaeguliPipeline * self, int srtsocket,
   g_hash_table_remove (self->srtsocket_to_peer_addr,
       GINT_TO_POINTER (srtsocket));
 }
+#endif
 
 static gint32
 gaeguli_pipeline_suggest_buffer_size_for_target (GaeguliPipeline * self,
@@ -1058,7 +923,7 @@ gaeguli_pipeline_add_target (GaeguliPipeline * self,
   g_mutex_lock (&self->lock);
 
   /* assume that it's first target */
-  if (self->vsrc == NULL && !is_record_target
+  if (self->worker_pid == 0 && !is_record_target
       && !_build_vsrc_pipeline (self, error)) {
     goto failed;
   }
@@ -1107,10 +972,12 @@ gaeguli_pipeline_add_target (GaeguliPipeline * self,
           G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
       g_signal_connect_swapped (target, "stream-stopped",
           G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
+#ifndef USE_PIPELINE_WORKER_PROCESS
       g_signal_connect_swapped (target, "caller-added",
           G_CALLBACK (gaeguli_pipeline_on_caller_added), self);
       g_signal_connect_swapped (target, "caller-removed",
           G_CALLBACK (gaeguli_pipeline_on_caller_removed), self);
+#endif
     }
     g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
   } else {
@@ -1203,7 +1070,7 @@ gaeguli_pipeline_create_snapshot_async (GaeguliPipeline * self, GVariant * tags,
 
   task = g_task_new (self, cancellable, callback, user_data);
 
-  if (self->vsrc == NULL && !_build_vsrc_pipeline (self, &error)) {
+  if (self->worker_pid == 0 && !_build_vsrc_pipeline (self, &error)) {
     g_task_return_error (task, error);
     return;
   }
@@ -1241,11 +1108,22 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
 
   g_debug ("clear internal pipeline");
 
-  /* Send SIGINT to worker pid */
-  kill (self->worker_pid, SIGINT);
+  /* Send Terminate message to worker */
+  if (self->pipeline_fds[1] > 0) {
+    if (!gaeguli_pipeline_post_message (self,
+            gaeguli_pipeline_build_message
+            (GAEGULI_PIPELINE_TERMINATE_WORKER_MSG, self->resolution))) {
+      g_warning
+          ("Failed to send IPC with type GAEGULI_PIPELINE_TERMINATE_WORKER_MSG to worker");
+    }
 
-  if (self->pipeline) {
-    gst_element_set_state (self->pipeline, GST_STATE_NULL);
+    close (self->pipeline_fds[1]);
+    self->pipeline_fds[1] = 0;
+  }
+
+  if (self->worker_fds[0] > 0) {
+    close (self->worker_fds[0]);
+    self->worker_fds[0] = 0;
   }
 
   g_mutex_lock (&self->lock);
@@ -1256,8 +1134,6 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
         GAEGULI_RESOURCE_ERROR_STOPPED, "The pipeline has been stopped");
   }
 
-  g_clear_pointer (&self->vsrc, gst_object_unref);
-  g_clear_pointer (&self->overlay, gst_object_unref);
   gst_clear_object (&self->snapshot_valve);
   gst_clear_object (&self->snapshot_jpegenc);
   gst_clear_object (&self->snapshot_jifmux);

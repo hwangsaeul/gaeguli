@@ -31,6 +31,7 @@
 #include "adaptors/nulladaptor.h"
 
 #include <gio/gio.h>
+#include <fcntl.h>
 
 typedef struct
 {
@@ -40,8 +41,6 @@ typedef struct
 
   GaeguliTargetState state;
 
-  GstElement *encoder;
-  GstElement *srtsink;
   GaeguliStreamAdaptor *adaptor;
 
   GaeguliVideoCodec codec;
@@ -60,9 +59,13 @@ typedef struct
   gint32 buffer_size;
   GstStructure *video_params;
   gchar *location;
+  GaeguliSRTMode mode;
 
   guint node_id;
   GPid worker_pid;
+  gint target_fds[2];
+  gint worker_fds[2];
+  GIOChannel *read_ch;
 } GaeguliTargetPrivate;
 
 enum
@@ -102,6 +105,27 @@ enum
   LAST_SIGNAL
 };
 
+typedef struct _GaeguliTargetMsg
+{
+  GaeguliTargetMsgType type;
+  GaeguliVideoBitrateControl bitrate_control;
+  guint bitrate;
+  guint quantizer;
+  gboolean adaptive_streaming;
+  GType adaptor_type;
+} GaeguliTargetMsg;
+
+typedef struct _GaeguliTargetWorkerMsg
+{
+  GaeguliTargetWorkerMsgType msg_type;
+  gint srtsocket;
+  GSocketAddress *address;
+  GaeguliVideoBitrateControl bitrate_control;
+  guint bitrate;
+  guint quantizer;
+  GaeguliSRTMode mode;
+} GaeguliTargetWorkerMsg;
+
 static guint signals[LAST_SIGNAL] = { 0 };
 
 static void gaeguli_target_initable_iface_init (GInitableIface * iface);
@@ -126,556 +150,159 @@ gaeguli_target_init (GaeguliTarget * self)
   priv->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
 }
 
-typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
-    guint idr_period, guint node_id);
-
-struct encoding_method_params
+static GaeguliTargetMsg *
+gaeguli_target_build_message (GaeguliTargetMsgType type,
+    GaeguliVideoBitrateControl bitrate_control, guint bitrate, guint quantizer,
+    gboolean adaptive_streaming, GType adaptor_type)
 {
-  const gchar *pipeline_str;
-  GaeguliVideoCodec codec;
-  PipelineFormatFunc format_func;
-};
+  GaeguliTargetMsg *msg = g_new0 (GaeguliTargetMsg, 1);
 
-static gchar *
-_format_general_pipeline (const gchar * pipeline_str, guint idr_period,
-    guint node_id)
-{
-  return g_strdup_printf (pipeline_str, node_id, idr_period);
+  msg->type = type;
+  msg->bitrate_control = bitrate_control;
+  msg->bitrate = bitrate;
+  msg->quantizer = quantizer;
+  msg->adaptive_streaming = adaptive_streaming;
+  msg->adaptor_type = adaptor_type;
+
+  return msg;
 }
 
-static gchar *
-_format_tx1_pipeline (const gchar * pipeline_str, guint idr_period,
-    guint node_id)
-{
-  return g_strdup_printf (pipeline_str, node_id, idr_period);
-}
-
-static struct encoding_method_params enc_params[] = {
-  {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
-      _format_general_pipeline},
-  {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_X265,
-      _format_general_pipeline},
-  {GAEGULI_PIPELINE_VAAPI_H264_STR, GAEGULI_VIDEO_CODEC_H264_VAAPI,
-      _format_general_pipeline},
-  {GAEGULI_PIPELINE_VAAPI_H265_STR, GAEGULI_VIDEO_CODEC_H265_VAAPI,
-      _format_general_pipeline},
-  {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_OMX,
-      _format_tx1_pipeline},
-  {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_OMX,
-      _format_tx1_pipeline},
-  {NULL, 0, 0},
-};
-
-static gchar *
-_get_enc_string (GaeguliVideoCodec codec, guint idr_period, guint node_id)
-{
-  struct encoding_method_params *params = enc_params;
-
-  for (; params->pipeline_str != NULL; params++) {
-    if (params->codec == codec)
-      return params->format_func (params->pipeline_str, idr_period, node_id);
-  }
-
-  return NULL;
-}
-
-static GstBusSyncReply
-_bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
-    gpointer user_data)
-{
-  switch (message->type) {
-    case GST_MESSAGE_ERROR:{
-      g_autoptr (GError) error = NULL;
-      g_autofree gchar *debug = NULL;
-
-      gst_message_parse_error (message, &error, &debug);
-      if (g_error_matches (error, GST_RESOURCE_ERROR,
-              GST_RESOURCE_ERROR_OPEN_WRITE)) {
-        GError **error = user_data;
-
-        g_clear_error (error);
-
-        if (g_str_has_suffix (debug, "already listening on the same port")) {
-          *error = g_error_new (GAEGULI_TRANSMIT_ERROR,
-              GAEGULI_TRANSMIT_ERROR_ADDRINUSE, "Address already in use");
-        } else {
-          *error = g_error_new (GAEGULI_TRANSMIT_ERROR,
-              GAEGULI_TRANSMIT_ERROR_FAILED, "Failed to open SRT socket");
-        }
-      }
-      break;
-    }
-    default:
-      break;
-  }
-
-  return GST_BUS_PASS;
-}
-
-static guint
-_get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
-{
-  guint result = 0;
-
-  const gchar *encoder_type =
-      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
-
-  if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_BITRATE)) {
-    if (g_str_equal (encoder_type, "x264enc") ||
-        g_str_equal (encoder_type, "x265enc") ||
-        g_str_equal (encoder_type, "vaapih264enc") ||
-        g_str_equal (encoder_type, "vaapih265enc")) {
-      g_object_get (encoder, "bitrate", &result, NULL);
-      result *= 1000;
-    } else if (g_str_equal (encoder_type, "omxh264enc") ||
-        g_str_equal (encoder_type, "omxh265enc")) {
-      g_object_get (encoder, "target-bitrate", &result, NULL);
-    }
-  } else if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_QUANTIZER)) {
-    if (g_str_equal (encoder_type, "x264enc")) {
-      g_object_get (encoder, "quantizer", &result, NULL);
-    } else if (g_str_equal (encoder_type, "x265enc")) {
-      g_object_get (encoder, "qp", &result, NULL);
-    } else if (g_str_equal (encoder_type, "vaapih264enc") ||
-        g_str_equal (encoder_type, "vaapih265enc")) {
-      g_object_get (encoder, "init-qp", &result, NULL);
-    }
-  } else {
-    g_warning ("Unsupported parameter '%s'", param);
-  }
-
-  return result;
-}
-
-static gint
-_get_encoding_parameter_enum (GstElement * encoder, const gchar * param)
-{
-  gint result = 0;
-  const gchar *encoder_type =
-      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
-
-  if (g_str_equal (param, GAEGULI_ENCODING_PARAMETER_RATECTRL)) {
-    if (g_str_equal (encoder_type, "x264enc")) {
-      gint pass;
-
-      g_object_get (encoder, "pass", &pass, NULL);
-      switch (pass) {
-        case 0:
-          result = GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
-          break;
-        case 4:
-          result = GAEGULI_VIDEO_BITRATE_CONTROL_CQP;
-          break;
-        case 17:
-        case 18:
-        case 19:
-          result = GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
-          break;
-        default:
-          g_warning ("Unknown x264enc pass %d", pass);
-      }
-    } else if (g_str_equal (encoder_type, "x265enc")) {
-      gint qp;
-
-      g_object_get (encoder, "qp", &qp, NULL);
-      if (qp != -1) {
-        result = GAEGULI_VIDEO_BITRATE_CONTROL_CQP;
-      } else {
-        const gchar *option_string;
-        g_object_get (encoder, "option-string", &option_string, NULL);
-        if (strstr (option_string, "strict-cbr=1")) {
-          return GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
-        } else {
-          return GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
-        }
-      }
-    } else if (g_str_equal (encoder_type, "vaapih264enc") ||
-        g_str_equal (encoder_type, "vaapih265enc")) {
-      gint rate_control;
-
-      g_object_get (encoder, "rate-control", &rate_control, NULL);
-      switch (rate_control) {
-        case 1:
-          result = GAEGULI_VIDEO_BITRATE_CONTROL_CQP;
-          break;
-        case 2:
-          result = GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
-          break;
-        case 4:
-          result = GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
-          break;
-        default:
-          g_warning ("Unsupported vaapienc rate-control %d", rate_control);
-      }
-    } else if (g_str_equal (encoder_type, "omxh264enc") ||
-        g_str_equal (encoder_type, "omxh265enc")) {
-      gint control_rate;
-      g_object_get (encoder, "control-rate", &control_rate, NULL);
-
-      switch (control_rate) {
-        case 1:
-          return GAEGULI_VIDEO_BITRATE_CONTROL_VBR;
-        default:
-        case 2:
-          return GAEGULI_VIDEO_BITRATE_CONTROL_CBR;
-      }
-    }
-  } else {
-    g_warning ("Unsupported parameter '%s'", param);
-  }
-
-  return result;
-}
-
-static guint
-_ratectrl_to_pass (GaeguliVideoBitrateControl bitrate_control)
-{
-  switch (bitrate_control) {
-    case GAEGULI_VIDEO_BITRATE_CONTROL_CQP:
-      return 4;
-    case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
-      return 17;
-    case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
-    default:
-      return 0;
-  }
-}
-
-static void
-_x264_update_in_ready_state (GstElement * encoder, GstStructure * params)
-{
-  const GValue *val;
-  GaeguliVideoBitrateControl bitrate_control;
-
-  val = gst_structure_get_value (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER);
-  if (val) {
-    g_object_set_property (G_OBJECT (encoder), "quantizer", val);
-  }
-  if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
-          GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
-    g_object_set (encoder, "pass", _ratectrl_to_pass (bitrate_control), NULL);
-  }
-}
-
-static void
-_x265_update_in_ready_state (GstElement * encoder, GstStructure * params)
-{
-  GaeguliVideoBitrateControl bitrate_control;
-
-  bitrate_control = _get_encoding_parameter_enum (encoder,
-      GAEGULI_ENCODING_PARAMETER_RATECTRL);
-  gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
-      GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control);
-
-  switch (bitrate_control) {
-    case GAEGULI_VIDEO_BITRATE_CONTROL_CQP:{
-      /* Sensible default in case quantizer isn't specified */
-      guint qp = 23;
-
-      g_object_get (encoder, "qp", &qp, NULL);
-      gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
-          &qp);
-      g_object_set (encoder, "option-string", "", "qp", qp, NULL);
-      break;
-    }
-    case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
-      g_object_set (encoder, "option-string", "", "qp", -1, NULL);
-      break;
-    case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
-    default:{
-      g_autofree gchar *option_str = NULL;
-      guint bitrate;
-
-      g_object_get (encoder, "bitrate", &bitrate, NULL);
-
-      option_str = g_strdup_printf ("strict-cbr=1:vbv-bufsize=%d", bitrate);
-      g_object_set (encoder, "option-string", option_str, "qp", -1, NULL);
-    }
-  }
-}
-
-static void
-_vaapi_update_in_ready_state (GstElement * encoder, GstStructure * params)
-{
-  guint bitrate;
-  const GValue *val;
-  GaeguliVideoBitrateControl bitrate_control;
-
-  if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
-          &bitrate)) {
-    g_object_set (encoder, "bitrate", bitrate / 1000, NULL);
-  }
-
-  val = gst_structure_get_value (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER);
-  if (val) {
-    g_object_set_property (G_OBJECT (encoder), "init-qp", val);
-  }
-
-  if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
-          GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
-    gint value;
-
-    switch (bitrate_control) {
-      default:
-      case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
-        value = 2;
-        break;
-      case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
-        value = 4;
-        break;
-      case GAEGULI_VIDEO_BITRATE_CONTROL_CQP:
-        value = 1;
-    }
-
-    g_object_set (encoder, "rate-control", value, NULL);
-  }
-}
-
-static void
-_omx_update_in_ready_state (GstElement * encoder, GstStructure * params)
-{
-  GaeguliVideoBitrateControl bitrate_control;
-
-  if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
-          GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
-    gint value;
-
-    switch (bitrate_control) {
-      default:
-      case GAEGULI_VIDEO_BITRATE_CONTROL_CBR:
-        value = 2;
-        break;
-      case GAEGULI_VIDEO_BITRATE_CONTROL_VBR:
-        value = 1;
-        break;
-    }
-
-    g_object_set (encoder, "control-rate", value, NULL);
-  }
-}
-
-typedef void (*ReadyStateCallback) (GstElement * encoder,
-    GstStructure * params);
-
-static GstPadProbeReturn
-_do_in_ready_state (GstPad * pad, GstPadProbeInfo * info, gpointer user_data)
-{
-  GstElement *encoder = GST_PAD_PARENT (GST_PAD_PEER (pad));
-  GstStructure *params = user_data;
-  ReadyStateCallback probe_cb;
-  GstState cur_state;
-
-  gst_structure_get (params, "probe-cb", G_TYPE_POINTER, &probe_cb, NULL);
-
-  if (!probe_cb) {
-    goto out;
-  }
-
-  gst_element_get_state (encoder, &cur_state, NULL, 0);
-  if (cur_state > GST_STATE_READY) {
-    gst_element_set_state (encoder, GST_STATE_READY);
-  }
-
-  probe_cb (encoder, params);
-
-  if (cur_state > GST_STATE_READY) {
-    gst_element_set_state (encoder, cur_state);
-  }
-
-out:
-  return GST_PAD_PROBE_REMOVE;
-}
-
-static void
-_set_encoding_parameters (GstElement * encoder, GstStructure * params)
-{
-  guint val;
-  GaeguliVideoBitrateControl bitrate_control;
-  gboolean must_go_to_ready_state = FALSE;
-  ReadyStateCallback ready_state_cb = NULL;
-  g_autofree gchar *params_str = NULL;
-
-  const gchar *encoder_type =
-      gst_plugin_feature_get_name (gst_element_get_factory (encoder));
-
-  params_str = gst_structure_to_string (params);
-  g_debug ("Changing encoding parameters to %s", params_str);
-
-  if (g_str_equal (encoder_type, "x264enc")) {
-    ready_state_cb = _x264_update_in_ready_state;
-
-    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
-            &val)) {
-      g_object_set (encoder, "bitrate", val / 1000, NULL);
-    }
-
-    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
-            &val)) {
-      guint cur_quantizer;
-
-      g_object_get (encoder, "quantizer", &cur_quantizer, NULL);
-
-      if (val != cur_quantizer) {
-        must_go_to_ready_state = TRUE;
-      }
-    }
-
-    if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
-            GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
-      gint cur_pass;
-
-      g_object_get (encoder, "pass", &cur_pass, NULL);
-
-      if (_ratectrl_to_pass (bitrate_control) != cur_pass) {
-        must_go_to_ready_state = TRUE;
-      }
-    }
-  } else if (g_str_equal (encoder_type, "x265enc")) {
-    GaeguliVideoBitrateControl cur_bitrate_control;
-
-    ready_state_cb = _x265_update_in_ready_state;
-
-    cur_bitrate_control = _get_encoding_parameter_enum (encoder,
-        GAEGULI_ENCODING_PARAMETER_RATECTRL);
-
-    if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
-            GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control) &&
-        bitrate_control != cur_bitrate_control) {
-      must_go_to_ready_state = TRUE;
-    }
-
-    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
-            &val)) {
-      guint cur_bitrate;
-
-      val /= 1000;
-
-      g_object_get (encoder, "bitrate", &cur_bitrate, NULL);
-
-      if (val != cur_bitrate) {
-        g_object_set (encoder, "bitrate", val, NULL);
-
-        if (cur_bitrate_control == GAEGULI_VIDEO_BITRATE_CONTROL_CBR) {
-          must_go_to_ready_state = TRUE;
-        }
-      }
-    }
-
-    if (cur_bitrate_control == GAEGULI_VIDEO_BITRATE_CONTROL_CQP &&
-        gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_QUANTIZER,
-            &val)) {
-      guint cur_quantizer;
-
-      g_object_get (encoder, "qp", &cur_quantizer, NULL);
-
-      if (val != cur_quantizer) {
-        must_go_to_ready_state = TRUE;
-      }
-    }
-  } else if (g_str_equal (encoder_type, "vaapih264enc") ||
-      g_str_equal (encoder_type, "vaapih265enc")) {
-    ready_state_cb = _vaapi_update_in_ready_state;
-    must_go_to_ready_state = TRUE;
-  } else if (g_str_equal (encoder_type, "omxh264enc") ||
-      g_str_equal (encoder_type, "omxh265enc")) {
-    ready_state_cb = _omx_update_in_ready_state;
-
-    if (gst_structure_get_uint (params, GAEGULI_ENCODING_PARAMETER_BITRATE,
-            &val)) {
-      g_object_set (encoder, "bitrate", val, NULL);
-    }
-
-    if (gst_structure_get_enum (params, GAEGULI_ENCODING_PARAMETER_RATECTRL,
-            GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, (gint *) & bitrate_control)) {
-      GaeguliVideoBitrateControl cur_bitrate_control;
-
-      cur_bitrate_control = _get_encoding_parameter_enum (encoder,
-          GAEGULI_ENCODING_PARAMETER_RATECTRL);
-
-      if (bitrate_control != cur_bitrate_control) {
-        must_go_to_ready_state = TRUE;
-      }
-    }
-  } else {
-    g_warning ("Unsupported encoder '%s'", encoder_type);
-  }
-
-  if (must_go_to_ready_state && ready_state_cb) {
-    g_autoptr (GstPad) sinkpad = gst_element_get_static_pad (encoder, "sink");
-
-    GstStructure *probe_data = gst_structure_copy (params);
-
-    gst_structure_set (probe_data, "probe-cb", G_TYPE_POINTER, ready_state_cb,
-        NULL);
-
-    gst_pad_add_probe (GST_PAD_PEER (sinkpad), GST_PAD_PROBE_TYPE_BLOCK,
-        _do_in_ready_state, probe_data, (GDestroyNotify) gst_structure_free);
-  }
-}
-
-static void
-gaeguli_target_update_baseline_parameters (GaeguliTarget * self,
-    gboolean force_on_encoder)
+static gboolean
+gaeguli_target_post_message (GaeguliTarget * self, GaeguliTargetMsg * msg)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+  g_autoptr (GError) error = NULL;
+  gsize size = sizeof (GaeguliTargetMsg);
 
-  g_autoptr (GstStructure) params = NULL;
+  if (!priv->target_fds[1]) {
+    g_free (msg);
+    return FALSE;
+  }
 
-  if (!priv->encoder) {
-    /* We're not initialized yet. */
+  if (write (priv->target_fds[1], msg, size) < 0) {
+    g_warning ("Failed to post message");
+  }
+  g_free (msg);
+
+  return TRUE;
+}
+
+static void
+process_msg (GaeguliTarget * self, GaeguliTargetWorkerMsg * msg)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+  if (!self || !msg) {
     return;
   }
 
-  params = gst_structure_new ("application/x-gaeguli-encoding-parameters",
-      GAEGULI_ENCODING_PARAMETER_RATECTRL,
-      GAEGULI_TYPE_VIDEO_BITRATE_CONTROL, priv->bitrate_control,
-      GAEGULI_ENCODING_PARAMETER_BITRATE, G_TYPE_UINT, priv->bitrate,
-      GAEGULI_ENCODING_PARAMETER_QUANTIZER, G_TYPE_UINT, priv->quantizer, NULL);
+  switch (msg->msg_type) {
+    default:
+      break;
+    case GAEGULI_TARGET_CALLER_ADDED_MSG:{
+      g_signal_emit (self, signals[SIG_CALLER_ADDED], 0, msg->srtsocket,
+          msg->address);
+    }
+      break;
 
-  g_object_set (self, "video-params", params, NULL);
+    case GAEGULI_TARGET_CALLER_REMOVED_MSG:{
+      g_signal_emit (self, signals[SIG_CALLER_REMOVED], 0, msg->srtsocket,
+          msg->address);
+    }
+      break;
 
-  if (priv->adaptor) {
-    g_object_set (priv->adaptor, "baseline-parameters", params, NULL);
+    case GAEGULI_TARGET_SRT_MODE_MSG:{
+      priv->mode = msg->mode;
+    }
+      break;
+
+    case GAEGULI_TARGET_NOTIFY_ENCODER_BITRATE_CONTROL_CHANGE_MSG:{
+      g_object_notify_by_pspec (G_OBJECT (self),
+          properties[PROP_BITRATE_CONTROL_ACTUAL]);
+    }
+      break;
+
+    case GAEGULI_TARGET_NOTIFY_ENCODER_BITRATE_CHANGE_MSG:{
+      g_object_notify_by_pspec (G_OBJECT (self),
+          properties[PROP_BITRATE_ACTUAL]);
+    }
+      break;
+
+    case GAEGULI_TARGET_NOTIFY_ENCODER_QUANTIZER_CHANGE_MSG:{
+      g_object_notify_by_pspec (G_OBJECT (self),
+          properties[PROP_QUANTIZER_ACTUAL]);
+    }
+      break;
+  }
+}
+
+static gboolean
+cb_read_watch (GIOChannel * channel, GIOCondition cond, gpointer data)
+{
+  GaeguliTargetWorkerMsg msg;
+  gsize size = sizeof (GaeguliTargetWorkerMsg);
+  GaeguliTarget *self = data;
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  if ((cond == G_IO_HUP) || (cond == G_IO_ERR)) {
+    g_io_channel_unref (channel);
+    return FALSE;
   }
 
-  if (!gaeguli_stream_adaptor_is_enabled (priv->adaptor) || force_on_encoder) {
-    /* Apply directly on the encoder */
-    _set_encoding_parameters (priv->encoder, params);
+  if (read (priv->worker_fds[0], (void *) &msg, size) > 0) {
+    process_msg (self, &msg);
   }
-}
 
-typedef struct
-{
-  GObject *target;
-  GParamSpec *pspec;
-} NotifyData;
-
-static void
-_notify_encoder_change (NotifyData * data)
-{
-  g_object_notify_by_pspec (data->target, data->pspec);
+  return TRUE;
 }
 
 static void
-gaeguli_target_on_caller_added (GaeguliTarget * self, gint srtsocket,
-    GSocketAddress * address)
-{
-  g_signal_emit (self, signals[SIG_CALLER_ADDED], 0, srtsocket, address);
-}
-
-static void
-gaeguli_target_on_caller_removed (GaeguliTarget * self, gint srtsocket,
-    GSocketAddress * address)
-{
-  g_signal_emit (self, signals[SIG_CALLER_REMOVED], 0, srtsocket, address);
-}
-
-static void
-_cb_child_watch (GPid pid, gint status, gpointer * data)
+_cb_child_watch (GPid pid, gint status, gpointer data)
 {
   /* Close pid */
   g_debug ("closing process with pid: %d\n", pid);
   g_spawn_close_pid (pid);
+}
+
+static gchar **
+_gaeguli_build_target_worker_args (GaeguliTarget * self)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+  gsize n_bytes = (GAEGULI_TARGET_WORKER_ARGS_NUM * sizeof (gchar *));
+  gchar **args = g_malloc (n_bytes);
+  if (args) {
+    gint i = 0;
+
+    if (g_file_test (GAEGULI_TARGET_WORKER, G_FILE_TEST_EXISTS)) {
+      args[i++] = g_strdup (GAEGULI_TARGET_WORKER);
+    } else {
+      args[i++] = g_strdup (GAEGULI_TARGET_WORKER_ALT);
+    }
+    args[i++] = g_strdup_printf ("%d", self->id);
+    args[i++] = g_strdup_printf ("%d", priv->is_recording);
+    if (!priv->is_recording) {
+      args[i++] = g_strdup (priv->uri);
+    } else {
+      args[i++] = g_strdup (priv->location);
+    }
+    args[i++] = g_strdup_printf ("%d", GAEGULI_SRT_MODE_UNKNOWN);
+    args[i++] = g_strdup_printf ("%d", priv->buffer_size);
+    args[i++] = g_strdup_printf ("%d", priv->pbkeylen);
+    args[i++] = g_strdup_printf ("%d", priv->target_fds[0]);
+    args[i++] = g_strdup_printf ("%d", priv->target_fds[1]);
+    args[i++] = g_strdup_printf ("%d", priv->worker_fds[0]);
+    args[i++] = g_strdup_printf ("%d", priv->worker_fds[1]);
+    args[i++] = g_strdup_printf ("%d", priv->bitrate_control);
+    args[i++] = g_strdup_printf ("%d", priv->bitrate);
+    args[i++] = g_strdup_printf ("%d", priv->quantizer);
+    args[i++] = g_strdup_printf ("%d", priv->codec);
+    args[i++] = g_strdup_printf ("%u", priv->idr_period);
+    args[i++] = g_strdup_printf ("%u", priv->node_id);
+    args[i++] = g_strdup (priv->username);
+    args[i++] = g_strdup (priv->passphrase);
+
+    args[i++] = NULL;
+  }
+  return args;
 }
 
 static gboolean
@@ -688,130 +315,78 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autoptr (GaeguliPipeline) owner = NULL;
   g_autoptr (GstElement) enc_first = NULL;
   g_autoptr (GstElement) muxsink_first = NULL;
-  g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
-  NotifyData *notify_data;
 
   g_autoptr (GError) gerr = NULL;
+  gboolean ret = TRUE;
   GPid pid;
-  gchar *arg[2];
+  gchar **args = NULL;
 
-  if (g_file_test (GAEGULI_TARGET_WORKER, G_FILE_TEST_EXISTS)) {
-    arg[0] = GAEGULI_TARGET_WORKER;
-  } else {
-    arg[0] = GAEGULI_TARGET_WORKER_ALT;
-  }
-
-  arg[1] = NULL;
-
-  g_spawn_async (NULL, arg, NULL,
-      G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid, &gerr);
-  if (gerr != NULL) {
-    g_error ("spawning pipeline worker failed. %s", gerr->message);
-  } else {
-    g_debug ("A new child process spawned with pid %d\n", pid);
-    priv->worker_pid = pid;
-    g_child_watch_add (pid, (GChildWatchFunc) _cb_child_watch, NULL);
-  }
-
-  pipeline_str = _get_enc_string (priv->codec, priv->idr_period, priv->node_id);
-  if (pipeline_str == NULL) {
-    g_set_error (error, GAEGULI_RESOURCE_ERROR,
-        GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
-    return FALSE;
-  }
-
-  g_debug ("using encoding pipeline [%s]", pipeline_str);
-
-  if (!priv->is_recording) {
-    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
-        pipeline_str, priv->uri);
-  } else {
-    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MUXSINK_STR,
-        pipeline_str, priv->location);
-  }
-
-  self->pipeline = gst_parse_launch (pipeline_str, &internal_err);
-  if (internal_err) {
-    g_warning ("failed to build muxsink pipeline (%s)", internal_err->message);
+  /* Create pipes for IPC: Target -> Worker direction */
+  if (pipe (priv->target_fds) < 0) {
+    g_error ("Failed to create target fds");
+    ret = FALSE;
     goto failed;
   }
 
-  gst_object_ref_sink (self->pipeline);
-
-  muxsink_first =
-      gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
-  if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
-          "pcr-interval")) {
-    g_info ("set pcr-interval to 360");
-    g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+  /* Create pipes for IPC: Worker -> Target direction */
+  if (pipe (priv->worker_fds) < 0) {
+    g_error ("Failed to create worker fds");
+    ret = FALSE;
+    goto failed;
   }
 
-  if (!priv->is_recording) {
-    priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "sink");
-    g_object_set_data (G_OBJECT (priv->srtsink), "gaeguli-target-id",
-        GUINT_TO_POINTER (self->id));
-    g_signal_connect_swapped (priv->srtsink, "caller-added",
-        G_CALLBACK (gaeguli_target_on_caller_added), self);
-    g_signal_connect_swapped (priv->srtsink, "caller-removed",
-        G_CALLBACK (gaeguli_target_on_caller_removed), self);
-    if (gaeguli_target_get_srt_mode (self) == GAEGULI_SRT_MODE_CALLER) {
-      g_autoptr (GstUri) uri = gst_uri_from_string (priv->uri);
+  if (!(args = _gaeguli_build_target_worker_args (self))) {
+    ret = FALSE;
+    goto failed;
+  }
 
-      priv->peer_address = g_strdup (gst_uri_get_host (uri));
-    }
+  if (!g_spawn_async (NULL, args, NULL,
+          G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_LEAVE_DESCRIPTORS_OPEN, NULL,
+          NULL, &pid, &gerr)) {
+    g_error ("spawning pipeline worker failed. %s", gerr->message);
+    ret = FALSE;
+    goto failed;
   } else {
-    priv->srtsink = gst_bin_get_by_name (GST_BIN (self->pipeline), "recsink");
+    g_debug ("A new child process spawned with pid %d", pid);
+    priv->worker_pid = pid;
+    g_child_watch_add (pid, (GChildWatchFunc) _cb_child_watch, self);
+
+    /* Close the read side of the target pipe */
+    close (priv->target_fds[0]);
+    priv->target_fds[0] = 0;
+
+    /* Make the write fd of pipeline pipe non blocking */
+    if (fcntl (priv->target_fds[1], F_SETFL, O_NONBLOCK) < 0) {
+      g_error ("failed to set non blocking flag on write fd of target pipe");
+      ret = FALSE;
+      goto failed;
+    }
+
+    /* Close the write side of the worker pipe */
+    close (priv->worker_fds[1]);
+    priv->worker_fds[1] = 0;
+
+    /* Create channel to read data on worker pipe */
+    priv->read_ch = g_io_channel_unix_new (priv->worker_fds[0]);
+
+    g_io_channel_set_flags (priv->read_ch, G_IO_FLAG_NONBLOCK, NULL);
+    g_io_channel_set_encoding (priv->read_ch, NULL, NULL);
+    g_io_channel_set_buffered (priv->read_ch, FALSE);
+
+    /* Add watches to read channel */
+    g_io_add_watch (priv->read_ch, G_IO_IN | G_IO_ERR | G_IO_HUP,
+        (GIOFunc) cb_read_watch, self);
   }
-
-  priv->encoder = gst_bin_get_by_name (GST_BIN (self->pipeline), "enc");
-
-  notify_data = g_new (NotifyData, 1);
-  notify_data->target = G_OBJECT (self);
-  notify_data->pspec = properties[PROP_BITRATE_ACTUAL];
-  g_signal_connect_closure (priv->encoder, "notify::bitrate",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          (GClosureNotify) g_free), FALSE);
-
-  notify_data = g_new (NotifyData, 1);
-  notify_data->target = G_OBJECT (self);
-  notify_data->pspec = properties[PROP_QUANTIZER_ACTUAL];
-  g_signal_connect_closure (priv->encoder, "notify::quantizer",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          (GClosureNotify) g_free), FALSE);
-  /* vaapienc */
-  g_signal_connect_closure (priv->encoder, "notify::init-qp",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
-
-  notify_data = g_new (NotifyData, 1);
-  notify_data->target = G_OBJECT (self);
-  notify_data->pspec = properties[PROP_BITRATE_CONTROL_ACTUAL];
-  /* x264enc */
-  g_signal_connect_closure (priv->encoder, "notify::pass",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          (GClosureNotify) g_free), FALSE);
-  /* x265enc */
-  g_signal_connect_closure (priv->encoder, "notify::qp",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
-  g_signal_connect_closure (priv->encoder, "notify::option-string",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
-  /* vaapienc */
-  g_signal_connect_closure (priv->encoder, "notify::rate-control",
-      g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
-          NULL), FALSE);
-
-  return TRUE;
 
 failed:
+  g_strfreev (args);
   if (internal_err) {
     g_propagate_error (error, internal_err);
     internal_err = NULL;
   }
 
-  return FALSE;
+  return ret;
 }
 
 static void
@@ -828,6 +403,7 @@ gaeguli_target_get_property (GObject * object,
     case PROP_BITRATE_CONTROL:
       g_value_set_enum (value, priv->bitrate_control);
       break;
+#ifndef USE_TARGET_WORKER_PROCESS
     case PROP_BITRATE_CONTROL_ACTUAL:
       g_value_set_enum (value, _get_encoding_parameter_enum (priv->encoder,
               GAEGULI_ENCODING_PARAMETER_RATECTRL));
@@ -846,6 +422,7 @@ gaeguli_target_get_property (GObject * object,
       g_value_set_uint (value, _get_encoding_parameter_uint (priv->encoder,
               GAEGULI_ENCODING_PARAMETER_QUANTIZER));
       break;
+#endif
     case PROP_ADAPTIVE_STREAMING:
       if (priv->adaptor) {
         priv->adaptive_streaming =
@@ -856,10 +433,12 @@ gaeguli_target_get_property (GObject * object,
     case PROP_BUFFER_SIZE:
       g_value_set_int (value, priv->buffer_size);
       break;
+#ifndef USE_TARGET_WORKER_PROCESS
     case PROP_LATENCY:{
       g_object_get_property (G_OBJECT (priv->srtsink), "latency", value);
       break;
     }
+#endif
     case PROP_VIDEO_PARAMS:{
       g_value_set_boxed (value, priv->video_params);
     }
@@ -894,7 +473,14 @@ gaeguli_target_set_property (GObject * object,
       guint new_bitrate = g_value_get_uint (value);
       if (priv->bitrate != new_bitrate) {
         priv->bitrate = new_bitrate;
-        gaeguli_target_update_baseline_parameters (self, FALSE);
+        if (priv->worker_pid > 0) {
+          if (!gaeguli_target_post_message (self,
+                  gaeguli_target_build_message (GAEGULI_SET_TARGET_BITRATE_MSG,
+                      priv->bitrate_control, priv->bitrate, priv->quantizer,
+                      priv->adaptive_streaming, priv->adaptor_type))) {
+            g_warning ("Failed to send message to worker");
+          }
+        }
         g_object_notify_by_pspec (object, pspec);
       }
       break;
@@ -903,7 +489,16 @@ gaeguli_target_set_property (GObject * object,
       GaeguliVideoBitrateControl new_rate_control = g_value_get_enum (value);
       if (priv->bitrate_control != new_rate_control) {
         priv->bitrate_control = new_rate_control;
-        gaeguli_target_update_baseline_parameters (self, FALSE);
+
+        if (priv->worker_pid > 0) {
+          if (!gaeguli_target_post_message (self,
+                  gaeguli_target_build_message
+                  (GAEGULI_SET_TARGET_BITRATE_CONTROL_MSG,
+                      priv->bitrate_control, priv->bitrate, priv->quantizer,
+                      priv->adaptive_streaming, priv->adaptor_type))) {
+            g_warning ("Failed to send message to worker");
+          }
+        }
         g_object_notify_by_pspec (object, pspec);
       }
       break;
@@ -912,7 +507,16 @@ gaeguli_target_set_property (GObject * object,
       guint new_quantizer = g_value_get_uint (value);
       if (priv->quantizer != new_quantizer) {
         priv->quantizer = new_quantizer;
-        gaeguli_target_update_baseline_parameters (self, FALSE);
+
+        if (priv->worker_pid > 0) {
+          if (!gaeguli_target_post_message (self,
+                  gaeguli_target_build_message
+                  (GAEGULI_SET_TARGET_QUANTIZER_MSG, priv->bitrate_control,
+                      priv->bitrate, priv->quantizer, priv->adaptive_streaming,
+                      priv->adaptor_type))) {
+            g_warning ("Failed to send message to worker");
+          }
+        }
         g_object_notify_by_pspec (object, pspec);
       }
       break;
@@ -941,9 +545,14 @@ gaeguli_target_set_property (GObject * object,
       gboolean new_adaptive_streaming = g_value_get_boolean (value);
       if (priv->adaptive_streaming != new_adaptive_streaming) {
         priv->adaptive_streaming = new_adaptive_streaming;
-        if (priv->adaptor) {
-          g_object_set (priv->adaptor, "enabled", priv->adaptive_streaming,
-              NULL);
+        if (priv->worker_pid > 0) {
+          if (!gaeguli_target_post_message (self,
+                  gaeguli_target_build_message
+                  (GAEGULI_SET_TARGET_ADAPTIVE_STREAMING_MSG,
+                      priv->bitrate_control, priv->bitrate, priv->quantizer,
+                      priv->adaptive_streaming, priv->adaptor_type))) {
+            g_warning ("Failed to send message to worker");
+          }
         }
         g_object_notify_by_pspec (object, pspec);
       }
@@ -976,10 +585,6 @@ gaeguli_target_dispose (GObject * object)
 {
   GaeguliTarget *self = GAEGULI_TARGET (object);
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  gst_clear_object (&self->pipeline);
-  gst_clear_object (&priv->encoder);
-  gst_clear_object (&priv->srtsink);
 
   g_clear_object (&priv->adaptor);
 
@@ -1165,29 +770,6 @@ gaeguli_target_new (guint id,
       node_id, NULL);
 }
 
-static gchar *
-gaeguli_target_create_streamid (GaeguliTarget * self)
-{
-  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
-
-  GString *str = g_string_new (NULL);
-
-  if (priv->username) {
-    g_string_append_printf (str, "u=%s", priv->username);
-  }
-
-  if (priv->buffer_size > 0) {
-    g_string_append_printf (str, "%sh8l_bufsize=%d",
-        (str->len > 0) ? "," : "", priv->buffer_size);
-  }
-
-  if (str->len > 0) {
-    g_string_prepend (str, "#!::");
-  }
-
-  return g_string_free (str, FALSE);
-}
-
 void
 gaeguli_target_start (GaeguliTarget * self, GError ** error)
 {
@@ -1196,8 +778,6 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
   g_autoptr (GstBus) bus = NULL;
   g_autoptr (GError) internal_err = NULL;
   g_autofree gchar *streamid = NULL;
-  GstStateChangeReturn res;
-  gint pbkeylen;
 
   if (priv->state != GAEGULI_TARGET_STATE_NEW) {
     g_warning ("Target %u is already running", self->id);
@@ -1206,105 +786,42 @@ gaeguli_target_start (GaeguliTarget * self, GError ** error)
 
   priv->state = GAEGULI_TARGET_STATE_STARTING;
 
-  if (!priv->is_recording) {
-    /* Changing srtsink URI must happen first because it will clear parameters
-     * like streamid. */
-    if (priv->buffer_size > 0) {
-      g_autoptr (GstUri) uri = NULL;
-      g_autofree gchar *uri_str = NULL;
-      g_autofree gchar *buffer_size_str = NULL;
-
-      buffer_size_str = g_strdup_printf ("%d", priv->buffer_size);
-
-      g_object_get (priv->srtsink, "uri", &uri_str, NULL);
-      uri = gst_uri_from_string (uri_str);
-      g_clear_pointer (&uri_str, g_free);
-
-      gst_uri_set_query_value (uri, "sndbuf", buffer_size_str);
-
-      uri_str = gst_uri_to_string (uri);
-      g_object_set (priv->srtsink, "uri", uri_str, NULL);
-    }
-
-    switch (priv->pbkeylen) {
-      default:
-      case GAEGULI_SRT_KEY_LENGTH_0:
-        pbkeylen = 0;
-        break;
-      case GAEGULI_SRT_KEY_LENGTH_16:
-        pbkeylen = 16;
-        break;
-      case GAEGULI_SRT_KEY_LENGTH_24:
-        pbkeylen = 24;
-        break;
-      case GAEGULI_SRT_KEY_LENGTH_32:
-        pbkeylen = 32;
-        break;
-    }
-
-    streamid = gaeguli_target_create_streamid (self);
-
-    g_object_set (priv->srtsink, "passphrase", priv->passphrase, "pbkeylen",
-        pbkeylen, "streamid", streamid, NULL);
-
-    priv->adaptor = g_object_new (priv->adaptor_type, "srtsink", priv->srtsink,
-        "enabled", priv->adaptive_streaming, NULL);
-
-    gaeguli_target_update_baseline_parameters (self, TRUE);
-
-    g_signal_connect_swapped (priv->adaptor, "encoding-parameters",
-        (GCallback) _set_encoding_parameters, priv->encoder);
-
-    bus = gst_element_get_bus (self->pipeline);
-    gst_bus_set_sync_handler (bus, _bus_sync_srtsink_error_handler,
-        &internal_err, NULL);
-    /* Setting READY state on srtsink check that we can bind to address and port
-     * specified in srt_uri. On failure, bus handler should set internal_err. */
-    res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
-
-    gst_bus_set_sync_handler (bus, NULL, NULL, NULL);
-  } else {
-    res = gst_element_set_state (priv->srtsink, GST_STATE_READY);
-    if (res == GST_STATE_CHANGE_FAILURE) {
-      goto failed;
-    }
-  }
-
-  if (res == GST_STATE_CHANGE_FAILURE) {
-    goto failed;
-  }
-
-  /* Set the target pipeline to PLAYING */
-  gst_element_set_state (self->pipeline, GST_STATE_PLAYING);
-
   g_signal_emit (self, signals[SIG_STREAM_STARTED], 0);
   g_print ("emitted \"stream-started\" for [%x]\n", self->id);
 
   return;
-
-failed:
-  if (internal_err) {
-    g_propagate_error (error, internal_err);
-    internal_err = NULL;
-  }
-
-  priv->state = GAEGULI_TARGET_STATE_ERROR;
 }
 
 void
 gaeguli_target_stop (GaeguliTarget * self)
 {
-  g_autoptr (GstPad) pad = NULL;
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   LOCK_TARGET;
 
-  gst_element_set_state (self->pipeline, GST_STATE_NULL);
+  /* Send stop message to worker */
+  if (priv->target_fds[1] > 0) {
+    if (!gaeguli_target_post_message (self,
+            gaeguli_target_build_message (GAEGULI_SET_TARGET_STOP_MSG,
+                priv->bitrate_control, priv->bitrate, priv->quantizer,
+                priv->adaptive_streaming, priv->adaptor_type))) {
+      g_warning
+          ("Failed to send message with msg type GAEGULI_SET_TARGET_STOP_MSG to worker");
+    }
+
+    close (priv->target_fds[1]);
+    priv->target_fds[1] = 0;
+  }
+
+  if (priv->read_ch) {
+    g_io_channel_shutdown (priv->read_ch, TRUE, NULL);
+    g_clear_pointer (&priv->read_ch, g_io_channel_unref);
+    priv->read_ch = NULL;
+  }
+
   priv->state = GAEGULI_TARGET_STATE_STOPPED;
 
   g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0);
-  /* Send SIGINT to worker pid */
-  kill (priv->worker_pid, SIGINT);
 }
 
 static GVariant *_convert_gst_structure_to (GstStructure * s);
@@ -1380,11 +897,7 @@ gaeguli_target_get_srt_mode (GaeguliTarget * self)
 {
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
-  GaeguliSRTMode mode;
-
-  g_object_get (priv->srtsink, "mode", &mode, NULL);
-
-  return mode;
+  return priv->mode;
 }
 
 const gchar *
@@ -1411,12 +924,12 @@ gaeguli_target_get_stats (GaeguliTarget * self)
   g_autoptr (GstStructure) s = NULL;
 
   g_return_val_if_fail (GAEGULI_IS_TARGET (self), NULL);
-
+#ifndef USE_TARGET_WORKER_PROCESS
   if (priv->srtsink) {
     g_object_get (priv->srtsink, "stats", &s, NULL);
     return _convert_gst_structure_to (s);
   }
-
+#endif
   return NULL;
 }
 
