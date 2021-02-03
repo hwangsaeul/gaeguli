@@ -18,6 +18,7 @@ source_c = [
   'types.c',
   'pipeline.c',
   'streamadaptor.c',
+  'messenger.c',
   'adaptors/nulladaptor.c',
   'adaptors/bandwidthadaptor.c',
 ]
@@ -49,7 +50,7 @@ libgaeguli = library(
   version: libversion,
   soversion: soversion,
   include_directories: gaeguli_incs,
-  dependencies: [ gobject_dep, gio_dep, gst_dep, libsrt_dep ],
+  dependencies: [ gobject_dep, gio_dep, gst_dep, libsrt_dep, json_glib_dep ],
   c_args: gaeguli_c_args,
   link_args: common_ldflags,
   install: true
@@ -66,7 +67,7 @@ pkg.generate(libgaeguli,
 
 libgaeguli_dep = declare_dependency(link_with: libgaeguli,
   include_directories: [ gaeguli_incs ],
-  dependencies: [ gobject_dep, gio_dep, gst_dep ],
+  dependencies: [ gobject_dep, gio_dep, gst_dep , json_glib_dep ],
   sources: [ gaeguli_enums_h ],
 )
 

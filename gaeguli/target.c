@@ -27,10 +27,13 @@
 
 #include "enumtypes.h"
 #include "gaeguli-internal.h"
+#include "messenger.h"
 #include "pipeline.h"
 #include "adaptors/nulladaptor.h"
 
 #include <gio/gio.h>
+
+#define GAEGULI_TARGET_WORKER_ARGS_NUM 4
 
 typedef struct
 {
@@ -63,6 +66,7 @@ typedef struct
 
   guint node_id;
   GPid worker_pid;
+  GaeguliMessenger *messenger;
 } GaeguliTargetPrivate;
 
 enum
@@ -678,6 +682,34 @@ _cb_child_watch (GPid pid, gint status, gpointer * data)
   g_spawn_close_pid (pid);
 }
 
+static gchar **
+_gaeguli_build_target_worker_args (int child_readfd, int child_writefd)
+{
+  gsize n_bytes = (GAEGULI_TARGET_WORKER_ARGS_NUM * sizeof (gchar *));
+  gchar **args = g_malloc (n_bytes);
+  if (args) {
+    gint i = 0;
+
+    if (g_file_test (GAEGULI_TARGET_WORKER, G_FILE_TEST_EXISTS)) {
+      args[i++] = g_strdup (GAEGULI_TARGET_WORKER);
+    } else {
+      args[i++] = g_strdup (GAEGULI_TARGET_WORKER_ALT);
+    }
+    args[i++] = g_strdup_printf ("%d", child_readfd);
+    args[i++] = g_strdup_printf ("%d", child_writefd);
+
+    args[i++] = NULL;
+  }
+  return args;
+}
+
+static void
+_child_setup (int *closefds)
+{
+  close (*closefds++);
+  close (*closefds);
+}
+
 static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
@@ -691,27 +723,41 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
   NotifyData *notify_data;
+  int readpipe[2] = { -1, -1 };
+  int writepipe[2] = { -1, -1 };
+  int closefds[2];
 
   g_autoptr (GError) gerr = NULL;
+  gboolean ret = TRUE;
   GPid pid;
-  gchar *arg[2];
+  gchar **args = NULL;
 
-  if (g_file_test (GAEGULI_TARGET_WORKER, G_FILE_TEST_EXISTS)) {
-    arg[0] = GAEGULI_TARGET_WORKER;
-  } else {
-    arg[0] = GAEGULI_TARGET_WORKER_ALT;
+  /* Create pipes for IPC */
+  if (pipe (readpipe) < 0 || pipe (writepipe) < 0) {
+    g_error ("Failed to initialize IPC");
+    goto failed;
   }
 
-  arg[1] = NULL;
+  args = _gaeguli_build_target_worker_args (writepipe[0], readpipe[1]);
+  if (!args) {
+    goto failed;
+  }
 
-  g_spawn_async (NULL, arg, NULL,
-      G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid, &gerr);
-  if (gerr != NULL) {
+  /* File descriptors to close before the child's exec() is run. */
+  closefds[0] = readpipe[0];
+  closefds[1] = writepipe[1];
+
+  priv->messenger = gaeguli_messenger_new (readpipe[0], writepipe[1]);
+
+  if (!g_spawn_async (NULL, args, NULL,
+          G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_LEAVE_DESCRIPTORS_OPEN,
+          (GSpawnChildSetupFunc) _child_setup, &closefds, &pid, &gerr)) {
     g_error ("spawning pipeline worker failed. %s", gerr->message);
+    goto failed;
   } else {
-    g_debug ("A new child process spawned with pid %d\n", pid);
+    g_debug ("A new child process spawned with pid %d", pid);
     priv->worker_pid = pid;
-    g_child_watch_add (pid, (GChildWatchFunc) _cb_child_watch, NULL);
+    g_child_watch_add (pid, (GChildWatchFunc) _cb_child_watch, self);
   }
 
   pipeline_str = _get_enc_string (priv->codec, priv->idr_period, priv->node_id);
@@ -803,15 +849,29 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
       g_cclosure_new_swap (G_CALLBACK (_notify_encoder_change), notify_data,
           NULL), FALSE);
 
-  return TRUE;
+  goto out;
 
 failed:
+  if (readpipe[0] != -1)
+    close (readpipe[0]);
+  if (writepipe[1] != -1)
+    close (writepipe[1]);
+
+  ret = FALSE;
+
+out:
+  if (readpipe[1] != -1)
+    close (readpipe[1]);
+  if (writepipe[0] != -1)
+    close (writepipe[0]);
+
+  g_strfreev (args);
   if (internal_err) {
     g_propagate_error (error, internal_err);
     internal_err = NULL;
   }
 
-  return FALSE;
+  return ret;
 }
 
 static void
@@ -1302,9 +1362,9 @@ gaeguli_target_stop (GaeguliTarget * self)
   gst_element_set_state (self->pipeline, GST_STATE_NULL);
   priv->state = GAEGULI_TARGET_STATE_STOPPED;
 
+  gaeguli_messenger_send_terminate (priv->messenger);
+
   g_signal_emit (self, signals[SIG_STREAM_STOPPED], 0);
-  /* Send SIGINT to worker pid */
-  kill (priv->worker_pid, SIGINT);
 }
 
 static GVariant *_convert_gst_structure_to (GstStructure * s);

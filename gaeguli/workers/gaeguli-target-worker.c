@@ -1,31 +1,53 @@
 #include "config.h"
 
-#include <glib-unix.h>
-#include <gio/gio.h>
+#include <glib.h>
+#include <json-glib/json-glib.h>
 
-static guint signal_watch_intr_id;
+#include "messenger.h"
 
-static gboolean
-intr_handler (gpointer user_data)
+typedef struct _TargetWorker
 {
-  GMainLoop *loop = user_data;
+  GMainLoop *loop;
+  GaeguliMessenger *messenger;
+} TargetWorker;
 
-  g_main_loop_quit (loop);
-  return G_SOURCE_REMOVE;
+void
+free_resources (TargetWorker * worker)
+{
+  if (!worker) {
+    return;
+  }
+
+  g_clear_object (&worker->messenger);
+  g_clear_pointer (&worker->loop, g_main_loop_unref);
+
+  g_free (worker);
+}
+
+static void
+_on_msg_terminate (TargetWorker * worker, JsonObject * msg)
+{
+  g_main_loop_quit (worker->loop);
 }
 
 int
 main (int argc, char *argv[])
 {
+  TargetWorker *worker = NULL;
   g_autoptr (GError) error = NULL;
-  g_autoptr (GMainLoop) loop = NULL;
 
-  loop = g_main_loop_new (NULL, FALSE);
+  worker = g_new0 (TargetWorker, 1);
 
-  signal_watch_intr_id =
-      g_unix_signal_add (SIGINT, (GSourceFunc) intr_handler, loop);
+  worker->messenger = gaeguli_messenger_new (atoi (argv[1]), atoi (argv[2]));
 
-  g_main_loop_run (loop);
+  g_signal_connect_swapped (worker->messenger, "message::terminate",
+      G_CALLBACK (_on_msg_terminate), worker);
+
+  worker->loop = g_main_loop_new (NULL, FALSE);
+
+  g_main_loop_run (worker->loop);
+
+  free_resources (worker);
 
   return 0;
 }

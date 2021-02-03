@@ -20,9 +20,12 @@
 #include "config.h"
 
 #include "gaeguli-internal.h"
+#include "messenger.h"
 #include "adaptors/nulladaptor.h"
 
 #include <gio/gio.h>
+
+#define GAEGULI_PIPELINE_WORKER_ARGS_NUM 4
 
 /* *INDENT-OFF* */
 #if !GLIB_CHECK_VERSION(2,57,1)
@@ -70,6 +73,7 @@ struct _GaeguliPipeline
   GMainLoop *loop;
   guint pw_node_id;
   GPid worker_pid;
+  GaeguliMessenger *messenger;
 
   GType adaptor_type;
 };
@@ -795,6 +799,34 @@ _cb_child_watch (GPid pid, gint status, gpointer * data)
   g_spawn_close_pid (pid);
 }
 
+static gchar **
+_gaeguli_build_pipeline_worker_args (int child_readfd, int child_writefd)
+{
+  gsize n_bytes = (GAEGULI_PIPELINE_WORKER_ARGS_NUM * sizeof (gchar *));
+  gchar **args = g_malloc (n_bytes);
+  if (args) {
+    gint i = 0;
+
+    if (g_file_test (GAEGULI_PIPELINE_WORKER, G_FILE_TEST_EXISTS)) {
+      args[i++] = g_strdup (GAEGULI_PIPELINE_WORKER);
+    } else {
+      args[i++] = g_strdup (GAEGULI_PIPELINE_WORKER_ALT);
+    }
+    args[i++] = g_strdup_printf ("%d", child_readfd);
+    args[i++] = g_strdup_printf ("%d", child_writefd);
+
+    args[i++] = NULL;
+  }
+  return args;
+}
+
+static void
+_child_setup (int *closefds)
+{
+  close (*closefds++);
+  close (*closefds);
+}
+
 static gboolean
 _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 {
@@ -807,23 +839,37 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
   g_autoptr (GstPad) tee_sink = NULL;
   g_autoptr (GstPad) valve_src = NULL;
   g_autoptr (GstPluginFeature) feature = NULL;
+  int readpipe[2] = { -1, -1 };
+  int writepipe[2] = { -1, -1 };
+  int closefds[2];
 
   g_autoptr (GError) gerr = NULL;
+  gboolean ret = TRUE;
   GPid pid;
-  gchar *arg[2];
+  gchar **args = NULL;
 
-  if (g_file_test (GAEGULI_PIPELINE_WORKER, G_FILE_TEST_EXISTS)) {
-    arg[0] = GAEGULI_PIPELINE_WORKER;
-  } else {
-    arg[0] = GAEGULI_PIPELINE_WORKER_ALT;
+  /* Create pipes for IPC */
+  if (pipe (readpipe) < 0 || pipe (writepipe) < 0) {
+    g_error ("Failed to initialize IPC");
+    goto failed;
   }
 
-  arg[1] = NULL;
+  args = _gaeguli_build_pipeline_worker_args (writepipe[0], readpipe[1]);
+  if (!args) {
+    goto failed;
+  }
 
-  g_spawn_async (NULL, arg, NULL,
-      G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &pid, &gerr);
-  if (gerr != NULL) {
+  /* File descriptors to close before the child's exec() is run. */
+  closefds[0] = readpipe[0];
+  closefds[1] = writepipe[1];
+
+  self->messenger = gaeguli_messenger_new (readpipe[0], writepipe[1]);
+
+  if (!g_spawn_async (NULL, args, NULL,
+          G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_LEAVE_DESCRIPTORS_OPEN,
+          (GSpawnChildSetupFunc) _child_setup, &closefds, &pid, &gerr)) {
     g_error ("spawning pipeline worker failed. %s", gerr->message);
+    goto failed;
   } else {
     g_debug ("A new child process spawned with pid %d\n", pid);
     self->worker_pid = pid;
@@ -894,13 +940,27 @@ _build_vsrc_pipeline (GaeguliPipeline * self, GError ** error)
 
   gaeguli_pipeline_create_device_monitor (self);
 
-  return TRUE;
+  goto out;
 
 failed:
   gst_clear_object (&self->vsrc);
   gst_clear_object (&self->pipeline);
+  if (readpipe[0] != -1)
+    close (readpipe[0]);
+  if (writepipe[1] != -1)
+    close (writepipe[1]);
 
-  return FALSE;
+  ret = FALSE;
+
+out:
+  if (readpipe[1] != -1)
+    close (readpipe[1]);
+  if (writepipe[0] != -1)
+    close (writepipe[0]);
+
+  g_strfreev (args);
+
+  return ret;
 }
 
 static void
@@ -1241,14 +1301,11 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
 
   g_debug ("clear internal pipeline");
 
-  /* Send SIGINT to worker pid */
-  kill (self->worker_pid, SIGINT);
-
-  if (self->pipeline) {
-    gst_element_set_state (self->pipeline, GST_STATE_NULL);
-  }
-
   g_mutex_lock (&self->lock);
+
+  if (self->messenger) {
+    gaeguli_messenger_send_terminate (self->messenger);
+  }
 
   while (!g_queue_is_empty (self->snapshot_tasks)) {
     g_autoptr (GTask) task = g_queue_pop_head (self->snapshot_tasks);
@@ -1262,6 +1319,7 @@ gaeguli_pipeline_stop (GaeguliPipeline * self)
   gst_clear_object (&self->snapshot_jpegenc);
   gst_clear_object (&self->snapshot_jifmux);
   gst_clear_object (&self->pipeline);
+  g_clear_object (&self->messenger);
 
   g_mutex_unlock (&self->lock);
 }
