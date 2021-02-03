@@ -89,6 +89,7 @@ gst_dep = [
 ]
 
 libsrt_dep = dependency('srt', version: '>=1.4.1')
+json_glib_dep = dependency('json-glib-1.0')
 
 gnome = import('gnome')
 
