@@ -555,8 +555,7 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
         return;
     }
 
-    /* FIXME: How much ttl is optimal value? */
-    sent = srt_sendmsg (info->sock, (char *) (buf + len), rest, 125, 0);
+    sent = srt_sendmsg2 (info->sock, (char *) (buf + len), rest, 0);
 
     if (sent <= 0) {
       g_warning ("%s", srt_getlasterror_str ());
