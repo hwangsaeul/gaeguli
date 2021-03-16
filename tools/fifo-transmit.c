@@ -18,6 +18,7 @@ typedef struct
   GaeguliSRTMode mode;
   const gchar *tmpdir;
   const gchar *username;
+  gint bootstrap_cnt;
 } FifoTransmitOptions;
 
 static void
@@ -59,6 +60,16 @@ mode_arg_cb (const gchar * option_name, const gchar * value, gpointer data,
   return TRUE;
 }
 
+static void
+bootstrap_done (GaeguliFifoTransmit * self, gpointer user_data)
+{
+  GApplication *app = user_data;
+
+  g_info ("Bootstrapping done");
+
+  g_application_release (app);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -75,6 +86,7 @@ main (int argc, char *argv[])
     {"mode", 'm', 0, G_OPTION_ARG_CALLBACK, mode_arg_cb, NULL, NULL},
     {"tmpdir", 't', 0, G_OPTION_ARG_FILENAME, &options.tmpdir, NULL, NULL},
     {"username", 'u', 0, G_OPTION_ARG_STRING, &options.username, NULL, NULL},
+    {"count", 'c', 0, G_OPTION_ARG_INT, &options.bootstrap_cnt, NULL, NULL},
     {"help", '?', 0, G_OPTION_ARG_NONE, &options.help, NULL, NULL},
     {NULL}
   };
@@ -87,6 +99,7 @@ main (int argc, char *argv[])
   options.mode = GAEGULI_SRT_MODE_LISTENER;
   options.tmpdir = NULL;
   options.username = NULL;
+  options.bootstrap_cnt = -1;
 
   group = g_option_group_new ("FIFO transmit options",
       "Options understood by Gaeguli FIFO transmit", NULL, &options, NULL);
@@ -114,6 +127,14 @@ main (int argc, char *argv[])
   fifo_transmit = gaeguli_fifo_transmit_new ();
   g_printerr ("Send bytestream to: %s",
       gaeguli_fifo_transmit_get_fifo (fifo_transmit));
+
+  g_object_set (G_OBJECT (fifo_transmit), "bootstrap-count",
+      options.bootstrap_cnt, NULL);
+
+  if (options.bootstrap_cnt != -1) {
+    g_signal_connect (fifo_transmit, "bootstrap-done",
+        G_CALLBACK (bootstrap_done), app);
+  }
 
   g_signal_connect (app, "activate", G_CALLBACK (activate), fifo_transmit);
 

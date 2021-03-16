@@ -141,6 +141,24 @@ weak_ref_free (GWeakRef * ref)
 
 #define BUFSIZE 1316            /* SRT_LIVE_DEF_PLSIZE */
 
+typedef enum
+{
+  PROP_BOOTSTRAP_COUNT = 1,
+
+  /*< private > */
+  PROP_LAST
+} _GaeguliFifoTransmitProperty;
+
+static GParamSpec *properties[PROP_LAST];
+
+enum
+{
+  SIG_BOOTSTRAP_DONE,
+  LAST_SIGNAL
+};
+
+static guint signals[LAST_SIGNAL] = { 0 };
+
 struct _GaeguliFifoTransmit
 {
   GObject parent;
@@ -162,6 +180,8 @@ struct _GaeguliFifoTransmit
 
   GVariantDict *stats;
   guint stats_timeout_id;
+
+  guint64 bootstrap_cnt;
 };
 
 /* *INDENT-OFF* */
@@ -242,12 +262,59 @@ gaeguli_fifo_transmit_finalize (GObject * object)
 }
 
 static void
+gaeguli_fifo_transmit_get_property (GObject * object,
+    guint prop_id, GValue * value, GParamSpec * pspec)
+{
+  GaeguliFifoTransmit *self = GAEGULI_FIFO_TRANSMIT (object);
+
+  switch (prop_id) {
+    case PROP_BOOTSTRAP_COUNT:
+      g_value_set_int (value, self->bootstrap_cnt);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
+gaeguli_fifo_transmit_set_property (GObject * object,
+    guint prop_id, const GValue * value, GParamSpec * pspec)
+{
+  GaeguliFifoTransmit *self = GAEGULI_FIFO_TRANSMIT (object);
+
+  switch (prop_id) {
+    case PROP_BOOTSTRAP_COUNT:
+      self->bootstrap_cnt = g_value_get_int (value);
+      break;
+    default:
+      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
 gaeguli_fifo_transmit_class_init (GaeguliFifoTransmitClass * klass)
 {
   GObjectClass *object_class = G_OBJECT_CLASS (klass);
 
+  object_class->get_property = gaeguli_fifo_transmit_get_property;
+  object_class->set_property = gaeguli_fifo_transmit_set_property;
   object_class->dispose = gaeguli_fifo_transmit_dispose;
   object_class->finalize = gaeguli_fifo_transmit_finalize;
+
+  properties[PROP_BOOTSTRAP_COUNT] =
+      g_param_spec_int ("bootstrap-count", "bootstrap-count",
+      "bootstrap-count", -1, G_MAXINT, -1,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
+      properties);
+
+  signals[SIG_BOOTSTRAP_DONE] =
+      g_signal_new ("bootstrap-done", G_TYPE_FROM_CLASS (klass),
+      G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS, 0, NULL,
+      NULL, NULL, G_TYPE_NONE, 0);
 }
 
 gboolean
@@ -273,6 +340,8 @@ gaeguli_fifo_transmit_init (GaeguliFifoTransmit * self)
   }
 
   g_atomic_int_inc (&srt_init_refcount);
+
+  self->bootstrap_cnt = -1;
 
   g_mutex_init (&self->lock);
 
@@ -560,6 +629,11 @@ _send_to_listener (GaeguliFifoTransmit * self, SRTInfo * info,
     if (sent <= 0) {
       g_warning ("%s", srt_getlasterror_str ());
       return;
+    }
+
+    if (self->bootstrap_cnt != -1 && --self->bootstrap_cnt == 0) {
+      g_info ("done bootstrapping");
+      g_signal_emit (self, signals[SIG_BOOTSTRAP_DONE], 0);
     }
 
     if (srt_bstats (info->sock, &stats, 0) >= 0) {
