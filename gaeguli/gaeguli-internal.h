@@ -67,4 +67,12 @@
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
         filesink name=recsink location=%s "
 
+
+#define GAEGULI_PIPELINE_SRTSINK_STR        "\
+        srtsink name=sink uri=%s wait-for-connection=false"
+
+#define GAEGULI_PIPELINE_VAAPI_VP8_STR      "\
+        queue name=enc_first ! vaapipostproc ! vaapivp8enc name=enc keyframe-period=%d ! rtpvp8pay mtu=1316 "
+        
+
 #endif // __GAEGULI_INTERNAL_H__

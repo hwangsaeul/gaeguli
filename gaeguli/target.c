@@ -148,6 +148,12 @@ _format_tx1_pipeline (const gchar * pipeline_str, guint idr_period)
   return g_strdup_printf (pipeline_str, idr_period);
 }
 
+static gchar *
+_format_vpx_pipeline (const gchar * pipeline_str, guint idr_period)
+{
+  return g_strdup_printf (pipeline_str, idr_period);
+}
+
 static struct encoding_method_params enc_params[] = {
   {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
       _format_general_pipeline},
@@ -161,6 +167,8 @@ static struct encoding_method_params enc_params[] = {
       _format_tx1_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_OMX,
       _format_tx1_pipeline},
+  {GAEGULI_PIPELINE_VAAPI_VP8_STR, GAEGULI_VIDEO_CODEC_VP8_VAAPI,
+      _format_vpx_pipeline},
   {NULL, 0, 0},
 };
 
@@ -222,7 +230,8 @@ _get_encoding_parameter_uint (GstElement * encoder, const gchar * param)
     if (g_str_equal (encoder_type, "x264enc") ||
         g_str_equal (encoder_type, "x265enc") ||
         g_str_equal (encoder_type, "vaapih264enc") ||
-        g_str_equal (encoder_type, "vaapih265enc")) {
+        g_str_equal (encoder_type, "vaapih265enc") ||
+        g_str_equal (encoder_type, "vaapivp8enc")) {
       g_object_get (encoder, "bitrate", &result, NULL);
       result *= 1000;
     } else if (g_str_equal (encoder_type, "omxh264enc") ||
@@ -288,7 +297,8 @@ _get_encoding_parameter_enum (GstElement * encoder, const gchar * param)
         }
       }
     } else if (g_str_equal (encoder_type, "vaapih264enc") ||
-        g_str_equal (encoder_type, "vaapih265enc")) {
+        g_str_equal (encoder_type, "vaapih265enc") ||
+        g_str_equal (encoder_type, "vaapivp8enc")) {
       gint rate_control;
 
       g_object_get (encoder, "rate-control", &rate_control, NULL);
@@ -571,7 +581,8 @@ _set_encoding_parameters (GstElement * encoder, GstStructure * params)
       }
     }
   } else if (g_str_equal (encoder_type, "vaapih264enc") ||
-      g_str_equal (encoder_type, "vaapih265enc")) {
+      g_str_equal (encoder_type, "vaapih265enc") ||
+      g_str_equal (encoder_type, "vaapivp8enc")) {
     ready_state_cb = _vaapi_update_in_ready_state;
     must_go_to_ready_state = TRUE;
   } else if (g_str_equal (encoder_type, "omxh264enc") ||
