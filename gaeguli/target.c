@@ -706,8 +706,13 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
   if (!priv->is_recording) {
-    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
-        pipeline_str, priv->uri);
+    if (priv->codec != GAEGULI_VIDEO_CODEC_VP8_VAAPI) {
+      pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
+          pipeline_str, priv->uri);
+    } else {
+      pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_SRTSINK_STR,
+          pipeline_str, priv->uri);
+    }
   } else {
     pipeline_str = g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MUXSINK_STR,
         pipeline_str, priv->location);
@@ -721,12 +726,14 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   gst_object_ref_sink (self->pipeline);
 
-  muxsink_first =
-      gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
-  if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
-          "pcr-interval")) {
-    g_info ("set pcr-interval to 360");
-    g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+  if (priv->codec != GAEGULI_VIDEO_CODEC_VP8_VAAPI) {
+    muxsink_first =
+        gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
+    if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
+            "pcr-interval")) {
+      g_info ("set pcr-interval to 360");
+      g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+    }
   }
 
   if (!priv->is_recording) {
