@@ -41,7 +41,7 @@
         h265parse ! queue "
 
 #define GAEGULI_PIPELINE_DECODEBIN_STR    "\
-        decodebin name=decodebin ! clockoverlay name=overlay "
+        decodebin name=decodebin ! videoconvert ! clockoverlay name=overlay "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
         queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! \
