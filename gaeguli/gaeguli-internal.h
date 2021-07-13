@@ -19,13 +19,6 @@
 #ifndef __GAEGULI_INTERNAL_H__
 #define __GAEGULI_INTERNAL_H__
 
-#define HOSTINFO_JSON_FORMAT \
-"{ \
-   \"host\": \"%s\", \
-   \"port\": %" G_GUINT32_FORMAT ", \
-   \"mode\": %" G_GINT32_FORMAT " \
-}"
-
 #define GAEGULI_PIPELINE_VSRC_STR       "\
         %s ! capsfilter name=caps ! %s ! tee name=tee allow-not-linked=1 "
 
