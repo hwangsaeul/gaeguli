@@ -49,6 +49,7 @@ typedef struct
 
   GaeguliVideoCodec codec;
   GaeguliVideoBitrateControl bitrate_control;
+  GaeguliVideoStreamType stream_type;
   guint bitrate;
   guint quantizer;
   guint idr_period;
@@ -88,6 +89,7 @@ enum
   PROP_VIDEO_PARAMS,
   PROP_TARGET_IS_RECORDING,
   PROP_LOCATION,
+  PROP_STREAM_TYPE,
   PROP_LAST
 };
 
@@ -124,6 +126,7 @@ gaeguli_target_init (GaeguliTarget * self)
   g_mutex_init (&priv->lock);
   priv->state = GAEGULI_TARGET_STATE_NEW;
   priv->adaptor_type = GAEGULI_TYPE_NULL_STREAM_ADAPTOR;
+  priv->stream_type = GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS;
 }
 
 typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
@@ -845,6 +848,9 @@ gaeguli_target_get_property (GObject * object,
     case PROP_TARGET_IS_RECORDING:
       g_value_set_boolean (value, priv->is_recording);
       break;
+    case PROP_STREAM_TYPE:
+      g_value_set_enum (value, priv->stream_type);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -939,6 +945,9 @@ gaeguli_target_set_property (GObject * object,
     case PROP_LOCATION:
       g_clear_pointer (&priv->location, g_free);
       priv->location = g_value_dup_string (value);
+      break;
+    case PROP_STREAM_TYPE:
+      priv->stream_type = g_value_get_enum (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1097,6 +1106,12 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       "Location to store the recorded stream",
       "Location to store the recorded stream", NULL,
       G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_STREAM_TYPE] =
+      g_param_spec_enum ("stream-type", "stream type",
+      "Media stream type", GAEGULI_TYPE_VIDEO_STREAM_TYPE,
+      GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
       properties);
@@ -1527,4 +1542,11 @@ gaeguli_target_get_stream_adaptor (GaeguliTarget * self)
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   return priv->adaptor;
+}
+
+void
+gaeguli_target_set_stream_type (GaeguliTarget * self,
+    GaeguliVideoStreamType stream_type)
+{
+  g_object_set (self, "stream-type", stream_type, NULL);
 }
