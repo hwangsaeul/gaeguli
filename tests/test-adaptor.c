@@ -114,7 +114,7 @@ gaeguli_test_adaptor_on_stats (GaeguliStreamAdaptor * self,
   if (test_adaptor->last_callback != 0) {
     g_assert_cmpint ((now - test_adaptor->last_callback) / 1000, >=,
         STATS_INTERVAL_MS - STATS_INTERVAL_MS / 5);
-    g_assert_cmpint ((now - test_adaptor->last_callback) / 1000, <,
+    g_assert_cmpint ((now - test_adaptor->last_callback) / 1000, <=,
         STATS_INTERVAL_MS + STATS_INTERVAL_MS / 5);
   }
 
