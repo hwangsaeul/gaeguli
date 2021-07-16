@@ -183,11 +183,11 @@ _bus_sync_srtsink_error_handler (GstBus * bus, GstMessage * message,
 {
   switch (message->type) {
     case GST_MESSAGE_ERROR:{
-      g_autoptr (GError) error = NULL;
+      g_autoptr (GError) bus_error = NULL;
       g_autofree gchar *debug = NULL;
 
-      gst_message_parse_error (message, &error, &debug);
-      if (g_error_matches (error, GST_RESOURCE_ERROR,
+      gst_message_parse_error (message, &bus_error, &debug);
+      if (g_error_matches (bus_error, GST_RESOURCE_ERROR,
               GST_RESOURCE_ERROR_OPEN_WRITE)) {
         GError **error = user_data;
 
