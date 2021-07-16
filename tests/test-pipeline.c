@@ -273,7 +273,7 @@ test_gaeguli_pipeline_address_in_use (void)
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264_X264, 2048000,
-      "srt://127.0.0.2:1111?mode=listener", NULL, &error);
+      "srt://127.0.0.1:1111?mode=listener&latency=20", NULL, &error);
   g_assert_no_error (error);
   g_assert_nonnull (target);
 
