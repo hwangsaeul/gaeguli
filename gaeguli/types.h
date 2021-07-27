@@ -126,7 +126,8 @@ GQuark gaeguli_transmit_error_quark     (void);
 
 typedef enum {
   GAEGULI_TRANSMIT_ERROR_FAILED,
-  GAEGULI_TRANSMIT_ERROR_ADDRINUSE
+  GAEGULI_TRANSMIT_ERROR_ADDRINUSE,
+  GAEGULI_TRANSMIT_ERROR_MISMATCHED_CODEC
 } GaeguliTransmitError;
 
 #endif // __GAEGULI_TYPES_H__
