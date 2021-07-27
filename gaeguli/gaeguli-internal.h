@@ -58,11 +58,11 @@
         queue name=enc_first ! vaapipostproc ! vaapih265enc name=enc keyframe-period=%d ! \
         h265parse ! queue "
 
-#define GAEGULI_PIPELINE_MUXSINK_STR    "\
+#define GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
         srtsink name=sink uri=%s wait-for-connection=false"
 
-#define GAEGULI_RECORD_PIPELINE_MUXSINK_STR    "\
+#define GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
         filesink name=recsink location=%s "
 

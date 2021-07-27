@@ -698,10 +698,11 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
   if (!priv->is_recording) {
-    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MUXSINK_STR,
+    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR,
         pipeline_str, priv->uri);
   } else {
-    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MUXSINK_STR,
+    pipeline_str =
+        g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR,
         pipeline_str, priv->location);
   }
 
