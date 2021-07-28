@@ -136,6 +136,7 @@ struct encoding_method_params
 {
   const gchar *pipeline_str;
   GaeguliVideoCodec codec;
+  GaeguliVideoStreamType stream_type;
   PipelineFormatFunc format_func;
 };
 
@@ -145,6 +146,8 @@ _format_general_pipeline (const gchar * pipeline_str, guint idr_period)
   g_autoptr (GString) str = g_string_new (NULL);
 
   g_string_printf (str, pipeline_str, idr_period);
+
+  g_debug ("format general pipeline[%s]", pipeline_str);
 
   return g_steal_pointer (&str);
 }
@@ -161,27 +164,34 @@ _format_tx1_pipeline (const gchar * pipeline_str, guint idr_period)
 
 static struct encoding_method_params enc_params[] = {
   {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
+        GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_general_pipeline},
   {GAEGULI_PIPELINE_GENERAL_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_X265,
+        GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_general_pipeline},
   {GAEGULI_PIPELINE_VAAPI_H264_STR, GAEGULI_VIDEO_CODEC_H264_VAAPI,
+        GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_general_pipeline},
   {GAEGULI_PIPELINE_VAAPI_H265_STR, GAEGULI_VIDEO_CODEC_H265_VAAPI,
+        GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_general_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_OMX,
+        GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_tx1_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_OMX,
+        GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_tx1_pipeline},
   {NULL, 0, 0},
 };
 
 static GString *
-_get_enc_string (GaeguliVideoCodec codec, guint idr_period)
+_get_enc_string (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
+    guint idr_period)
 {
   struct encoding_method_params *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
-    if (params->codec == codec)
+    if (params->codec == codec && params->stream_type == stream_type)
       return params->format_func (params->pipeline_str, idr_period);
   }
 
@@ -697,6 +707,41 @@ _is_compatible (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type)
   return FALSE;
 }
 
+static GstElement *
+_build_pipeline (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
+    guint idr_period, gboolean is_recording, const gchar * location,
+    GError ** error)
+{
+  g_autoptr (GString) pipeline_str = NULL;
+  g_autoptr (GstElement) pipeline = NULL;
+
+  pipeline_str = _get_enc_string (codec, stream_type, idr_period);
+
+  if (pipeline_str == NULL) {
+    g_set_error (error, GAEGULI_RESOURCE_ERROR,
+        GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
+    return FALSE;
+  }
+
+  if (!is_recording) {
+    if (stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
+      g_string_append_printf (pipeline_str,
+          " ! " GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR, location);
+    }
+  } else {
+    if (stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
+      g_string_append_printf (pipeline_str,
+          " ! " GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR, location);
+    }
+  }
+
+  g_debug ("using encoding pipeline [%s]", pipeline_str->str);
+
+  pipeline = gst_parse_launch (pipeline_str->str, error);
+
+  return g_steal_pointer (&pipeline);
+}
+
 static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
@@ -706,14 +751,11 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
 
   g_autoptr (GaeguliPipeline) owner = NULL;
   g_autoptr (GstElement) enc_first = NULL;
-  g_autoptr (GstElement) muxsink_first = NULL;
   g_autoptr (GstPad) enc_sinkpad = NULL;
-  g_autofree gchar *pipeline_str = NULL;
   g_autoptr (GError) internal_err = NULL;
   NotifyData *notify_data;
 
-  GString *enc_str = NULL;
-
+  /* Check if the stream type is compatible with codec */
   if (!_is_compatible (priv->codec, priv->stream_type)) {
     g_set_error (error, GAEGULI_TRANSMIT_ERROR,
         GAEGULI_TRANSMIT_ERROR_MISMATCHED_CODEC,
@@ -721,45 +763,27 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     return FALSE;
   }
 
-  enc_str = _get_enc_string (priv->codec, priv->idr_period);
-  if (enc_str == NULL) {
-    g_set_error (error, GAEGULI_RESOURCE_ERROR,
-        GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
-    return FALSE;
-  }
+  self->pipeline =
+      _build_pipeline (priv->codec, priv->stream_type,
+      priv->idr_period, priv->is_recording,
+      priv->is_recording ? priv->location : priv->uri, &internal_err);
 
-  pipeline_str = g_string_free (enc_str, FALSE);
-
-  g_debug ("using encoding pipeline [%s]", pipeline_str);
-
-  if (!priv->is_recording) {
-    if (priv->stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
-      pipeline_str =
-          g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR,
-          pipeline_str, priv->uri);
-    }
-  } else {
-    if (priv->stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
-      pipeline_str =
-          g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR,
-          pipeline_str, priv->location);
-    }
-  }
-
-  self->pipeline = gst_parse_launch (pipeline_str, &internal_err);
-  if (internal_err) {
-    g_warning ("failed to build muxsink pipeline (%s)", internal_err->message);
+  if (self->pipeline == NULL) {
+    g_warning ("failed to build internal pipeline(%s)", internal_err->message);
     goto failed;
   }
 
   gst_object_ref_sink (self->pipeline);
 
-  muxsink_first =
-      gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
-  if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
-          "pcr-interval")) {
-    g_info ("set pcr-interval to 360");
-    g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+  if (priv->stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
+    g_autoptr (GstElement) muxsink_first = NULL;
+    muxsink_first =
+        gst_bin_get_by_name (GST_BIN (self->pipeline), "muxsink_first");
+    if (g_object_class_find_property (G_OBJECT_GET_CLASS (muxsink_first),
+            "pcr-interval")) {
+      g_info ("set pcr-interval to 360");
+      g_object_set (G_OBJECT (muxsink_first), "pcr-interval", 360, NULL);
+    }
   }
 
   if (!priv->is_recording) {
