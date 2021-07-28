@@ -674,6 +674,22 @@ gaeguli_target_on_caller_removed (GaeguliTarget * self, gint srtsocket,
 }
 
 static gboolean
+_is_compatible (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type)
+{
+  if ((stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) &&
+      ((codec == GAEGULI_VIDEO_CODEC_H264_X264) ||
+          (codec == GAEGULI_VIDEO_CODEC_H264_VAAPI) ||
+          (codec == GAEGULI_VIDEO_CODEC_H264_OMX) ||
+          (codec == GAEGULI_VIDEO_CODEC_H265_X265) ||
+          (codec == GAEGULI_VIDEO_CODEC_H265_VAAPI) ||
+          (codec == GAEGULI_VIDEO_CODEC_H265_OMX))) {
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
+static gboolean
 gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     GError ** error)
 {
@@ -688,6 +704,13 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autoptr (GError) internal_err = NULL;
   NotifyData *notify_data;
 
+  if (!_is_compatible (priv->codec, priv->stream_type)) {
+    g_set_error (error, GAEGULI_TRANSMIT_ERROR,
+        GAEGULI_TRANSMIT_ERROR_MISMATCHED_CODEC,
+        "Mismatched codec and stream type");
+    return FALSE;
+  }
+
   pipeline_str = _get_enc_string (priv->codec, priv->idr_period);
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
@@ -698,12 +721,17 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
   if (!priv->is_recording) {
-    pipeline_str = g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR,
-        pipeline_str, priv->uri);
+    if (priv->stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
+      pipeline_str =
+          g_strdup_printf ("%s ! " GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR,
+          pipeline_str, priv->uri);
+    }
   } else {
-    pipeline_str =
-        g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR,
-        pipeline_str, priv->location);
+    if (priv->stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
+      pipeline_str =
+          g_strdup_printf ("%s ! " GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR,
+          pipeline_str, priv->location);
+    }
   }
 
   self->pipeline = gst_parse_launch (pipeline_str, &internal_err);
