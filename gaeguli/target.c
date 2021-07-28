@@ -129,7 +129,7 @@ gaeguli_target_init (GaeguliTarget * self)
   priv->stream_type = GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS;
 }
 
-typedef gchar *(*PipelineFormatFunc) (const gchar * pipeline_str,
+typedef GString *(*PipelineFormatFunc) (const gchar * pipeline_str,
     guint idr_period);
 
 struct encoding_method_params
@@ -139,16 +139,24 @@ struct encoding_method_params
   PipelineFormatFunc format_func;
 };
 
-static gchar *
+static GString *
 _format_general_pipeline (const gchar * pipeline_str, guint idr_period)
 {
-  return g_strdup_printf (pipeline_str, idr_period);
+  g_autoptr (GString) str = g_string_new (NULL);
+
+  g_string_printf (str, pipeline_str, idr_period);
+
+  return g_steal_pointer (&str);
 }
 
-static gchar *
+static GString *
 _format_tx1_pipeline (const gchar * pipeline_str, guint idr_period)
 {
-  return g_strdup_printf (pipeline_str, idr_period);
+  g_autoptr (GString) str = g_string_new (NULL);
+
+  g_string_printf (str, pipeline_str, idr_period);
+
+  return g_steal_pointer (&str);
 }
 
 static struct encoding_method_params enc_params[] = {
@@ -167,7 +175,7 @@ static struct encoding_method_params enc_params[] = {
   {NULL, 0, 0},
 };
 
-static gchar *
+static GString *
 _get_enc_string (GaeguliVideoCodec codec, guint idr_period)
 {
   struct encoding_method_params *params = enc_params;
@@ -704,6 +712,8 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
   g_autoptr (GError) internal_err = NULL;
   NotifyData *notify_data;
 
+  GString *enc_str = NULL;
+
   if (!_is_compatible (priv->codec, priv->stream_type)) {
     g_set_error (error, GAEGULI_TRANSMIT_ERROR,
         GAEGULI_TRANSMIT_ERROR_MISMATCHED_CODEC,
@@ -711,12 +721,14 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     return FALSE;
   }
 
-  pipeline_str = _get_enc_string (priv->codec, priv->idr_period);
-  if (pipeline_str == NULL) {
+  enc_str = _get_enc_string (priv->codec, priv->idr_period);
+  if (enc_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
     return FALSE;
   }
+
+  pipeline_str = g_string_free (enc_str, FALSE);
 
   g_debug ("using encoding pipeline [%s]", pipeline_str);
 
