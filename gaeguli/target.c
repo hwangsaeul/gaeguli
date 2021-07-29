@@ -132,7 +132,7 @@ gaeguli_target_init (GaeguliTarget * self)
 typedef struct _pipeline_format_params PipelineFormatParams;
 
 typedef GString *(*PipelineFormatFunc) (PipelineFormatParams * params,
-    guint idr_period);
+    gboolean is_recording, guint idr_period, const gchar * location);
 
 struct _pipeline_format_params
 {
@@ -143,11 +143,17 @@ struct _pipeline_format_params
 };
 
 static GString *
-_format_general_pipeline (PipelineFormatParams * params, guint idr_period)
+_format_general_pipeline (PipelineFormatParams * params, gboolean is_recording,
+    guint idr_period, const gchar * location)
 {
   g_autoptr (GString) str = g_string_new (NULL);
 
   g_string_printf (str, params->enc_str, idr_period);
+  g_string_append_printf (str, " ! ");
+  g_string_append_printf (str,
+      is_recording ?
+      GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR :
+      GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR, location);
 
   g_debug ("format general pipeline[%s]", str->str);
 
@@ -178,13 +184,14 @@ static PipelineFormatParams pipeline_format_params[] = {
 
 static GString *
 _get_pipeline_string (GaeguliVideoCodec codec,
-    GaeguliVideoStreamType stream_type, guint idr_period)
+    GaeguliVideoStreamType stream_type, gboolean is_recording, guint idr_period,
+    const gchar * location)
 {
   PipelineFormatParams *params = pipeline_format_params;
 
   for (; params->enc_str != NULL; params++) {
     if (params->codec == codec && params->stream_type == stream_type)
-      return params->format_func (params, idr_period);
+      return params->format_func (params, is_recording, idr_period, location);
   }
 
   return NULL;
@@ -707,27 +714,15 @@ _build_pipeline (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
   g_autoptr (GString) pipeline_str = NULL;
   g_autoptr (GstElement) pipeline = NULL;
 
-  pipeline_str = _get_pipeline_string (codec, stream_type, idr_period);
+  pipeline_str =
+      _get_pipeline_string (codec, stream_type, is_recording, idr_period,
+      location);
 
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
     return FALSE;
   }
-
-  if (!is_recording) {
-    if (stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
-      g_string_append_printf (pipeline_str,
-          " ! " GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR, location);
-    }
-  } else {
-    if (stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) {
-      g_string_append_printf (pipeline_str,
-          " ! " GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR, location);
-    }
-  }
-
-  g_debug ("using encoding pipeline [%s]", pipeline_str->str);
 
   pipeline = gst_parse_launch (pipeline_str->str, error);
 
