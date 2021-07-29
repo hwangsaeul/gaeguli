@@ -129,10 +129,12 @@ gaeguli_target_init (GaeguliTarget * self)
   priv->stream_type = GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS;
 }
 
-typedef GString *(*PipelineFormatFunc) (const gchar * pipeline_str,
+typedef struct _encoding_method_params EncodingMethodParams;
+
+typedef GString *(*PipelineFormatFunc) (EncodingMethodParams * params,
     guint idr_period);
 
-struct encoding_method_params
+struct _encoding_method_params
 {
   const gchar *pipeline_str;
   GaeguliVideoCodec codec;
@@ -141,18 +143,18 @@ struct encoding_method_params
 };
 
 static GString *
-_format_general_pipeline (const gchar * pipeline_str, guint idr_period)
+_format_general_pipeline (EncodingMethodParams * params, guint idr_period)
 {
   g_autoptr (GString) str = g_string_new (NULL);
 
-  g_string_printf (str, pipeline_str, idr_period);
+  g_string_printf (str, params->pipeline_str, idr_period);
 
-  g_debug ("format general pipeline[%s]", pipeline_str);
+  g_debug ("format general pipeline[%s]", str->str);
 
   return g_steal_pointer (&str);
 }
 
-static struct encoding_method_params enc_params[] = {
+static EncodingMethodParams enc_params[] = {
   {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
         GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_general_pipeline},
@@ -178,11 +180,11 @@ static GString *
 _get_enc_string (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
     guint idr_period)
 {
-  struct encoding_method_params *params = enc_params;
+  EncodingMethodParams *params = enc_params;
 
   for (; params->pipeline_str != NULL; params++) {
     if (params->codec == codec && params->stream_type == stream_type)
-      return params->format_func (params->pipeline_str, idr_period);
+      return params->format_func (params, idr_period);
   }
 
   return NULL;
