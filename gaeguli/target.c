@@ -693,7 +693,8 @@ gaeguli_target_on_caller_removed (GaeguliTarget * self, gint srtsocket,
 static gboolean
 _is_compatible (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type)
 {
-  if ((stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS) &&
+  if ((stream_type == GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS ||
+          stream_type == GAEGULI_VIDEO_STREAM_TYPE_RTP_OVER_SRT) &&
       ((codec == GAEGULI_VIDEO_CODEC_H264_X264) ||
           (codec == GAEGULI_VIDEO_CODEC_H264_VAAPI) ||
           (codec == GAEGULI_VIDEO_CODEC_H264_OMX) ||
