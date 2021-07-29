@@ -129,32 +129,32 @@ gaeguli_target_init (GaeguliTarget * self)
   priv->stream_type = GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS;
 }
 
-typedef struct _encoding_method_params EncodingMethodParams;
+typedef struct _pipeline_format_params PipelineFormatParams;
 
-typedef GString *(*PipelineFormatFunc) (EncodingMethodParams * params,
+typedef GString *(*PipelineFormatFunc) (PipelineFormatParams * params,
     guint idr_period);
 
-struct _encoding_method_params
+struct _pipeline_format_params
 {
-  const gchar *pipeline_str;
+  const gchar *enc_str;
   GaeguliVideoCodec codec;
   GaeguliVideoStreamType stream_type;
   PipelineFormatFunc format_func;
 };
 
 static GString *
-_format_general_pipeline (EncodingMethodParams * params, guint idr_period)
+_format_general_pipeline (PipelineFormatParams * params, guint idr_period)
 {
   g_autoptr (GString) str = g_string_new (NULL);
 
-  g_string_printf (str, params->pipeline_str, idr_period);
+  g_string_printf (str, params->enc_str, idr_period);
 
   g_debug ("format general pipeline[%s]", str->str);
 
   return g_steal_pointer (&str);
 }
 
-static EncodingMethodParams enc_params[] = {
+static PipelineFormatParams pipeline_format_params[] = {
   {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
         GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_general_pipeline},
@@ -177,12 +177,12 @@ static EncodingMethodParams enc_params[] = {
 };
 
 static GString *
-_get_enc_string (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
-    guint idr_period)
+_get_pipeline_string (GaeguliVideoCodec codec,
+    GaeguliVideoStreamType stream_type, guint idr_period)
 {
-  EncodingMethodParams *params = enc_params;
+  PipelineFormatParams *params = pipeline_format_params;
 
-  for (; params->pipeline_str != NULL; params++) {
+  for (; params->enc_str != NULL; params++) {
     if (params->codec == codec && params->stream_type == stream_type)
       return params->format_func (params, idr_period);
   }
@@ -707,7 +707,7 @@ _build_pipeline (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
   g_autoptr (GString) pipeline_str = NULL;
   g_autoptr (GstElement) pipeline = NULL;
 
-  pipeline_str = _get_enc_string (codec, stream_type, idr_period);
+  pipeline_str = _get_pipeline_string (codec, stream_type, idr_period);
 
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
