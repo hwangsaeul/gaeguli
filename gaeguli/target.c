@@ -152,16 +152,6 @@ _format_general_pipeline (const gchar * pipeline_str, guint idr_period)
   return g_steal_pointer (&str);
 }
 
-static GString *
-_format_tx1_pipeline (const gchar * pipeline_str, guint idr_period)
-{
-  g_autoptr (GString) str = g_string_new (NULL);
-
-  g_string_printf (str, pipeline_str, idr_period);
-
-  return g_steal_pointer (&str);
-}
-
 static struct encoding_method_params enc_params[] = {
   {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
         GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
@@ -177,10 +167,10 @@ static struct encoding_method_params enc_params[] = {
       _format_general_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_OMX,
         GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
-      _format_tx1_pipeline},
+      _format_general_pipeline},
   {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_OMX,
         GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
-      _format_tx1_pipeline},
+      _format_general_pipeline},
   {NULL, 0, 0},
 };
 
