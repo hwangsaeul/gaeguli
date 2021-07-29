@@ -302,8 +302,8 @@ test_gaeguli_adaptor_stats ()
   g_object_set (pipeline, "stream-adaptor", GAEGULI_TYPE_TEST_ADAPTOR, NULL);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264_X264, TEST_BITRATE2, "srt://127.0.0.1:1111",
-      NULL, &error);
+      GAEGULI_VIDEO_CODEC_H264_X264, GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
+      TEST_BITRATE2, "srt://127.0.0.1:1111", NULL, &error);
   g_assert_no_error (error);
 
   gaeguli_target_start (target, &error);

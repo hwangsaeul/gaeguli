@@ -160,6 +160,46 @@ _format_general_pipeline (PipelineFormatParams * params, gboolean is_recording,
   return g_steal_pointer (&str);
 }
 
+static GString *
+_format_rtp_over_srt_pipeline (PipelineFormatParams * params,
+    gboolean is_recording, guint idr_period, const gchar * location)
+{
+  g_autoptr (GString) str = g_string_new (NULL);
+  const gchar *payloader = NULL;
+
+  g_string_printf (str, params->enc_str, idr_period);
+
+  /* append rtp payloader */
+  switch (params->codec) {
+    case GAEGULI_VIDEO_CODEC_H264_X264:
+    case GAEGULI_VIDEO_CODEC_H264_VAAPI:
+    case GAEGULI_VIDEO_CODEC_H264_OMX:
+      payloader = "rtph264pay";
+      break;
+    case GAEGULI_VIDEO_CODEC_H265_X265:
+    case GAEGULI_VIDEO_CODEC_H265_VAAPI:
+    case GAEGULI_VIDEO_CODEC_H265_OMX:
+      payloader = "rtph265pay";
+      break;
+    default:
+      return NULL;
+  }
+
+  /* FIXME: We might want to set properties. */
+  g_string_append_printf (str, " ! %s mtu=1316 config-interval=-1 ", payloader);
+  g_string_append_printf (str,
+      " ! application/x-rtp, payload=96, rate=9000 ! muxsink_first.sink_0 ");
+  g_string_append_printf (str,
+      " appsrc name=appsrc format=time is-live=true do-timestamp=true caps=text/x-raw");
+  g_string_append_printf (str,
+      " ! rtpgstpay pt=99 mtu=1316 config-interval=1 ! application/x-rtp, payload=99, rate=9000 ! muxsink_first.sink_1 ");
+  g_string_append_printf (str, GAEGULI_PIPELINE_RTPMUX_SINK_STR, location);
+
+  g_debug ("format rtp-over-srt pipeline[%s]", str->str);
+
+  return g_steal_pointer (&str);
+}
+
 static PipelineFormatParams pipeline_format_params[] = {
   {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
         GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
@@ -179,6 +219,9 @@ static PipelineFormatParams pipeline_format_params[] = {
   {GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR, GAEGULI_VIDEO_CODEC_H265_OMX,
         GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       _format_general_pipeline},
+  {GAEGULI_PIPELINE_GENERAL_H264ENC_STR, GAEGULI_VIDEO_CODEC_H264_X264,
+        GAEGULI_VIDEO_STREAM_TYPE_RTP_OVER_SRT,
+      _format_rtp_over_srt_pipeline},
   {NULL, 0, 0},
 };
 
@@ -715,6 +758,8 @@ _build_pipeline (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
   g_autoptr (GString) pipeline_str = NULL;
   g_autoptr (GstElement) pipeline = NULL;
 
+  g_debug ("stream type is %d", stream_type);
+
   pipeline_str =
       _get_pipeline_string (codec, stream_type, is_recording, idr_period,
       location);
@@ -1198,14 +1243,14 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 
 GaeguliTarget *
 gaeguli_target_new (GstPad * peer_pad, guint id,
-    GaeguliVideoCodec codec, guint bitrate, guint idr_period,
-    const gchar * srt_uri, const gchar * username, gboolean is_record_target,
-    const gchar * location, GError ** error)
+    GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type, guint bitrate,
+    guint idr_period, const gchar * srt_uri, const gchar * username,
+    gboolean is_record_target, const gchar * location, GError ** error)
 {
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
-      "peer-pad", peer_pad, "codec", codec, "bitrate", bitrate,
-      "idr-period", idr_period, "uri", srt_uri, "username", username,
-      "is-recording", is_record_target, "location", location, NULL);
+      "peer-pad", peer_pad, "codec", codec, "stream-type", stream_type,
+      "bitrate", bitrate, "idr-period", idr_period, "uri", srt_uri, "username",
+      username, "is-recording", is_record_target, "location", location, NULL);
 }
 
 static GstPadProbeReturn

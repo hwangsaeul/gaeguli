@@ -90,6 +90,7 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
  * gaeguli_pipeline_add_srt_target_full:
  * @self: a #GaeguliPipeline object
  * @codec: codec to use for streaming
+ * @stream_type: video transfer method
  * @bitrate: bitrate use for streaming
  * @username: SRT Stream ID User Name identifying this target
  * @uri: SRT URI
@@ -103,6 +104,8 @@ GaeguliTarget          *gaeguli_pipeline_add_srt_target
 GaeguliTarget          *gaeguli_pipeline_add_srt_target_full
                                                 (GaeguliPipeline       *self,
                                                  GaeguliVideoCodec      codec,
+                                                 GaeguliVideoStreamType
+                                                                        stream_type,
                                                  guint                  bitrate,
                                                  const gchar           *uri,
                                                  const gchar           *username,

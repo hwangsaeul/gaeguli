@@ -39,8 +39,8 @@ test_gaeguli_target_encoding_params ()
       GAEGULI_VIDEO_RESOLUTION_640X480, 15);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264_X264, DEFAULT_BITRATE, "srt://127.0.0.1:1111",
-      NULL, &error);
+      GAEGULI_VIDEO_CODEC_H264_X264, GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
+      DEFAULT_BITRATE, "srt://127.0.0.1:1111", NULL, &error);
   g_assert_no_error (error);
 
   gaeguli_target_start (target, &error);
@@ -113,8 +113,8 @@ passphrase_run (const gchar * sender_passphrase,
   g_signal_connect (pipeline, "connection-error", error_cb, loop);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264_X264, DEFAULT_BITRATE, "srt://127.0.0.1:1111",
-      NULL, &error);
+      GAEGULI_VIDEO_CODEC_H264_X264, GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
+      DEFAULT_BITRATE, "srt://127.0.0.1:1111", NULL, &error);
   g_assert_no_error (error);
   g_object_set (G_OBJECT (target), "passphrase", sender_passphrase, NULL);
 

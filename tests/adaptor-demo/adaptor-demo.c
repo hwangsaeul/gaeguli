@@ -148,7 +148,8 @@ gaeguli_adaptor_demo_on_msg_stream (GaeguliAdaptorDemo * self, JsonObject * msg)
       }
 
       self->target = gaeguli_pipeline_add_srt_target_full (self->pipeline,
-          codec, 2048000, "srt://:7001?mode=listener", NULL, &error);
+          codec, GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS, 2048000,
+          "srt://:7001?mode=listener", NULL, &error);
 
       if (error) {
         g_printerr ("Unable to add SRT target: %s\n", error->message);

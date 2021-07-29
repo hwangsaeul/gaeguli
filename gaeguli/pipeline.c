@@ -903,7 +903,8 @@ gaeguli_pipeline_suggest_buffer_size_for_target (GaeguliPipeline * self,
 
 static GaeguliTarget *
 gaeguli_pipeline_add_target (GaeguliPipeline * self,
-    GaeguliVideoCodec codec, guint bitrate,
+    GaeguliVideoCodec codec,
+    GaeguliVideoStreamType stream_type, guint bitrate,
     const gchar * uri, const gchar * username,
     const gchar * location, gboolean is_record_target, GError ** error)
 {
@@ -946,7 +947,8 @@ gaeguli_pipeline_add_target (GaeguliPipeline * self,
         gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
             "src_%u"), NULL, NULL);
 
-    target = gaeguli_target_new (tee_srcpad, target_id, codec, bitrate,
+    target =
+        gaeguli_target_new (tee_srcpad, target_id, codec, stream_type, bitrate,
         self->fps, uri, username, is_record_target, location, &internal_err);
 
     if (target == NULL) {
@@ -1006,7 +1008,8 @@ gaeguli_pipeline_add_recording_target_full (GaeguliPipeline * self,
     const gchar * location, GError ** error)
 {
   return gaeguli_pipeline_add_target (self, codec,
-      bitrate, NULL, NULL, location, TRUE, error);
+      GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS, bitrate, NULL, NULL, location, TRUE,
+      error);
 }
 
 GaeguliTarget *
@@ -1019,11 +1022,11 @@ gaeguli_pipeline_add_recording_target (GaeguliPipeline * self,
 
 GaeguliTarget *
 gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
-    GaeguliVideoCodec codec, guint bitrate, const gchar * uri,
-    const gchar * username, GError ** error)
+    GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type, guint bitrate,
+    const gchar * uri, const gchar * username, GError ** error)
 {
   return gaeguli_pipeline_add_target (self, codec,
-      bitrate, uri, username, NULL, FALSE, error);
+      stream_type, bitrate, uri, username, NULL, FALSE, error);
 }
 
 GaeguliTarget *
@@ -1031,7 +1034,8 @@ gaeguli_pipeline_add_srt_target (GaeguliPipeline * self,
     const gchar * uri, const gchar * username, GError ** error)
 {
   return gaeguli_pipeline_add_srt_target_full (self, DEFAULT_VIDEO_CODEC,
-      DEFAULT_VIDEO_BITRATE, uri, username, error);
+      GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS, DEFAULT_VIDEO_BITRATE, uri, username,
+      error);
 }
 
 GaeguliReturn

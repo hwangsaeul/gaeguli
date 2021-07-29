@@ -56,6 +56,8 @@ struct _GaeguliTarget
 GaeguliTarget          *gaeguli_target_new           (GstPad                *peer_pad,
                                                       guint                  id,
                                                       GaeguliVideoCodec      codec,
+                                                      GaeguliVideoStreamType
+                                                                             stream_type,
                                                       guint                  bitrate,
                                                       guint                  idr_period,
                                                       const gchar           *srt_uri,
