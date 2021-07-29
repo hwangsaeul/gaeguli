@@ -1641,10 +1641,3 @@ gaeguli_target_get_stream_adaptor (GaeguliTarget * self)
 
   return priv->adaptor;
 }
-
-void
-gaeguli_target_set_stream_type (GaeguliTarget * self,
-    GaeguliVideoStreamType stream_type)
-{
-  g_object_set (self, "stream-type", stream_type, NULL);
-}

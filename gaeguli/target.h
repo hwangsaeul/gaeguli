@@ -66,11 +66,6 @@ GaeguliTarget          *gaeguli_target_new           (GstPad                *pee
                                                       const gchar           *location,
                                                       GError               **error);
 
-void                    gaeguli_target_set_stream_type  
-                                                     (GaeguliTarget        *self,
-                                                      GaeguliVideoStreamType   
-                                                                            stream_type);
-
 void                    gaeguli_target_start         (GaeguliTarget        *self,
                                                       GError              **error);
 
