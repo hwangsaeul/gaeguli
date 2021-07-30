@@ -102,38 +102,6 @@ test_gaeguli_pipeline_instance (TestFixture * fixture, gconstpointer unused)
   gaeguli_pipeline_stop (pipeline);
 }
 
-
-static void
-test_gaeguli_pipeline_rtp_instance (TestFixture * fixture, gconstpointer unused)
-{
-  GaeguliTarget *target;
-  g_autoptr (GaeguliPipeline) pipeline =
-      gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
-      GAEGULI_VIDEO_RESOLUTION_640X480, 30);
-  g_autoptr (GError) error = NULL;
-
-  g_signal_connect (pipeline, "stream-started", G_CALLBACK (_stream_started_cb),
-      fixture);
-  g_signal_connect (pipeline, "stream-stopped", G_CALLBACK (_stream_stopped_cb),
-      fixture);
-
-  target = gaeguli_pipeline_add_srt_target_full (pipeline,
-      GAEGULI_VIDEO_CODEC_H264_X264, GAEGULI_VIDEO_STREAM_TYPE_RTP_OVER_SRT,
-      2048000, "srt://127.0.0.1:1111", NULL, &error);
-
-  g_assert_no_error (error);
-  g_assert_nonnull (target);
-  g_assert_cmpuint (target->id, !=, 0);
-  fixture->target = target;
-
-  gaeguli_target_start (target, &error);
-  g_assert_no_error (error);
-
-  g_main_loop_run (fixture->loop);
-
-  gaeguli_pipeline_stop (pipeline);
-}
-
 typedef struct
 {
   GaeguliTarget *target;
@@ -676,9 +644,6 @@ main (int argc, char *argv[])
 
   g_test_add ("/gaeguli/pipeline-instance", TestFixture, NULL, fixture_setup,
       test_gaeguli_pipeline_instance, fixture_teardown);
-
-  g_test_add ("/gaeguli/pipeline-rtp-instance", TestFixture, NULL,
-      fixture_setup, test_gaeguli_pipeline_rtp_instance, fixture_teardown);
 
   g_test_add ("/gaeguli/pipeline-add-remove-target-random",
       TestFixture, NULL, fixture_setup,

@@ -3,6 +3,7 @@ subdir('adaptor-demo')
 
 tests = [
   'test-pipeline',
+  'test-rtp-over-srt',
   'test-adaptor',
   'test-target',
 ]
