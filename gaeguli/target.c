@@ -192,7 +192,7 @@ _format_rtp_over_srt_pipeline (PipelineFormatParams * params,
   g_string_append_printf (str,
       " appsrc name=appsrc format=time is-live=true do-timestamp=true caps=text/x-raw");
   g_string_append_printf (str,
-      " ! rtpgstpay pt=99 mtu=1316 config-interval=1 ! application/x-rtp, payload=99, rate=9000 ! muxsink_first.sink_1 ");
+      " ! queue ! rtpgstpay pt=99 mtu=1316 config-interval=1 ! application/x-rtp, payload=99, rate=9000 ! muxsink_first.sink_1 ");
   g_string_append_printf (str, GAEGULI_PIPELINE_RTPMUX_SINK_STR, location);
 
   g_debug ("format rtp-over-srt pipeline[%s]", str->str);
