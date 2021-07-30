@@ -19,6 +19,7 @@
  */
 
 #include <gaeguli/gaeguli.h>
+#include "gaeguli/test/receiver.h"
 
 typedef struct _TestFixture
 {
@@ -35,7 +36,8 @@ fixture_setup (TestFixture * fixture, gconstpointer unused)
   fixture->loop = g_main_loop_new (NULL, FALSE);
   fixture->port = g_random_int_range (39000, 40000);
   fixture->srt_uri =
-      g_strdup_printf ("srt://127.0.0.1:%" G_GUINT32_FORMAT, fixture->port);
+      g_strdup_printf ("srt://127.0.0.1:%" G_GUINT32_FORMAT "?mode=caller",
+      fixture->port);
 }
 
 static void
@@ -44,29 +46,21 @@ fixture_teardown (TestFixture * fixture, gconstpointer unused)
   g_main_loop_unref (fixture->loop);
 }
 
-static void
-_stream_started_cb (GaeguliPipeline * pipeline, GaeguliTarget * target,
-    TestFixture * fixture)
+typedef struct
 {
-  g_autoptr (GError) error = NULL;
-
-  gaeguli_pipeline_remove_target (pipeline, target, &error);
-}
-
-static gboolean
-_quit_loop (TestFixture * fixture)
-{
-  g_main_loop_quit (fixture->loop);
-  return G_SOURCE_REMOVE;
-}
+  TestFixture *fixture;
+  gsize buffer_cnt;
+} ClientTestData;
 
 static void
-_stream_stopped_cb (GaeguliPipeline * pipeline, GaeguliTarget * target,
-    TestFixture * fixture)
+_test1_buffer_cb (GstElement * object, GstBuffer * buffer, GstPad * pad,
+    ClientTestData * data)
 {
-  g_debug ("got stopped signal %x", target->id);
-
-  g_timeout_add (100, (GSourceFunc) _quit_loop, fixture);
+  ++data->buffer_cnt;
+  if (++data->buffer_cnt == 50) {
+    g_debug ("reached 50 received buffer count; exiting the main loop");
+    g_main_loop_quit (data->fixture->loop);
+  }
 }
 
 static void
@@ -77,11 +71,14 @@ test_gaeguli_pipeline_rtp_instance (TestFixture * fixture, gconstpointer unused)
       gaeguli_pipeline_new_full (GAEGULI_VIDEO_SOURCE_VIDEOTESTSRC, NULL,
       GAEGULI_VIDEO_RESOLUTION_640X480, 30);
   g_autoptr (GError) error = NULL;
+  ClientTestData data = { 0 };
+  g_autoptr (GstElement) listener =
+      gaeguli_tests_create_receiver (GAEGULI_SRT_MODE_LISTENER, fixture->port);
 
-  g_signal_connect (pipeline, "stream-started", G_CALLBACK (_stream_started_cb),
-      fixture);
-  g_signal_connect (pipeline, "stream-stopped", G_CALLBACK (_stream_stopped_cb),
-      fixture);
+  data.fixture = fixture;
+
+  gaeguli_tests_receiver_set_handoff_callback (listener,
+      (GCallback) _test1_buffer_cb, &data);
 
   target = gaeguli_pipeline_add_srt_target_full (pipeline,
       GAEGULI_VIDEO_CODEC_H264_X264, GAEGULI_VIDEO_STREAM_TYPE_RTP_OVER_SRT,
@@ -97,9 +94,9 @@ test_gaeguli_pipeline_rtp_instance (TestFixture * fixture, gconstpointer unused)
 
   g_main_loop_run (fixture->loop);
 
+  gst_element_set_state (listener, GST_STATE_NULL);
   gaeguli_pipeline_stop (pipeline);
 }
-
 
 int
 main (int argc, char *argv[])
