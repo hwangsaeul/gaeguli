@@ -69,6 +69,14 @@ GaeguliPipeline        *gaeguli_pipeline_new_full
                                                  GaeguliVideoResolution resolution,
                                                  guint                  framerate);
 /**
+ *
+ */
+GaeguliTarget          *gaeguli_pipeline_add_target_full
+                                                (GaeguliPipeline       *self,
+                                                 GVariant              *attributes,
+                                                 GError               **error);
+ 
+/**
  * gaeguli_pipeline_add_srt_target:
  * @self: a #GaeguliPipeline object
  * @uri: SRT URI

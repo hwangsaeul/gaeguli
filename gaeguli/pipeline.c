@@ -901,115 +901,22 @@ gaeguli_pipeline_suggest_buffer_size_for_target (GaeguliPipeline * self,
   return (latency_ms + b->rtt_ms / 2) * bps / 1000 / 8;
 }
 
-static GaeguliTarget *
-gaeguli_pipeline_add_target (GaeguliPipeline * self,
-    GaeguliVideoCodec codec,
-    GaeguliVideoStreamType stream_type, guint bitrate,
-    const gchar * uri, const gchar * username,
-    const gchar * location, gboolean is_record_target, GError ** error)
-{
-  guint target_id = 0;
-  GaeguliTarget *target = NULL;
-
-  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), 0);
-  if (!is_record_target) {
-    g_return_val_if_fail (uri != NULL, 0);
-  } else {
-    g_return_val_if_fail (location != NULL, 0);
-  }
-  g_return_val_if_fail (error == NULL || *error == NULL, 0);
-
-  g_mutex_lock (&self->lock);
-
-  /* assume that it's first target */
-  if (self->vsrc == NULL && !is_record_target
-      && !_build_vsrc_pipeline (self, error)) {
-    goto failed;
-  }
-
-  if (!is_record_target) {
-    target_id = g_str_hash (uri);
-  } else {
-    target_id = g_str_hash (location);
-  }
-
-  target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
-
-  if (!target) {
-    g_autoptr (GstElement) tee = NULL;
-    g_autoptr (GstPad) tee_srcpad = NULL;
-    g_autoptr (GError) internal_err = NULL;
-
-    g_debug ("no target pipeline mapped with [%x]", target_id);
-
-    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
-    tee_srcpad = gst_element_request_pad (tee,
-        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
-            "src_%u"), NULL, NULL);
-
-    target =
-        gaeguli_target_new (tee_srcpad, target_id, codec, stream_type, bitrate,
-        self->fps, uri, username, is_record_target, location, &internal_err);
-
-    if (target == NULL) {
-      g_propagate_error (error, internal_err);
-      internal_err = NULL;
-      goto failed;
-    }
-
-    if (self->benchmark_interval_ms != 0 &&
-        gaeguli_target_get_srt_mode (target) == GAEGULI_SRT_MODE_CALLER) {
-      gint32 buffer;
-
-      buffer = gaeguli_pipeline_suggest_buffer_size_for_target (self, target);
-      if (buffer > 0) {
-        g_debug ("Setting buffer sizes for [%x] to %d", target_id, buffer);
-
-        g_object_set (target, "buffer-size", buffer, NULL);
-      } else {
-        g_debug ("No buffer suggestion for [%x]", target_id);
-      }
-    }
-
-    g_object_set (target, "adaptor-type", self->adaptor_type, NULL);
-
-    if (!is_record_target) {
-      g_signal_connect_swapped (target, "stream-started",
-          G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
-      g_signal_connect_swapped (target, "stream-stopped",
-          G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
-      g_signal_connect_swapped (target, "caller-added",
-          G_CALLBACK (gaeguli_pipeline_on_caller_added), self);
-      g_signal_connect_swapped (target, "caller-removed",
-          G_CALLBACK (gaeguli_pipeline_on_caller_removed), self);
-    }
-    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
-  } else {
-    if (is_record_target) {
-      g_warning ("Record target already exists for given location %s",
-          location);
-    }
-  }
-
-  g_mutex_unlock (&self->lock);
-
-  return target;
-
-failed:
-  g_mutex_unlock (&self->lock);
-
-  g_debug ("failed to add target");
-  return NULL;
-}
-
 GaeguliTarget *
 gaeguli_pipeline_add_recording_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, guint bitrate,
     const gchar * location, GError ** error)
 {
-  return gaeguli_pipeline_add_target (self, codec,
-      GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS, bitrate, NULL, NULL, location, TRUE,
-      error);
+  g_autoptr (GVariant) attributes = NULL;
+  GVariantDict attr;
+
+  g_variant_dict_init (&attr, NULL);
+  g_variant_dict_insert (&attr, "codec", "i", codec);
+  g_variant_dict_insert (&attr, "is-record", "b", TRUE);
+  g_variant_dict_insert (&attr, "location", "s", location);
+  g_variant_dict_insert (&attr, "bitrate", "u", bitrate);
+
+  attributes = g_variant_dict_end (&attr);
+  return gaeguli_pipeline_add_target_full (self, attributes, error);
 }
 
 GaeguliTarget *
@@ -1025,8 +932,21 @@ gaeguli_pipeline_add_srt_target_full (GaeguliPipeline * self,
     GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type, guint bitrate,
     const gchar * uri, const gchar * username, GError ** error)
 {
-  return gaeguli_pipeline_add_target (self, codec,
-      stream_type, bitrate, uri, username, NULL, FALSE, error);
+  g_autoptr (GVariant) attributes = NULL;
+  GVariantDict attr;
+
+  g_variant_dict_init (&attr, NULL);
+  g_variant_dict_insert (&attr, "codec", "i", codec);
+  g_variant_dict_insert (&attr, "stream-type", "i", stream_type);
+  g_variant_dict_insert (&attr, "is-record", "b", FALSE);
+  g_variant_dict_insert (&attr, "uri", "s", uri);
+  g_variant_dict_insert (&attr, "bitrate", "u", bitrate);
+
+  if (username != NULL)
+    g_variant_dict_insert (&attr, "username", "s", username);
+
+  attributes = g_variant_dict_end (&attr);
+  return gaeguli_pipeline_add_target_full (self, attributes, error);
 }
 
 GaeguliTarget *
@@ -1145,4 +1065,118 @@ gaeguli_pipeline_dump_to_dot_file (GaeguliPipeline * self)
 {
   GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS (GST_BIN (self->pipeline),
       GST_DEBUG_GRAPH_SHOW_ALL, g_get_prgname ());
+}
+
+GaeguliTarget *
+gaeguli_pipeline_add_target_full (GaeguliPipeline * self,
+    GVariant * attributes, GError ** error)
+{
+  GaeguliTarget *target = NULL;
+
+  GVariantDict attr;
+  gboolean is_record = FALSE;
+  GaeguliVideoCodec codec = GAEGULI_VIDEO_CODEC_H264_X264;
+  GaeguliVideoStreamType stream_type = GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS;
+  const gchar *location = NULL;
+  const gchar *username = NULL;
+  guint bitrate = 0;
+
+  guint target_id = 0;
+
+  g_return_val_if_fail (GAEGULI_IS_PIPELINE (self), NULL);
+  g_return_val_if_fail (attributes != NULL, NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  g_variant_dict_init (&attr, attributes);
+
+  g_variant_dict_lookup (&attr, "username", "s", &username);
+  g_variant_dict_lookup (&attr, "is-record", "b", &is_record);
+  if (!g_variant_dict_lookup (&attr, "location", "s", &location)) {
+    g_variant_dict_lookup (&attr, "uri", "s", &location);
+  }
+  g_variant_dict_lookup (&attr, "bitrate", "u", &bitrate);
+
+  if (location == NULL) {
+    g_set_error (error, GAEGULI_TRANSMIT_ERROR,
+        GAEGULI_TRANSMIT_ERROR_FAILED,
+        "Not found a proper target uri or location");
+    return NULL;
+  }
+
+  g_mutex_lock (&self->lock);
+
+  /* assume that it's first target */
+  if (self->vsrc == NULL && !is_record && !_build_vsrc_pipeline (self, error)) {
+    goto failed;
+  }
+
+  target_id = g_str_hash (location);
+  target = g_hash_table_lookup (self->targets, GINT_TO_POINTER (target_id));
+
+  if (!target) {
+    g_autoptr (GstElement) tee = NULL;
+    g_autoptr (GstPad) tee_srcpad = NULL;
+    g_autoptr (GError) internal_err = NULL;
+
+    g_debug ("no target pipeline mapped with [%x]", target_id);
+
+    tee = gst_bin_get_by_name (GST_BIN (self->vsrc), "tee");
+    tee_srcpad = gst_element_request_pad (tee,
+        gst_element_class_get_pad_template (GST_ELEMENT_GET_CLASS (tee),
+            "src_%u"), NULL, NULL);
+
+    target =
+        gaeguli_target_new (tee_srcpad, target_id, codec, stream_type, bitrate,
+        self->fps, location, username, is_record, location, &internal_err);
+
+    if (target == NULL) {
+      g_propagate_error (error, internal_err);
+      internal_err = NULL;
+      goto failed;
+    }
+
+    if (self->benchmark_interval_ms != 0 &&
+        gaeguli_target_get_srt_mode (target) == GAEGULI_SRT_MODE_CALLER) {
+      gint32 buffer;
+
+      buffer = gaeguli_pipeline_suggest_buffer_size_for_target (self, target);
+      if (buffer > 0) {
+        g_debug ("Setting buffer sizes for [%x] to %d", target_id, buffer);
+
+        g_object_set (target, "buffer-size", buffer, NULL);
+      } else {
+        g_debug ("No buffer suggestion for [%x]", target_id);
+      }
+    }
+
+    g_object_set (target, "adaptor-type", self->adaptor_type, NULL);
+
+    if (!is_record) {
+      g_signal_connect_swapped (target, "stream-started",
+          G_CALLBACK (gaeguli_pipeline_emit_stream_started), self);
+      g_signal_connect_swapped (target, "stream-stopped",
+          G_CALLBACK (gaeguli_pipeline_emit_stream_stopped), self);
+      g_signal_connect_swapped (target, "caller-added",
+          G_CALLBACK (gaeguli_pipeline_on_caller_added), self);
+      g_signal_connect_swapped (target, "caller-removed",
+          G_CALLBACK (gaeguli_pipeline_on_caller_removed), self);
+    }
+    g_hash_table_insert (self->targets, GINT_TO_POINTER (target_id), target);
+  } else {
+    if (is_record) {
+      g_warning ("Record target already exists for given location %s",
+          location);
+    }
+  }
+
+  g_mutex_unlock (&self->lock);
+
+
+  return target;
+
+failed:
+  g_mutex_unlock (&self->lock);
+
+  g_debug ("failed to add target");
+  return NULL;
 }
