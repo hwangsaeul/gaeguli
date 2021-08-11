@@ -1242,6 +1242,52 @@ gaeguli_target_initable_iface_init (GInitableIface * iface)
 }
 
 GaeguliTarget *
+gaeguli_target_new_full (GstPad * peer_pad, guint id,
+    GVariant * attributes, GError ** error)
+{
+  GVariantDict attr;
+
+  GaeguliVideoCodec codec = GAEGULI_VIDEO_CODEC_H264_X264;
+  GaeguliVideoStreamType stream_type =
+      GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS_OVER_SRT;
+  guint bitrate = 512;
+  guint idr_period = 10;
+  const gchar *location = NULL;
+  const gchar *username = NULL;
+  gboolean is_record = FALSE;
+
+  g_return_val_if_fail (GST_IS_PAD (peer_pad), NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+  g_return_val_if_fail (attributes != NULL, NULL);
+
+  g_variant_dict_init (&attr, attributes);
+
+  g_variant_dict_lookup (&attr, "is-record", "b", &is_record);
+  if (!g_variant_dict_lookup (&attr, "location", "s", &location)) {
+    g_variant_dict_lookup (&attr, "uri", "s", &location);
+  }
+
+  if (location == NULL) {
+    g_set_error (error, GAEGULI_TRANSMIT_ERROR,
+        GAEGULI_TRANSMIT_ERROR_FAILED,
+        is_record ? "Missing 'location' for recording target" :
+        "Missing 'uri' for streaming");
+    return NULL;
+  }
+
+  g_variant_dict_lookup (&attr, "codec", "i", &codec);
+  g_variant_dict_lookup (&attr, "stream-type", "i", &stream_type);
+  g_variant_dict_lookup (&attr, "bitrate", "u", &bitrate);
+  g_variant_dict_lookup (&attr, "idr-period", "u", &idr_period);
+  g_variant_dict_lookup (&attr, "username", "s", &username);
+
+  return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
+      "peer-pad", peer_pad, "codec", codec, "stream-type", stream_type,
+      "bitrate", bitrate, "idr-period", idr_period, "uri", location, "username",
+      username, "is-recording", is_record, "location", location, NULL);
+}
+
+GaeguliTarget *
 gaeguli_target_new (GstPad * peer_pad, guint id,
     GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type, guint bitrate,
     guint idr_period, const gchar * srt_uri, const gchar * username,

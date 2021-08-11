@@ -52,6 +52,11 @@ struct _GaeguliTarget
   GstElement *pipeline;
 };
 
+GaeguliTarget          *gaeguli_target_new_full      (GstPad                *peer_pad,
+                                                      guint                  id,
+                                                      GVariant              *attributes,
+                                                      GError               **error);
+                                            
 
 GaeguliTarget          *gaeguli_target_new           (GstPad                *peer_pad,
                                                       guint                  id,

@@ -1075,11 +1075,7 @@ gaeguli_pipeline_add_target_full (GaeguliPipeline * self,
 
   GVariantDict attr;
   gboolean is_record = FALSE;
-  GaeguliVideoCodec codec = GAEGULI_VIDEO_CODEC_H264_X264;
-  GaeguliVideoStreamType stream_type = GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS;
   const gchar *location = NULL;
-  const gchar *username = NULL;
-  guint bitrate = 0;
 
   guint target_id = 0;
 
@@ -1089,12 +1085,10 @@ gaeguli_pipeline_add_target_full (GaeguliPipeline * self,
 
   g_variant_dict_init (&attr, attributes);
 
-  g_variant_dict_lookup (&attr, "username", "s", &username);
   g_variant_dict_lookup (&attr, "is-record", "b", &is_record);
   if (!g_variant_dict_lookup (&attr, "location", "s", &location)) {
     g_variant_dict_lookup (&attr, "uri", "s", &location);
   }
-  g_variant_dict_lookup (&attr, "bitrate", "u", &bitrate);
 
   if (location == NULL) {
     g_set_error (error, GAEGULI_TRANSMIT_ERROR,
@@ -1126,8 +1120,8 @@ gaeguli_pipeline_add_target_full (GaeguliPipeline * self,
             "src_%u"), NULL, NULL);
 
     target =
-        gaeguli_target_new (tee_srcpad, target_id, codec, stream_type, bitrate,
-        self->fps, location, username, is_record, location, &internal_err);
+        gaeguli_target_new_full (tee_srcpad, target_id, attributes,
+        &internal_err);
 
     if (target == NULL) {
       g_propagate_error (error, internal_err);
