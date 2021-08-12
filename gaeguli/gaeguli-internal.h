@@ -20,7 +20,7 @@
 #define __GAEGULI_INTERNAL_H__
 
 #define GAEGULI_PIPELINE_VSRC_STR       "\
-        %s ! capsfilter name=caps ! %s ! tee name=tee allow-not-linked=1 "
+        %s ! videorate ! capsfilter name=caps ! %s ! tee name=tee allow-not-linked=1 "
 
 #define GAEGULI_PIPELINE_IMAGE_STR    "\
         valve name=valve drop=1 ! jpegenc name=jpegenc ! jifmux name=jifmux ! fakesink name=fakesink async=0"
