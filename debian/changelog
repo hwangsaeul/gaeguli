@@ -1,3 +1,14 @@
+gaeguli (0.20.0-0h8l0) unstable; urgency=medium
+
+  [ J. Kim ]
+  * fifo-transmit: do not set LINGER with wrong type
+  * fifo-transmit: set SRT latency as 250
+  * fifo-transmit: use 'srt_sendmsg2'
+  * fifo-transmit: add bootstrap-count property
+  * fifo-transmit: accept latency SRT sock option
+
+ -- Justin Kim <jeongseok.kim@sk.com>  Fri, 13 Aug 2021 00:35:23 +0900
+
 gaeguli (0.10.4-0h8l0) unstable; urgency=medium
 
   [ J. Kim ]
