@@ -129,6 +129,7 @@ guint                   gaeguli_fifo_transmit_start    (GaeguliFifoTransmit    *
  * @port: destination port
  * @mode: SRT mode, wheter to act as listener or caller
  * @username: string to identify the sender
+ * @latency: SRT latency in ms
  * @error: a #GError
  *
  * Stars the fifo transmist to desired `host` and `port` with addtional parameters.
@@ -141,6 +142,7 @@ guint                   gaeguli_fifo_transmit_start_full
                                                         guint                   port,
                                                         GaeguliSRTMode          mode,
                                                         const gchar            *username,
+                                                        guint                   latency,
                                                         GError                **error);
 
 /**

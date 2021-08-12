@@ -45,6 +45,7 @@ typedef struct _SRTInfo
   GSocketAddress *sockaddr;
   GaeguliSRTMode mode;
   gchar *stream_id;
+  guint latency;
 
   SRTSOCKET sock;
   SRTSOCKET listen_sock;
@@ -52,7 +53,7 @@ typedef struct _SRTInfo
 
 static SRTInfo *
 srt_info_new (const gchar * host, guint port, GaeguliSRTMode mode,
-    const gchar * hostinfo_json)
+    guint latency, const gchar * hostinfo_json)
 {
   SRTInfo *info = g_new0 (SRTInfo, 1);
 
@@ -62,6 +63,7 @@ srt_info_new (const gchar * host, guint port, GaeguliSRTMode mode,
   info->listen_sock = SRT_INVALID_SOCK;
   info->sockaddr = g_inet_socket_address_new_from_string (host, port);
   info->mode = mode;
+  info->latency = latency;
 
   return info;
 }
@@ -118,7 +120,6 @@ static struct srt_constant_params srt_params[] = {
   {"SRTO_RCVSYN", SRTO_RCVSYN, 0},      /* 0: non-blocking */
   {"SRTO_TSBPMODE", SRTO_TSBPDMODE, 1}, /* Timestamp-based Packet Delivery mode must be enabled */
   {"SRTO_RENDEZVOUS", SRTO_RENDEZVOUS, 0},      /* 0: not for rendezvous */
-  {"SRTO_LATENCY", SRTO_LATENCY, 250},  /* 250 ms: for better quality */
   {"SRTO_SNDBUFLEN", SRTO_SNDBUF, 2 * 0xb80000},
   {NULL, -1, -1},
 };
@@ -486,6 +487,10 @@ _srt_connect (SRTInfo * info)
 
   info->sock = srt_socket (AF_INET, SOCK_DGRAM, 0);
   _apply_socket_options (info->sock);
+  if (srt_setsockopt (info->sock, 0, SRTO_LATENCY, &info->latency,
+          sizeof (gint))) {
+    g_error ("%s", srt_getlasterror_str ());
+  }
 
   if (info->stream_id &&
       srt_setsockopt (info->sock, 0, SRTO_STREAMID, info->stream_id,
@@ -737,7 +742,7 @@ _recv_stream (GIOChannel * channel, GIOCondition cond, gpointer user_data)
 guint
 gaeguli_fifo_transmit_start_full (GaeguliFifoTransmit * self,
     const gchar * host, guint port, GaeguliSRTMode mode,
-    const gchar * username, GError ** error)
+    const gchar * username, guint latency, GError ** error)
 {
   guint transmit_id = 0;
   g_autoptr (SRTInfo) srtinfo = NULL;
@@ -756,7 +761,7 @@ gaeguli_fifo_transmit_start_full (GaeguliFifoTransmit * self,
     goto out;
   }
 
-  srtinfo = srt_info_new (host, port, mode, hostinfo);
+  srtinfo = srt_info_new (host, port, mode, latency, hostinfo);
   if (username) {
     srtinfo->stream_id = g_strdup_printf ("#!::u=%s", username);
   }
@@ -807,7 +812,8 @@ guint
 gaeguli_fifo_transmit_start (GaeguliFifoTransmit * self,
     const gchar * host, guint port, GaeguliSRTMode mode, GError ** error)
 {
-  return gaeguli_fifo_transmit_start_full (self, host, port, mode, NULL, error);
+  return gaeguli_fifo_transmit_start_full (self, host, port, mode, NULL, 125,
+      error);
 }
 
 static gboolean

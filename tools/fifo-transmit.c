@@ -33,7 +33,7 @@ activate (GApplication * app, gpointer user_data)
 
   transmit_id =
       gaeguli_fifo_transmit_start_full (fifo_transmit, options->host,
-      options->port, options->mode, options->username, &error);
+      options->port, options->mode, options->username, 250, &error);
 
   g_object_set_data (G_OBJECT (app), "transmit-id",
       GINT_TO_POINTER (transmit_id));
