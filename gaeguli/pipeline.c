@@ -590,8 +590,10 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
     guint framerate)
 {
   gint width, height, i;
+  gint capture_width, capture_height;
   g_autoptr (GstElement) capsfilter = NULL;
   g_autoptr (GstCaps) caps = NULL;
+
 
   switch (resolution) {
     case GAEGULI_VIDEO_RESOLUTION_640X480:
@@ -618,10 +620,19 @@ _set_stream_caps (GaeguliPipeline * self, GaeguliVideoResolution resolution,
 
   caps = gst_caps_new_empty ();
 
+  if (self->encoding_method == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
+    capture_width = 1920;
+    capture_height = 1080;
+  } else {
+    capture_width = width;
+    capture_height = height;
+  }
+
   for (i = 0; supported_formats[i] != NULL; i++) {
     GstCaps *supported_caps = gst_caps_from_string (supported_formats[i]);
-    gst_caps_set_simple (supported_caps, "width", G_TYPE_INT, width, "height",
-        G_TYPE_INT, height, "framerate", GST_TYPE_FRACTION, framerate, 1, NULL);
+    gst_caps_set_simple (supported_caps, "width", G_TYPE_INT, capture_width,
+        "height", G_TYPE_INT, capture_height, "framerate", GST_TYPE_FRACTION,
+        framerate, 1, NULL);
     gst_caps_append (caps, supported_caps);
   }
 
