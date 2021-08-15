@@ -384,8 +384,9 @@ _get_enc_string (GaeguliEncodingMethod encoding_method,
 
 static GstElement *
 _build_target_pipeline (GaeguliEncodingMethod encoding_method,
-    GaeguliVideoCodec codec, guint bitrate, guint framerate,
-    const gchar * fifo_path, GError ** error)
+    GaeguliVideoCodec codec, guint bitrate,
+    GaeguliVideoResolution resolution,
+    guint framerate, const gchar * fifo_path, GError ** error)
 {
   g_autoptr (GstElement) target_pipeline = NULL;
   g_autoptr (GstElement) enc_first = NULL;
@@ -412,6 +413,46 @@ _build_target_pipeline (GaeguliEncodingMethod encoding_method,
     g_error ("failed to build muxsink pipeline (%s)", internal_err->message);
     g_propagate_error (error, internal_err);
     goto failed;
+  }
+
+  if (encoding_method == GAEGULI_ENCODING_METHOD_NVIDIA_TX1) {
+    g_autoptr (GstElement) capsfilter = NULL;
+    g_autoptr (GstCaps) caps = NULL;
+    gint width, height;
+
+    switch (resolution) {
+      case GAEGULI_VIDEO_RESOLUTION_640X480:
+        width = 640;
+        height = 480;
+        break;
+      case GAEGULI_VIDEO_RESOLUTION_1280X720:
+        width = 1280;
+        height = 720;
+        break;
+      case GAEGULI_VIDEO_RESOLUTION_1920X1080:
+        width = 1920;
+        height = 1080;
+        break;
+      case GAEGULI_VIDEO_RESOLUTION_3840X2160:
+        width = 3840;
+        height = 2160;
+        break;
+      default:
+        width = -1;
+        height = -1;
+        break;
+    }
+
+    caps = gst_caps_from_string ("video/x-raw(memory:NVMM");
+    gst_caps_set_simple (caps, "width", G_TYPE_INT, width, "height", G_TYPE_INT,
+        height, NULL);
+
+    capsfilter = gst_bin_get_by_name (GST_BIN (target_pipeline), "target_caps");
+    if (capsfilter != NULL) {
+      g_debug ("set target resolution (w: %" G_GINT32_FORMAT ", h: %"
+          G_GINT32_FORMAT ")", width, height);
+      g_object_set (capsfilter, "caps", caps, NULL);
+    }
   }
 
   enc_first = gst_bin_get_by_name (GST_BIN (target_pipeline), "enc_first");
@@ -784,7 +825,7 @@ gaeguli_pipeline_add_fifo_target_full (GaeguliPipeline * self,
 
     target_pipeline =
         _build_target_pipeline (self->encoding_method, codec, bitrate,
-        framerate, fifo_path, &internal_err);
+        resolution, framerate, fifo_path, &internal_err);
 
     /* linking target pipeline with vsrc */
     if (target_pipeline == NULL) {
