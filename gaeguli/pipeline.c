@@ -466,30 +466,44 @@ GaeguliPipeline *
 gaeguli_pipeline_new_full (GaeguliVideoSource source, const gchar * device,
     GaeguliVideoResolution resolution, guint framerate)
 {
-  g_autoptr (GaeguliPipeline) pipeline = NULL;
+  g_autoptr (GVariant) attributes = NULL;
+  GVariantDict attr;
 
-  /* TODO:
-   *   1. check if source is valid
-   *   2. check if source is available
-   *
-   * perphas, implement GInitable?
-   */
+  g_variant_dict_init (&attr, NULL);
+  g_variant_dict_insert (&attr, "source", "i", source);
+  if (device != NULL)
+    g_variant_dict_insert (&attr, "device", "s", device);
+  g_variant_dict_insert (&attr, "resolution", "i", resolution);
+  g_variant_dict_insert (&attr, "framerate", "u", framerate);
+
+  attributes = g_variant_dict_end (&attr);
+
+  return gaeguli_pipeline_new (attributes);
+
+}
+
+GaeguliPipeline *
+gaeguli_pipeline_new (GVariant * attributes)
+{
+  g_autoptr (GaeguliPipeline) pipeline = NULL;
+  GaeguliVideoSource source;
+  const gchar *device = NULL;
+  GaeguliVideoResolution resolution;
+  guint framerate = 0;
+  GVariantDict attr;
+
+  g_return_val_if_fail (g_variant_is_of_type (attributes,
+          G_VARIANT_TYPE_VARDICT), NULL);
+
+  g_variant_dict_init (&attr, attributes);
+  g_variant_dict_lookup (&attr, "source", "i", &source);
+  g_variant_dict_lookup (&attr, "device", "s", &device);
+  g_variant_dict_lookup (&attr, "resolution", "i", &resolution);
+  g_variant_dict_lookup (&attr, "framerate", "u", &framerate);
 
   g_debug ("source: [%d / %s]", source, device);
   pipeline = g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device",
       device, "resolution", resolution, "framerate", framerate, NULL);
-
-  return g_steal_pointer (&pipeline);
-}
-
-GaeguliPipeline *
-gaeguli_pipeline_new (void)
-{
-  g_autoptr (GaeguliPipeline) pipeline = NULL;
-
-  pipeline = gaeguli_pipeline_new_full (DEFAULT_VIDEO_SOURCE,
-      DEFAULT_VIDEO_SOURCE_DEVICE, DEFAULT_VIDEO_RESOLUTION,
-      DEFAULT_VIDEO_FRAMERATE);
 
   return g_steal_pointer (&pipeline);
 }

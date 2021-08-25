@@ -45,12 +45,13 @@ G_DECLARE_FINAL_TYPE            (GaeguliPipeline, gaeguli_pipeline, GAEGULI, PIP
 
 /**
  * gaeguli_pipeline_new:
- *
+ * @attributes: unified parameters
+
  * Creates a new #GaeguliPipeline object
  *
  * Returns: the newly created object
  */
-GaeguliPipeline        *gaeguli_pipeline_new    (void);
+GaeguliPipeline        *gaeguli_pipeline_new    (GVariant              *attributes);
 
 /**
  * gaeguli_pipeline_new_full:
