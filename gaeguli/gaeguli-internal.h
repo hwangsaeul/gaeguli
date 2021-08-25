@@ -51,11 +51,11 @@
         GAEGULI_PIPELINE_OMXH265ENC_STR
 
 #define GAEGULI_PIPELINE_VAAPI_H264_STR    "\
-        queue name=enc_first ! videoconvert ! vaapih264enc name=enc target-percentage=100 keyframe-period=%d ! \
+        queue name=enc_first ! vaapipostproc ! vaapih264enc name=enc target-percentage=100 keyframe-period=%d ! \
         h264parse ! queue "
 
 #define GAEGULI_PIPELINE_VAAPI_H265_STR    "\
-        queue name=enc_first ! videoconvert ! vaapih265enc name=enc target-percentage=100 keyframe-period=%d ! \
+        queue name=enc_first ! vaapipostproc ! vaapih265enc name=enc target-percentage=100 keyframe-period=%d ! \
         h265parse ! queue "
 
 #define GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR    "\
