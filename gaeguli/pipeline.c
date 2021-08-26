@@ -844,6 +844,8 @@ gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
     g_autoptr (GstElement) pre_capsfilter = NULL;
     guint fps_n = 0;
     guint fps_d = 0;
+    guint device_width = 0;
+    guint device_height = 0;
     GVariantDict attr;
 
     g_variant_dict_init (&attr, self->attributes);
@@ -858,6 +860,12 @@ gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
               &fps_d)) {
         gst_caps_set_simple (supported_caps, "framerate", GST_TYPE_FRACTION,
             fps_n, fps_d, NULL);
+      }
+
+      if (g_variant_dict_lookup (&attr, "device-resolution", "(uu)",
+              &device_width, &device_height)) {
+        gst_caps_set_simple (supported_caps, "width", G_TYPE_INT, device_width,
+            "height", G_TYPE_INT, device_height, NULL);
       }
 
       gst_caps_append (pre_caps, supported_caps);
