@@ -68,6 +68,8 @@ struct _GaeguliPipeline
   gboolean prefer_hw_decoding;
 
   GType adaptor_type;
+
+  GVariant *attributes;
 };
 
 static const gchar *const supported_formats[] = {
@@ -91,6 +93,7 @@ typedef enum
   PROP_BENCHMARK_INTERVAL,
   PROP_SNAPSHOT_QUALITY,
   PROP_SNAPSHOT_IDCT_METHOD,
+  PROP_ATTRIBUTES,
 
   /*< private > */
   PROP_LAST
@@ -342,6 +345,9 @@ gaeguli_pipeline_set_property (GObject * object,
             self->snapshot_idct_method, NULL);
       }
       break;
+    case PROP_ATTRIBUTES:
+      self->attributes = g_value_dup_variant (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -410,6 +416,13 @@ gaeguli_pipeline_class_init (GaeguliPipelineClass * klass)
       "The IDCT algorithm to use to encode stream snapshots",
       GAEGULI_TYPE_IDCT_METHOD, GAEGULI_IDCT_METHOD_IFAST,
       G_PARAM_READWRITE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
+  properties[PROP_ATTRIBUTES] =
+      g_param_spec_variant ("attributes",
+      "The unified attriutes to set device-specific parameters",
+      "The unified attriutes to set device-specific parameters",
+      G_VARIANT_TYPE_VARDICT, NULL,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, G_N_ELEMENTS (properties),
       properties);
@@ -503,7 +516,8 @@ gaeguli_pipeline_new (GVariant * attributes)
 
   g_debug ("source: [%d / %s]", source, device);
   pipeline = g_object_new (GAEGULI_TYPE_PIPELINE, "source", source, "device",
-      device, "resolution", resolution, "framerate", framerate, NULL);
+      device, "resolution", resolution, "framerate", framerate, "attributes",
+      g_variant_dict_end (&attr), NULL);
 
   return g_steal_pointer (&pipeline);
 }
@@ -822,6 +836,33 @@ gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
 
   capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "caps");
   g_object_set (capsfilter, "caps", caps, NULL);
+
+  /* Setting device-specific parameters */
+
+  {
+    g_autoptr (GstCaps) pre_caps = NULL;
+    g_autoptr (GstElement) pre_capsfilter = NULL;
+    guint fps_n = 0;
+    guint fps_d = 0;
+    GVariantDict attr;
+
+    g_variant_dict_init (&attr, self->attributes);
+
+    pre_capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "pre_caps");
+
+    pre_caps = gst_caps_new_empty ();
+    for (i = 0; supported_formats[i] != NULL; i++) {
+      GstCaps *supported_caps = gst_caps_from_string (supported_formats[i]);
+
+      if (g_variant_dict_lookup (&attr, "device-framerate", "(uu)", &fps_n,
+              &fps_d)) {
+        gst_caps_set_simple (supported_caps, "framerate", GST_TYPE_FRACTION,
+            fps_n, fps_d, NULL);
+      }
+
+      gst_caps_append (pre_caps, supported_caps);
+    }
+  }
 
   /* Cycling vsrc through READY state prods decodebin into re-discovery of input
    * stream format and rebuilding its decoding pipeline. This is needed when
