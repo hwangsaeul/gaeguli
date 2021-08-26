@@ -64,6 +64,8 @@ typedef struct
   gint32 buffer_size;
   GstStructure *video_params;
   gchar *location;
+
+  GVariant *attributes;
 } GaeguliTargetPrivate;
 
 enum
@@ -90,6 +92,7 @@ enum
   PROP_TARGET_IS_RECORDING,
   PROP_LOCATION,
   PROP_STREAM_TYPE,
+  PROP_ATTRIBUTES,
   PROP_LAST
 };
 
@@ -1047,6 +1050,9 @@ gaeguli_target_set_property (GObject * object,
     case PROP_STREAM_TYPE:
       priv->stream_type = g_value_get_enum (value);
       break;
+    case PROP_ATTRIBUTES:
+      priv->attributes = g_value_dup_variant (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1211,6 +1217,14 @@ gaeguli_target_class_init (GaeguliTargetClass * klass)
       GAEGULI_VIDEO_STREAM_TYPE_MPEG_TS,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+  properties[PROP_ATTRIBUTES] =
+      g_param_spec_variant ("attributes",
+      "The unified attriutes to set target-specific parameters",
+      "The unified attriutes to set target-specific parameters",
+      G_VARIANT_TYPE_VARDICT, NULL,
+      G_PARAM_WRITABLE | G_PARAM_CONSTRUCT | G_PARAM_STATIC_STRINGS);
+
+
   g_object_class_install_properties (gobject_class, G_N_ELEMENTS (properties),
       properties);
 
@@ -1284,7 +1298,8 @@ gaeguli_target_new_full (GstPad * peer_pad, guint id,
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
       "peer-pad", peer_pad, "codec", codec, "stream-type", stream_type,
       "bitrate", bitrate, "idr-period", idr_period, "uri", location, "username",
-      username, "is-recording", is_record, "location", location, NULL);
+      username, "is-recording", is_record, "location", location,
+      "attributes", g_variant_dict_end (&attr), NULL);
 }
 
 GaeguliTarget *
