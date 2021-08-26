@@ -1139,6 +1139,7 @@ gaeguli_pipeline_add_target_full (GaeguliPipeline * self,
   GVariantDict attr;
   gboolean is_record = FALSE;
   const gchar *location = NULL;
+  GaeguliVideoResolution resolution;
 
   guint target_id = 0;
 
@@ -1151,6 +1152,10 @@ gaeguli_pipeline_add_target_full (GaeguliPipeline * self,
   g_variant_dict_lookup (&attr, "is-record", "b", &is_record);
   if (!g_variant_dict_lookup (&attr, "location", "s", &location)) {
     g_variant_dict_lookup (&attr, "uri", "s", &location);
+  }
+
+  if (!g_variant_dict_lookup (&attr, "resolution", "i", &resolution)) {
+    g_variant_dict_insert (&attr, "resolution", "i", self->resolution);
   }
 
   if (location == NULL) {
@@ -1183,8 +1188,8 @@ gaeguli_pipeline_add_target_full (GaeguliPipeline * self,
             "src_%u"), NULL, NULL);
 
     target =
-        gaeguli_target_new_full (tee_srcpad, target_id, attributes,
-        &internal_err);
+        gaeguli_target_new_full (tee_srcpad, target_id,
+        g_variant_dict_end (&attr), &internal_err);
 
     if (target == NULL) {
       g_propagate_error (error, internal_err);

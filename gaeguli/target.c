@@ -754,27 +754,119 @@ _is_compatible (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type)
 }
 
 static GstElement *
-_build_pipeline (GaeguliVideoCodec codec, GaeguliVideoStreamType stream_type,
-    guint idr_period, gboolean is_recording, const gchar * location,
-    GError ** error)
+_build_pipeline (GVariant * attributes, GError ** error)
 {
   g_autoptr (GString) pipeline_str = NULL;
   g_autoptr (GstElement) pipeline = NULL;
+  g_autoptr (GstElement) target_capsfilter = NULL;
+  g_autoptr (GstCaps) caps = NULL;
+  GstCaps *target_caps = NULL;
+  GVariantDict attr;
+
+  GaeguliVideoCodec codec;
+  GaeguliVideoResolution resolution = GAEGULI_VIDEO_RESOLUTION_UNKNOWN;
+  GaeguliVideoStreamType stream_type;
+  gboolean is_record;
+  guint idr_period;
+  const gchar *location = NULL;
+  guint target_height, target_width;
+
+  g_variant_dict_init (&attr, attributes);
+
+  g_variant_dict_lookup (&attr, "codec", "i", &codec);
+  g_variant_dict_lookup (&attr, "stream-type", "i", &stream_type);
+  g_variant_dict_lookup (&attr, "idr-period", "u", &idr_period);
+  g_variant_dict_lookup (&attr, "is-record", "b", &is_record);
+  if (!g_variant_dict_lookup (&attr, "location", "s", &location)) {
+    g_variant_dict_lookup (&attr, "uri", "s", &location);
+  }
+
+  g_variant_dict_lookup (&attr, "resolution", "i", &resolution);
+
+  if (resolution == GAEGULI_VIDEO_RESOLUTION_UNKNOWN) {
+    g_set_error (error, GAEGULI_RESOURCE_ERROR,
+        GAEGULI_RESOURCE_ERROR_UNSUPPORTED,
+        "Not found target resolution parameter");
+    return NULL;
+  }
+
+  switch (resolution) {
+    case GAEGULI_VIDEO_RESOLUTION_640X480:
+      target_width = 640;
+      target_height = 480;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_1280X720:
+      target_width = 1280;
+      target_height = 720;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_1920X1080:
+      target_width = 1920;
+      target_height = 1080;
+      break;
+    case GAEGULI_VIDEO_RESOLUTION_3840X2160:
+      target_width = 3840;
+      target_height = 2160;
+      break;
+    default:
+      target_width = -1;
+      target_height = -1;
+      break;
+  }
 
   g_debug ("stream type is %d", stream_type);
 
   pipeline_str =
-      _get_pipeline_string (codec, stream_type, is_recording, idr_period,
+      _get_pipeline_string (codec, stream_type, is_record, idr_period,
       location);
 
   if (pipeline_str == NULL) {
     g_set_error (error, GAEGULI_RESOURCE_ERROR,
         GAEGULI_RESOURCE_ERROR_UNSUPPORTED, "Can't determine encoding method");
-    return FALSE;
+    return NULL;
   }
 
   pipeline = gst_parse_launch (pipeline_str->str, error);
 
+  target_capsfilter = gst_bin_get_by_name (GST_BIN (pipeline), "target_caps");
+  if (target_capsfilter == NULL)
+    goto bailout;
+
+  caps = gst_caps_new_empty ();
+
+  switch (codec) {
+    case GAEGULI_VIDEO_CODEC_H264_X264:
+    case GAEGULI_VIDEO_CODEC_H265_X265:{
+      target_caps = gst_caps_from_string ("video/x-raw");
+      gst_caps_set_simple (target_caps, "width", G_TYPE_INT, target_width,
+          "height", G_TYPE_INT, target_height, NULL);
+      break;
+    }
+    case GAEGULI_VIDEO_CODEC_H264_VAAPI:
+    case GAEGULI_VIDEO_CODEC_H265_VAAPI:{
+      target_caps = gst_caps_from_string ("video/x-raw(memory:VASurface)");
+      gst_caps_set_simple (target_caps, "width", G_TYPE_INT, target_width,
+          "height", G_TYPE_INT, target_height, NULL);
+      break;
+    }
+    case GAEGULI_VIDEO_CODEC_H264_OMX:
+    case GAEGULI_VIDEO_CODEC_H265_OMX:{
+      /* FIXME: We maynot assume that omx comes only from nvidia. */
+      target_caps = gst_caps_from_string ("video/x-raw(memory:NVMM)");
+      gst_caps_set_simple (target_caps, "width", G_TYPE_INT, target_width,
+          "height", G_TYPE_INT, target_height, "format", G_TYPE_STRING, "I420",
+          NULL);
+    }
+    default:
+      break;
+  }
+
+  if (target_caps != NULL) {
+    gst_caps_append (caps, target_caps);
+  }
+
+  g_object_set (target_capsfilter, "caps", caps, NULL);
+
+bailout:
   return g_steal_pointer (&pipeline);
 }
 
@@ -799,10 +891,7 @@ gaeguli_target_initable_init (GInitable * initable, GCancellable * cancellable,
     return FALSE;
   }
 
-  self->pipeline =
-      _build_pipeline (priv->codec, priv->stream_type,
-      priv->idr_period, priv->is_recording,
-      priv->is_recording ? priv->location : priv->uri, &internal_err);
+  self->pipeline = _build_pipeline (priv->attributes, &internal_err);
 
   if (self->pipeline == NULL) {
     g_warning ("failed to build internal pipeline(%s)", internal_err->message);

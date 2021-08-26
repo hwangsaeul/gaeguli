@@ -26,11 +26,13 @@
         valve name=valve drop=1 ! jpegenc name=jpegenc ! jifmux name=jifmux ! fakesink name=fakesink async=0"
 
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
-        queue name=enc_first ! videoconvert ! videoscale ! x264enc name=enc tune=zerolatency key-int-max=%d ! \
+        queue name=enc_first ! videoconvert ! videoscale ! capsfilter name=target_caps ! \
+        x264enc name=enc tune=zerolatency key-int-max=%d ! \
         video/x-h264, profile=baseline ! h264parse ! queue "
 
 #define GAEGULI_PIPELINE_GENERAL_H265ENC_STR    "\
-        queue name=enc_first ! videoconvert ! videoscale ! x265enc name=enc tune=zerolatency key-int-max=%d ! \
+        queue name=enc_first ! videoconvert ! videoscale ! capsfilter name=target_caps ! \
+        x265enc name=enc tune=zerolatency key-int-max=%d ! \
         h265parse ! queue "
 
 #define GAEGULI_PIPELINE_DECODEBIN_STR    "\
@@ -43,19 +45,21 @@
         omxh265enc name=enc insert-sps-pps=true insert-vui=true control-rate=1 periodicity-idr=%d ! queue "
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H264ENC_STR    "\
-        queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! " \
+        queue name=enc_first ! nvvidconv ! capsfilter name=target_caps ! " \
         GAEGULI_PIPELINE_OMXH264ENC_STR
 
 #define GAEGULI_PIPELINE_NVIDIA_TX1_H265ENC_STR    "\
-        queue name=enc_first ! nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! " \
+        queue name=enc_first ! nvvidconv ! capsfilter name=target_caps ! " \
         GAEGULI_PIPELINE_OMXH265ENC_STR
 
 #define GAEGULI_PIPELINE_VAAPI_H264_STR    "\
-        queue name=enc_first ! vaapipostproc ! vaapih264enc name=enc target-percentage=100 keyframe-period=%d ! \
+        queue name=enc_first ! vaapipostproc ! capsfilter name=target_caps ! \
+        vaapih264enc name=enc target-percentage=100 keyframe-period=%d ! \
         h264parse ! queue "
 
 #define GAEGULI_PIPELINE_VAAPI_H265_STR    "\
-        queue name=enc_first ! vaapipostproc ! vaapih265enc name=enc target-percentage=100 keyframe-period=%d ! \
+        queue name=enc_first ! vaapipostproc ! capsfilter name=target_caps ! \
+        vaapih265enc name=enc target-percentage=100 keyframe-period=%d ! \
         h265parse ! queue "
 
 #define GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR    "\
