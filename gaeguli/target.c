@@ -1308,10 +1308,21 @@ gaeguli_target_new (GstPad * peer_pad, guint id,
     guint idr_period, const gchar * srt_uri, const gchar * username,
     gboolean is_record_target, const gchar * location, GError ** error)
 {
-  return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
-      "peer-pad", peer_pad, "codec", codec, "stream-type", stream_type,
-      "bitrate", bitrate, "idr-period", idr_period, "uri", srt_uri, "username",
-      username, "is-recording", is_record_target, "location", location, NULL);
+  GVariantDict attr;
+
+  g_variant_dict_init (&attr, NULL);
+  g_variant_dict_insert (&attr, "codec", "i", codec);
+  g_variant_dict_insert (&attr, "stream-type", "i", stream_type);
+  g_variant_dict_insert (&attr, "bitrate", "u", bitrate);
+  g_variant_dict_insert (&attr, "idr-period", "u", idr_period);
+  g_variant_dict_insert (&attr, "uri", "s", srt_uri);
+  /* FIXME: !is_record_target ? uri : location */
+  g_variant_dict_insert (&attr, "location", "s", srt_uri);
+  g_variant_dict_insert (&attr, "username", "s", username);
+  g_variant_dict_insert (&attr, "is-record", "b", is_record_target);
+
+  return gaeguli_target_new_full (peer_pad, id, g_variant_dict_end (&attr),
+      error);
 }
 
 static GstPadProbeReturn
