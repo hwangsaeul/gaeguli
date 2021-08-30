@@ -776,7 +776,7 @@ _build_pipeline (GVariant * attributes, GError ** error)
   g_variant_dict_lookup (&attr, "codec", "i", &codec);
   g_variant_dict_lookup (&attr, "stream-type", "i", &stream_type);
   if (!g_variant_dict_lookup (&attr, "idr-period", "u", &idr_period)) {
-    guint framerate = 0;
+    guint framerate = 15;
     if (!g_variant_dict_lookup (&attr, "framerate", "u", &framerate)) {
       idr_period = framerate > 6 ? framerate / 2 : framerate;
     }
