@@ -64,11 +64,11 @@
 
 #define GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
-        srtsink name=sink uri=%s wait-for-connection=false"
+        srtsink name=sink uri=%s wait-for-connection=false sync=false"
 
 #define GAEGULI_PIPELINE_RTPMUX_SINK_STR    "\
         rtpmux name=muxsink_first ! queue ! \
-        srtsink name=sink uri=%s wait-for-connection=false"
+        srtsink name=sink uri=%s wait-for-connection=false sync=false"
 
 #define GAEGULI_RECORD_PIPELINE_MPEGTSMUX_SINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
