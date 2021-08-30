@@ -767,7 +767,7 @@ _build_pipeline (GVariant * attributes, GError ** error)
   GaeguliVideoResolution resolution = GAEGULI_VIDEO_RESOLUTION_UNKNOWN;
   GaeguliVideoStreamType stream_type;
   gboolean is_record;
-  guint idr_period;
+  guint idr_period = 10;
   const gchar *location = NULL;
   guint target_height, target_width;
 
@@ -775,7 +775,12 @@ _build_pipeline (GVariant * attributes, GError ** error)
 
   g_variant_dict_lookup (&attr, "codec", "i", &codec);
   g_variant_dict_lookup (&attr, "stream-type", "i", &stream_type);
-  g_variant_dict_lookup (&attr, "idr-period", "u", &idr_period);
+  if (!g_variant_dict_lookup (&attr, "idr-period", "u", &idr_period)) {
+    guint framerate = 0;
+    if (!g_variant_dict_lookup (&attr, "framerate", "u", &framerate)) {
+      idr_period = framerate > 6 ? framerate / 2 : framerate;
+    }
+  }
   g_variant_dict_lookup (&attr, "is-record", "b", &is_record);
   if (!g_variant_dict_lookup (&attr, "location", "s", &location)) {
     g_variant_dict_lookup (&attr, "uri", "s", &location);
@@ -814,6 +819,7 @@ _build_pipeline (GVariant * attributes, GError ** error)
   }
 
   g_debug ("stream type is %d", stream_type);
+  g_debug ("codec is %d", codec);
 
   pipeline_str =
       _get_pipeline_string (codec, stream_type, is_record, idr_period,
@@ -1141,6 +1147,7 @@ gaeguli_target_set_property (GObject * object,
       break;
     case PROP_ATTRIBUTES:
       priv->attributes = g_value_dup_variant (value);
+      g_debug ("set attributes!!!");
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1383,6 +1390,8 @@ gaeguli_target_new_full (GstPad * peer_pad, guint id,
   g_variant_dict_lookup (&attr, "bitrate", "u", &bitrate);
   g_variant_dict_lookup (&attr, "idr-period", "u", &idr_period);
   g_variant_dict_lookup (&attr, "username", "s", &username);
+
+  g_debug ("stream-type from new --> %d", stream_type);
 
   return g_initable_new (GAEGULI_TYPE_TARGET, NULL, error, "id", id,
       "peer-pad", peer_pad, "codec", codec, "stream-type", stream_type,
