@@ -28,7 +28,7 @@
 #define GAEGULI_PIPELINE_GENERAL_H264ENC_STR    "\
         queue name=enc_first ! videoconvert ! videoscale ! capsfilter name=target_caps ! \
         x264enc name=enc tune=zerolatency key-int-max=%d ! \
-        video/x-h264, profile=baseline ! h264parse ! queue "
+        video/x-h264, profile=baseline ! h264parse config-interval=-1 ! queue "
 
 #define GAEGULI_PIPELINE_GENERAL_H265ENC_STR    "\
         queue name=enc_first ! videoconvert ! videoscale ! capsfilter name=target_caps ! \
@@ -55,12 +55,12 @@
 #define GAEGULI_PIPELINE_VAAPI_H264_STR    "\
         queue name=enc_first ! vaapipostproc ! capsfilter name=target_caps ! \
         vaapih264enc name=enc target-percentage=100 keyframe-period=%d ! \
-        h264parse ! queue "
+        h264parse config-interval=-1 ! queue "
 
 #define GAEGULI_PIPELINE_VAAPI_H265_STR    "\
         queue name=enc_first ! vaapipostproc ! capsfilter name=target_caps ! \
         vaapih265enc name=enc target-percentage=100 keyframe-period=%d ! \
-        h265parse ! queue "
+        h265parse config-interval=-1 ! queue "
 
 #define GAEGULI_PIPELINE_MPEGTSMUX_SINK_STR    "\
         mpegtsmux name=muxsink_first ! tsparse set-timestamps=1 smoothing-latency=1000 ! \
