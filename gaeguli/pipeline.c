@@ -794,35 +794,50 @@ failed:
 static void
 gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
 {
-  gint width, height, i;
+  gint width = 0;
+  gint height = 0;
+  gint i;
   g_autoptr (GstElement) capsfilter = NULL;
   g_autoptr (GstCaps) caps = NULL;
+  GVariantDict attr;
 
   if (!self->vsrc) {
     return;
   }
 
-  switch (self->resolution) {
-    case GAEGULI_VIDEO_RESOLUTION_640X480:
-      width = 640;
-      height = 480;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_1280X720:
-      width = 1280;
-      height = 720;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_1920X1080:
-      width = 1920;
-      height = 1080;
-      break;
-    case GAEGULI_VIDEO_RESOLUTION_3840X2160:
-      width = 3840;
-      height = 2160;
-      break;
-    default:
-      width = -1;
-      height = -1;
-      break;
+  g_variant_dict_init (&attr, self->attributes);
+
+  if (g_variant_dict_lookup (&attr, "device-resolution", "(ii)",
+          &width, &height)) {
+    g_debug ("Trying to get Device-specific resolution (w:%d, h:%d)", width,
+        height);
+  }
+
+  if (height == 0 || width == 0) {
+    g_debug ("Fixating resolution");
+
+    switch (self->resolution) {
+      case GAEGULI_VIDEO_RESOLUTION_640X480:
+        width = 640;
+        height = 480;
+        break;
+      case GAEGULI_VIDEO_RESOLUTION_1280X720:
+        width = 1280;
+        height = 720;
+        break;
+      case GAEGULI_VIDEO_RESOLUTION_1920X1080:
+        width = 1920;
+        height = 1080;
+        break;
+      case GAEGULI_VIDEO_RESOLUTION_3840X2160:
+        width = 3840;
+        height = 2160;
+        break;
+      default:
+        width = -1;
+        height = -1;
+        break;
+    }
   }
 
   caps = gst_caps_new_empty ();
@@ -844,12 +859,6 @@ gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
     g_autoptr (GstElement) pre_capsfilter = NULL;
     guint fps_n = 0;
     guint fps_d = 0;
-    guint device_width = 0;
-    guint device_height = 0;
-    GVariantDict attr;
-
-    g_variant_dict_init (&attr, self->attributes);
-
     pre_capsfilter = gst_bin_get_by_name (GST_BIN (self->pipeline), "pre_caps");
 
     pre_caps = gst_caps_new_empty ();
@@ -858,18 +867,16 @@ gaeguli_pipeline_update_vsrc_caps (GaeguliPipeline * self)
 
       if (g_variant_dict_lookup (&attr, "device-framerate", "(uu)", &fps_n,
               &fps_d)) {
-        gst_caps_set_simple (supported_caps, "framerate", GST_TYPE_FRACTION,
-            fps_n, fps_d, NULL);
-      }
-
-      if (g_variant_dict_lookup (&attr, "device-resolution", "(uu)",
-              &device_width, &device_height)) {
-        gst_caps_set_simple (supported_caps, "width", G_TYPE_INT, device_width,
-            "height", G_TYPE_INT, device_height, NULL);
+        if (fps_n != 0 && fps_d != 0) {
+          gst_caps_set_simple (supported_caps, "framerate", GST_TYPE_FRACTION,
+              fps_n, fps_d, NULL);
+        }
       }
 
       gst_caps_append (pre_caps, supported_caps);
     }
+
+    g_object_set (pre_capsfilter, "caps", pre_caps, NULL);
   }
 
   /* Cycling vsrc through READY state prods decodebin into re-discovery of input
