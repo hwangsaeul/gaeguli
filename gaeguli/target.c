@@ -31,6 +31,7 @@
 #include "adaptors/nulladaptor.h"
 
 #include <gio/gio.h>
+#include <gst/app/gstappsrc.h>
 
 typedef struct
 {
@@ -1810,4 +1811,44 @@ gaeguli_target_get_stream_adaptor (GaeguliTarget * self)
   GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
 
   return priv->adaptor;
+}
+
+gboolean
+gaeguli_target_push_text (GaeguliTarget * self, const gchar * text)
+{
+  GaeguliTargetPrivate *priv = gaeguli_target_get_instance_private (self);
+
+  g_autoptr (GstElement) appsrc = NULL;
+  g_autoptr (GstCaps) caps = NULL;
+  g_autoptr (GstBuffer) buffer = NULL;
+  g_autoptr (GstSample) sample = NULL;
+
+  GstSegment segment;
+  GstFlowReturn ret;
+
+  g_return_val_if_fail (GAEGULI_IS_TARGET (self), FALSE);
+  g_return_val_if_fail (text != NULL && *text != '\0', FALSE);
+  g_return_val_if_fail (priv->stream_type ==
+      GAEGULI_VIDEO_STREAM_TYPE_RTP_OVER_SRT, FALSE);
+
+  appsrc = gst_bin_get_by_name (GST_BIN (self->pipeline), "appsrc");
+
+  caps = gst_caps_from_string ("text/x-raw");
+
+  buffer = gst_buffer_new_wrapped_full (GST_MEMORY_FLAG_READONLY,
+      g_strdup (text), strlen (text), 0, strlen (text), NULL, g_free);
+
+  gst_segment_init (&segment, GST_FORMAT_TIME);
+  gst_segment_set_running_time (&segment, GST_FORMAT_TIME, GST_SECOND);
+
+  sample = gst_sample_new (buffer, caps, &segment, NULL);
+
+  ret = gst_app_src_push_sample (GST_APP_SRC (appsrc), sample);
+
+  if (ret != GST_FLOW_OK) {
+    g_info ("Failed to push data to pipeline: (ret: %s)",
+        gst_flow_get_name (ret));
+  }
+
+  return ret == GST_FLOW_OK;
 }

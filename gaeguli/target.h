@@ -88,6 +88,9 @@ GVariant               *gaeguli_target_get_stats      (GaeguliTarget       *self
 GaeguliStreamAdaptor   *gaeguli_target_get_stream_adaptor
                                                      (GaeguliTarget *self);
 
+gboolean                gaeguli_target_push_text    (GaeguliTarget         *self,
+                                                     const gchar           *text);
+
 G_END_DECLS
 
 #endif // __GAEGULI_TARGET_H__

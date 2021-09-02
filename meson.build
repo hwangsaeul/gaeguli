@@ -74,6 +74,8 @@ gst_dep = [
     fallback: ['gstreamer', 'gst_dep']), 
   dependency ('gstreamer-base-1.0', version: gst_req_version,
     fallback: ['gstreamer', 'gst_base_dep']),
+  dependency ('gstreamer-app-1.0', version: gst_req_version,
+    fallback: ['gst-plugins-base', 'gst_app_dep']),
   dependency ('gstreamer-net-1.0', version: gst_req_version,
     fallback: ['gstreamer', 'gst_net_dep']),
   dependency ('gstreamer-mpegts-1.0', version: gst_req_version,
